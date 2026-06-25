@@ -4,12 +4,13 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "Core/TCIDamageable.h"
 #include "BreakableProp.generated.h"
 
 class UStaticMeshComponent;
 
 UCLASS()
-class TEAMCARRY_API ABreakableProp : public AActor
+class TEAMCARRY_API ABreakableProp : public AActor, public ITCIDamageable
 {
 	GENERATED_BODY()
 	
@@ -17,6 +18,8 @@ public:
 	ABreakableProp();
 	
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
+	virtual void ApplyDamage_Implementation(int32 Amount, AActor* Instigator) override;
 
 protected:
 	virtual void BeginPlay() override;
