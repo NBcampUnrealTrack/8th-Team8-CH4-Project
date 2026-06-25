@@ -232,6 +232,28 @@ void UFurnitureGrabSystem::Release(ACharacter* Grabber)
 	}
 }
 
+FVector UFurnitureGrabSystem::GetAttachedLocation(ACharacter* Player, const FVector& FurnitureLoc, float FurnitureYaw) const
+{
+	// 잡을 때의 (가구-플레이어) 상대 오프셋을 가구가 그동안 회전한 양만큼 돌려서
+	// "가구위치 - 회전된 오프셋" = 이 플레이어가 가구에 대해 있어야 할 위치 를 구한다.
+	const FGrabAnchor& Anchor = Anchors[Player];
+	const float YawChange = FMath::FindDeltaAngleDegrees(Anchor.InitialFurnitureYaw, FurnitureYaw);
+	const FVector RotatedOffset = Anchor.InitialOffset.RotateAngleAxis(YawChange, FVector::UpVector);
+
+	FVector Target = FurnitureLoc - RotatedOffset; // 가구위치 - 상대오프셋 = 플레이어 이상위치
+	Target.Z = Player->GetActorLocation().Z; // 높이는 플레이어 자신의 중력/지면을 따른다.
+	return Target;
+}
+
+float UFurnitureGrabSystem::GetDesiredYaw(ACharacter* Player, float FurnitureYaw) const
+{
+	// 잡을때 시선 + 가구가 잡은 이후 실제 회전한 양.
+	//   - 회전을 '구동한' 본인: 가구가 자기를 따라 돌았으므로 결과 ≈ 현재 Yaw -> 보정 0(시선 자유).
+	//   - 끌려가는 반대편: 가구 회전량만큼 시선을 돌려줘 가구를 계속 바라보게 한다.
+	const FGrabAnchor& Anchor = Anchors[Player];
+	return Anchor.InitialPlayerYaw + FMath::FindDeltaAngleDegrees(Anchor.InitialFurnitureYaw, FurnitureYaw);
+}
+
 void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 {
 	AActor* Owner = GetOwner();
@@ -263,36 +285,50 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 	//   => 가만히 있는 사람은 가중치≈0, 실제로 움직이는/돌리는 사람이 피벗이 되어 전체를 끌고/돌린다.
 	//      (한 명이 돌리면 가구·반대편이 그 사람 기준으로 '전체' 회전 - 조건6)
 	//   각도 평균은 wrap 안전을 위해 sin/cos 가중 합산으로 계산.
-	const float Eps = 0.01f; // 모두 정지 시 50:50 으로 안정화시키는 미세 가중치
+	// ---- 패스 1: 회전(시선 기반) + 활동량 가중치 ----
+	//   가중치 = 그 사람이 '자기 시선 기준'으로 가구를 얼마나 옮기려/돌리려 하는가(활동량).
+	//   많이 움직이거나 돌리는 사람이 큰 가중치를 가져 '피벗(회전 중심)'이 된다.
+	//   각도 평균은 wrap 안전을 위해 (cos,sin) 가중 합산 후 atan2 로 복원.
+	const float Eps = 0.01f; // 모두 정지 시 안정화용 미세 가중치(0 나눗셈 방지)
 	double WSumSin = 0.0;
 	double WSumCos = 0.0;
-	FVector WLocSum = FVector::ZeroVector;
 	double WTotal = 0.0;
+	TArray<double> Weights;
+	Weights.Reserve(N);
 	for (ACharacter* P : Players)
 	{
 		const FGrabAnchor& Anchor = Anchors[P];
 		const float PlayerYawChange = FMath::FindDeltaAngleDegrees(Anchor.InitialPlayerYaw, P->GetActorRotation().Yaw);
 		const float ProposalYaw = Anchor.InitialFurnitureYaw + PlayerYawChange;
-		FVector ProposalLoc = P->GetActorLocation() + Anchor.InitialOffset.RotateAngleAxis(PlayerYawChange, FVector::UpVector);
-		ProposalLoc.Z = CurFurnitureZ;
 
-		// 가중치 = 이 플레이어가 가구를 현재 위치에서 얼마나 멀리 옮기려 하는가(병진+회전 레버암 모두 반영).
-		//   예) A가 90도 돌리면 A의 제안 위치는 현재 가구에서 멀리 떨어짐 → 가중치 큼.
-		//       B가 가만히 있으면 B의 제안 위치 ≈ 현재 가구 → 가중치 ≈ 0(Eps만 남음).
-		//       => 최종 가구는 A의 제안 쪽으로 거의 100% 따라가고, B는 [3]단계에서 끌려온다.
-		const float Demand = FVector(ProposalLoc.X - CurFurnitureLoc.X, ProposalLoc.Y - CurFurnitureLoc.Y, 0.0f).Size();
+		// 활동량(가중치): 이 사람이 '자기 시선 기준'으로 제안하는 가구 위치가 현재에서 얼마나 먼가
+		// (병진+회전 레버암 반영). 회전을 직접 구동하는 사람을 가려내는 용도로만 쓴다.
+		const FVector ProposalLocByFacing = P->GetActorLocation() + Anchor.InitialOffset.RotateAngleAxis(PlayerYawChange, FVector::UpVector);
+		const float Demand = FVector(ProposalLocByFacing.X - CurFurnitureLoc.X, ProposalLocByFacing.Y - CurFurnitureLoc.Y, 0.0f).Size();
 		const double W = Demand + Eps;
 
+		Weights.Add(W);
 		WTotal += W;
-		WLocSum += W * ProposalLoc;
 		WSumSin += W * FMath::Sin(FMath::DegreesToRadians(ProposalYaw));
 		WSumCos += W * FMath::Cos(FMath::DegreesToRadians(ProposalYaw));
 	}
-
-	// 각도(Yaw)는 그냥 숫자 평균하면 안 된다. 예: 350도와 10도의 '진짜' 평균은 0도인데
-	// 숫자로 평균하면 180도(정반대)가 나온다. 그래서 각도를 (cos,sin) 화살표로 바꿔 더한 뒤
-	// 다시 atan2로 각도를 복원한다 → 경계(360→0)를 안전하게 넘어간다.
 	const float TargetYaw = FMath::RadiansToDegrees(FMath::Atan2(WSumSin, WSumCos));
+
+	// ---- 패스 2: 위치 = '확정된 가구 회전(TargetYaw)' 기준으로 각자 공전을 반영해 가중 평균 ----
+	//   모든 제안이 '같은 회전량(TargetYaw 기준)'을 쓰므로:
+	//     - 시선 불일치로 인한 드리프트가 없다(제자리에 있으면 요구량 0).
+	//     - TargetYaw 로 공전을 '한 프레임 지연 없이' 미리 반영해 가구가 '캐릭터를 축으로' 공전한다.
+	//       (현재 가구 Yaw 가 아니라 TargetYaw 를 쓰는 게 핵심 - 안 그러면 가구 중심으로 제자리 회전)
+	FVector WLocSum = FVector::ZeroVector;
+	for (int32 i = 0; i < N; ++i)
+	{
+		ACharacter* P = Players[i];
+		const FGrabAnchor& Anchor = Anchors[P];
+		const float YawChangeToTarget = FMath::FindDeltaAngleDegrees(Anchor.InitialFurnitureYaw, TargetYaw);
+		FVector ProposalLoc = P->GetActorLocation() + Anchor.InitialOffset.RotateAngleAxis(YawChangeToTarget, FVector::UpVector);
+		ProposalLoc.Z = CurFurnitureZ;
+		WLocSum += Weights[i] * ProposalLoc;
+	}
 	FVector TargetLoc = (WTotal > 0.0) ? (WLocSum / WTotal) : CurFurnitureLoc;
 	TargetLoc.Z = CurFurnitureZ;
 
@@ -301,32 +337,12 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 	FVector ActualLoc = Owner->GetActorLocation();
 	const float ActualYaw = Owner->GetActorRotation().Yaw;
 
-	// 각 플레이어가 가구에 대해 있어야 할 위치(앵커) 계산 헬퍼.
-	auto AttachedTargetFor = [&](ACharacter* P, const FVector& FurnitureLoc) -> FVector
-	{
-		const FGrabAnchor& Anchor = Anchors[P];
-		const float YawChange = FMath::FindDeltaAngleDegrees(Anchor.InitialFurnitureYaw, ActualYaw);
-		const FVector RotatedOffset = Anchor.InitialOffset.RotateAngleAxis(YawChange, FVector::UpVector);
-		FVector Target = FurnitureLoc - RotatedOffset; // 가구위치 - 상대오프셋 = 플레이어 이상위치
-		Target.Z = P->GetActorLocation().Z; // 높이는 플레이어 자신의 중력/지면을 따른다.
-		return Target;
-	};
-
-	// 각 플레이어가 유지해야 할 시선(Yaw) = 잡을때 시선 + 가구가 잡은 이후 실제 회전한 양.
-	//   - 회전을 '구동한' 본인: 가구가 자기를 따라 돌았으므로 desired ≈ 현재 Yaw -> 보정 0(시선 자유).
-	//   - 끌려가는 반대편: 가구 회전량만큼 시선을 돌려줘 가구를 계속 바라보게 한다(조건6).
-	auto DesiredYawFor = [&](ACharacter* P) -> float
-	{
-		const FGrabAnchor& Anchor = Anchors[P];
-		return Anchor.InitialPlayerYaw + FMath::FindDeltaAngleDegrees(Anchor.InitialFurnitureYaw, ActualYaw);
-	};
-
 	// 안전장치(자동 놓기): 보정 전 위치가 이상위치에서 너무 벌어졌는지 미리 확인.
 	TArray<ACharacter*> ToRelease;
 	const float MaxSepSq = FMath::Square(MaxGrabSeparationDistance);
 	for (ACharacter* P : Players)
 	{
-		const FVector Att = AttachedTargetFor(P, ActualLoc);
+		const FVector Att = GetAttachedLocation(P, ActualLoc, ActualYaw);
 		const FVector D = P->GetActorLocation() - Att;
 		if (FVector(D.X, D.Y, 0.0f).SizeSquared() > MaxSepSq)
 		{
@@ -340,7 +356,7 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 		FVector WorstBlock = FVector::ZeroVector;
 		for (ACharacter* P : Players)
 		{
-			const FVector Att = AttachedTargetFor(P, ActualLoc);
+			const FVector Att = GetAttachedLocation(P, ActualLoc, ActualYaw);
 			FHitResult Hit;
 			P->SetActorLocation(Att, true, &Hit); // sweep: 벽이면 막혀서 못 감
 			FVector Shortfall = Att - P->GetActorLocation();
@@ -365,14 +381,14 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 	const float MaxStep = MaxCorrectionSpeed * DeltaTime;
 	for (ACharacter* P : Players)
 	{
-		const FVector Att = AttachedTargetFor(P, ActualLoc);
+		const FVector Att = GetAttachedLocation(P, ActualLoc, ActualYaw);
 		const FVector PlayerLoc = P->GetActorLocation();
 
 		FVector Correction(Att.X - PlayerLoc.X, Att.Y - PlayerLoc.Y, 0.0f);
 		Correction = Correction.GetClampedToMaxSize(MaxStep);
 
 		const float CurYaw = P->GetActorRotation().Yaw;
-		const float DesiredYaw = DesiredYawFor(P);
+		const float DesiredYaw = GetDesiredYaw(P, ActualYaw);
 		const float YawDelta = FMath::FindDeltaAngleDegrees(CurYaw, DesiredYaw);
 
 		const bool bPos = Correction.SizeSquared() > FMath::Square(CorrectionDeadzone);
@@ -423,6 +439,7 @@ void UFurnitureGrabSystem::Multicast_ApplyPlayerCorrection_Implementation(AChara
 	if (!Player->IsLocallyControlled())
 		return;
 
+	// 캐릭터의 '위치 + 몸(액터) 회전'만 보정한다. 카메라(컨트롤 회전)는 절대 건드리지 않는다.
 	FRotator NewRot = Player->GetActorRotation();
 	NewRot.Yaw = TargetYaw;
 	Player->SetActorLocationAndRotation(TargetLocation, NewRot, false, nullptr, ETeleportType::TeleportPhysics);
@@ -430,14 +447,6 @@ void UFurnitureGrabSystem::Multicast_ApplyPlayerCorrection_Implementation(AChara
 	if (UCharacterMovementComponent* CMC = Player->GetCharacterMovement())
 	{
 		CMC->bJustTeleported = true;
-	}
-
-	// 무브먼트가 컨트롤러 회전으로 Yaw 를 덮어쓰는 설정에서도 시선이 유지되도록 컨트롤 회전도 맞춘다.
-	if (AController* C = Player->GetController())
-	{
-		FRotator CR = C->GetControlRotation();
-		CR.Yaw = TargetYaw;
-		C->SetControlRotation(CR);
 	}
 }
 
