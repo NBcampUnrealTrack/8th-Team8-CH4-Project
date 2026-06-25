@@ -1,0 +1,17 @@
+폴더: Network
+담당: 각자 (전 역할 분산) — 통합/조율: 신장식
+용도: 2~4인 협동 멀티플레이 복제·동기화 + 가구 물리 연산 (이 게임의 필수 토대)
+원칙: 각 도메인 담당이 자기 시스템의 복제 변수·RPC를 책임지고,
+      신장식(통합·빌드)이 표준·세션 골격·교차 검증으로 묶는다.
+주요 파일 예정:
+  - 가구 잡기/놓기 RPC (Server/Multicast)
+  - Furniture_CurrentGrabbedPlayer · CombinedVelocity · bIsGrabbed 리플리케이션
+  - 플레이어 이동·소유권(Autonomous/Authority) 처리
+  - 세션/로비 (캐릭터 선택 → 인게임 진입)
+주의:
+  - 가구 운반은 다인 동시 조작 → 서버 권위(Authority) 기준으로 합산 후 복제
+  - 충돌/내구도 차감은 서버에서만 판정, 결과만 Multicast
+수신:
+  - Player·Furniture의 상태 변경 요청을 RPC로 중계
+의존 방향: Core, Player, Furniture 상태를 복제 (로직은 각 도메인 소유)
+스코프(브랜치/커밋): net

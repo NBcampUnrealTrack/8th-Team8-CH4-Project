@@ -1,24 +1,52 @@
-Binaries/
-Build/
-DerivedDataCache/
-Intermediate/
-Saved/
+# ========================
+# Unreal Engine 5 - .gitignore  (TeamCarry)
+# ========================
 
+# Generated project files
 *.sln
 *.suo
-*.xcodeproj
-*.xcworkspace
+*.opensdf
+*.sdf
 *.VC.db
-*.VC.VC.opendb
+*.VC.opendb
+.vs/
 
-*.log
-*.tmp
-
-.DS_Store
-
-.vscode/
+# JetBrains Rider / IntelliJ (개인 IDE 설정)
 .idea/
 
-# Visual Studio cache
-.vs/
-*.ipch
+# Visual Studio solution variants (UBT가 재생성)
+*.slnx
+
+# Compiled binaries
+Binaries/
+Plugins/*/Binaries/
+
+# Build intermediates
+Build/
+Intermediate/
+Plugins/*/Intermediate/
+
+# Derived data cache (regenerated locally)
+DerivedDataCache/
+
+# Editor saved data (logs, backups, autosave)
+Saved/
+
+# Built map data (regenerated on cook)
+*_BuiltData.uasset
+
+# Platform-specific
+*.xcodeproj
+*.xcworkspace
+
+# StarterContent (용량 크고 팀 작업 불필요)
+Content/StarterContent/
+
+# ========================
+# Keep (tracked by git)
+# ========================
+# Source/        ← C++ 소스 (도메인 폴더 + OWNER.txt 포함)
+# Config/        ← 프로젝트 설정
+# Content/       ← 게임 에셋 (StarterContent 제외)
+# *.uproject     ← 프로젝트 파일
+# Plugins/*/Source/  ← 플러그인 소스

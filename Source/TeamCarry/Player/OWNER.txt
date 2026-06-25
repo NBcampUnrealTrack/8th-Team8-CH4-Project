@@ -1,0 +1,16 @@
+폴더: Player
+담당: 김민성 (캐릭터 / 컨트롤)
+용도: 플레이어 캐릭터, 이동·상호작용 입력, 모션/Attach 애니
+입력 매핑: 이동(WASD)·달리기(Shift)·점프(Space)·앉기(Ctrl)·상호작용(F)
+          [선택] 감정표현 애니
+주요 파일 예정:
+  - TeamCarryCharacter.h/.cpp       (Pawn, 이동, 카메라)
+  - TeamCarryPlayerController.h/.cpp
+  - GrabComponent.h/.cpp            (가구 근처 상호작용 → 잡기/놓기 트리거)
+  - 입력 매핑 (EnhancedInput: 이동 / 상호작용)
+수신:
+  - Furniture로부터: 잡기 가능 여부, 합산 이동 벡터 반영
+인터페이스 제공:
+  - Furniture에게: 이 플레이어의 입력 방향 (CombinedVelocity 합산용)
+의존 방향: Core, Furniture(인터페이스)만 참조
+스코프(브랜치/커밋): player

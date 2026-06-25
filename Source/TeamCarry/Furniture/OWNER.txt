@@ -1,0 +1,21 @@
+폴더: Furniture
+담당: 홍민기 (가구 Prop)
+용도: 게임 정체성인 "가구 옮기기" 핵심 시스템 (Core 필수)
+설계: DataTable 기반 가구 클래스, 내구도 상태 변수 관리, 파손/파괴·예외 처리
+주요 파일 예정:
+  - FurnitureActor.h/.cpp           (가구 본체, 물리/내구도)
+  - FurnitureGrabSystem.h/.cpp      (다인 잡기, 합산 이동 벡터 계산)
+  - FurnitureDamage.h/.cpp          (충돌 시 내구도 차감, 파손 판정)
+상태 변수 (기획 4.2):
+  - Furniture_MaxHealth / CurrentHealth   (내구도, 충돌 시 차감)
+  - Furniture_RequiredPlayer              (안정적으로 들 최소 인원)
+  - Furniture_CurrentGrabbedPlayer        (현재 잡은 인원)
+  - Furniture_CombinedVelocity            (플레이어 입력 합산 이동 벡터)
+  - Furniture_bIsGrabbed                  (잡힘 여부)
+수신:
+  - Player로부터: 잡기/놓기, 각 플레이어 입력 방향
+인터페이스 제공:
+  - Core(GameState)에게: 가구 운반 완료/파손 이벤트 → 점수
+  - UI에게: 내구도·필요 인원 표시 요청
+의존 방향: Core(인터페이스)만 참조
+스코프(브랜치/커밋): furniture
