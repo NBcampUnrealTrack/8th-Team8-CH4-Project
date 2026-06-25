@@ -1,16 +1,11 @@
-﻿
-// GrabComponent.cpp
+﻿// GrabComponent.cpp
 
 #include "Player/Component/GrabComponent.h"
 #include "Player/Character/TCPlayerCharacter.h"
 #include "Player/Interface/TCInteractable.h"
-<<<<<<< HEAD
 #include "Camera/CameraComponent.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Net/UnrealNetwork.h"
-=======
-#include "Kismet/KismetSystemLibrary.h"
->>>>>>> new-repo/develop
 
 // 틱 활성화 여부 및 초기화
 UGrabComponent::UGrabComponent()
@@ -19,14 +14,11 @@ UGrabComponent::UGrabComponent()
 	PrimaryComponentTick.bCanEverTick = true;
 	CurrentBestTarget = nullptr;
 
-<<<<<<< HEAD
 	// 잡고 있는 대상 초기화
 	GrabbedActor = nullptr;
 
 	// 컴포넌트 자체의 네트워크 동기화 기능 활성화
 	SetIsReplicatedByDefault(true);
-=======
->>>>>>> new-repo/develop
 }
 
 // 매 프레임마다 상호작용 대상 탐색
@@ -39,32 +31,20 @@ void UGrabComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorC
 	{
 		ScanBestTarget();
 	}
-
 }
 
 // 대상이 존재하면 서버로 상호작용-잡기 시도 요청
 void UGrabComponent::TryInteract()
 {
-<<<<<<< HEAD
 	// 클라이언트가 파악한 대상을 서버로 보내서 상호작용 처리 요청
 	ServerTryInteract(CurrentBestTarget);
-
-=======
-	// 현재 내 화면에 잡힌 타겟이 있다면 서버로 해당 타겟을 전송
-	if (CurrentBestTarget)
-	{
-		ServerTryInteract(CurrentBestTarget);
-	}
->>>>>>> new-repo/develop
 }
 
 // 서버로 상호작용-던지기 시도 요청
 void UGrabComponent::TryThrow()
 {
-<<<<<<< HEAD
 	// 서버로 던지기 요청
 	ServerTryThrow();
-
 }
 
 void UGrabComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -73,11 +53,6 @@ void UGrabComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLi
 
 	// GrabbedActor 변수의 상태를 서버와 클라이언트가 실시간으로 일치시킴
 	DOREPLIFETIME(UGrabComponent, GrabbedActor);
-=======
-	// 나중에 가구 액터가 들어오면 TryInteract()처럼 if문 추가하고 수정할 예정
-	// 지금은 뼈대만 설계해서 바로 서버로 던지기 요청
-	ServerTryThrow();
->>>>>>> new-repo/develop
 }
 
 // 멀티 박스 트레이스 발사해서 최적 대상 판별
@@ -165,7 +140,6 @@ void UGrabComponent::ScanBestTarget()
 // Server - 상호작용-던지기 실행
 void UGrabComponent::ServerTryThrow_Implementation()
 {
-<<<<<<< HEAD
 	// 캐릭터가 들고 있는 대상이 있거나 상호작용이 가능한 객체인지 확인
 	if (GrabbedActor && GrabbedActor->Implements<UTCInteractable>())
 	{
@@ -200,18 +174,11 @@ void UGrabComponent::ServerTryThrow_Implementation()
 		// 확인용 로그
 		UE_LOG(LogTemp, Warning, TEXT("[Server] 던지기 완료"));
 	}
-
-=======
-	// 나중에 가구와 연결되면 수정할 예정
-	// 전방으로 AddImpulse(힘)을 가해서 날리는 로직 작성할 예정
-	UE_LOG(LogTemp, Warning, TEXT("[Server] 던지기 실행 준비 완료"));
->>>>>>> new-repo/develop
 }
 
 // Server - 상호작용-잡기 실행
 void UGrabComponent::ServerTryInteract_Implementation(AActor* TargetActor)
 {
-<<<<<<< HEAD
 	// 이미 무언가를 잡고 있다면 내려놓기 우선 처리
 	if (GrabbedActor)
 	{
@@ -220,10 +187,6 @@ void UGrabComponent::ServerTryInteract_Implementation(AActor* TargetActor)
 	}
 	// 서버 검증
 	else if (TargetActor && TargetActor->Implements<UTCInteractable>())
-=======
-	// 서버 검증
-	if (TargetActor && TargetActor->Implements<UTCInteractable>())
->>>>>>> new-repo/develop
 	{
 		ATCPlayerCharacter* OwnerCharacter = Cast<ATCPlayerCharacter>(GetOwner());
 
@@ -232,12 +195,8 @@ void UGrabComponent::ServerTryInteract_Implementation(AActor* TargetActor)
 		{
 			// 검증을 통과했다면 가구의 OnInteract 실행 (가구 쪽에서 물리 연결 처리)
 			ITCInteractable::Execute_OnInteract(TargetActor, OwnerCharacter);
-<<<<<<< HEAD
 			// 방금 잡은 대상을 변수에 저장하여 기억
 			GrabbedActor = TargetActor;
-=======
->>>>>>> new-repo/develop
 		}
 	}
 }
-

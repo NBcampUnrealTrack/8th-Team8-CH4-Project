@@ -95,13 +95,10 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TCPlayerCharacter|Input")
 	TObjectPtr<UInputAction> ThrowAction;
 
-<<<<<<< HEAD
 	// 시점 전환 액션 (Tab키)
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TCPlayerCharacter|Input")
 	TObjectPtr<UInputAction> ToggleViewAction;
 
-=======
->>>>>>> new-repo/develop
 private:
 	// 달리기 시작/종료 처리
 	void StartRun(const FInputActionValue& InValue);
@@ -120,7 +117,6 @@ private:
 
 	//  상호작용 - 던지기 입력 처리
 	void Throw(const FInputActionValue& InValue);
-<<<<<<< HEAD
 
 	// 현재 1인칭 상태인지 확인하는 변수
 	bool bIsFirstPerson = false;
@@ -131,8 +127,6 @@ private:
 	// 점프 입력 처리
 	void TryJump();
 
-=======
->>>>>>> new-repo/develop
 #pragma endregion
 
 #pragma region Animation

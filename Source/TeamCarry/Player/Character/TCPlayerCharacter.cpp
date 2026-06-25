@@ -1,17 +1,9 @@
 ﻿// TCPlayerCharacter.cpp
 
-
 #include "Player/Character/TCPlayerCharacter.h"
-<<<<<<< HEAD
 #include "Player/Component/GrabComponent.h"
-
 #include "Furniture/TCFurnitureActor.h"
 #include "CatchCharacter/Furniture/FurnitureGrabSystem.h"
-
-=======
-
-#include "Player/Component/GrabComponent.h"
->>>>>>> new-repo/develop
 #include "EnhancedInputSubsystems.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/SpringArmComponent.h"
@@ -51,7 +43,6 @@ ATCPlayerCharacter::ATCPlayerCharacter()
 
 	// 가구 컴포넌트 연결
 	GrabComponent = CreateDefaultSubobject<UGrabComponent>(TEXT("GrabComponent"));
-
 }
 
 // 플레이어 키보드와 마우스 입력을 캐릭터 동작 함수에 연결
@@ -65,28 +56,20 @@ void ATCPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 	// 각 입력 액션 바인딩
 	EIC->BindAction(MoveAction, ETriggerEvent::Triggered, this, &ThisClass::HandleMoveInput);
 	EIC->BindAction(LookAction, ETriggerEvent::Triggered, this, &ThisClass::HandleLookInput);
-<<<<<<< HEAD
 	EIC->BindAction(JumpAction, ETriggerEvent::Triggered, this, &ThisClass::TryJump);
-=======
-	EIC->BindAction(JumpAction, ETriggerEvent::Triggered, this, &ACharacter::Jump);
->>>>>>> new-repo/develop
 	EIC->BindAction(JumpAction, ETriggerEvent::Completed, this, &ACharacter::StopJumping);
 	EIC->BindAction(RunAction, ETriggerEvent::Started, this, &ThisClass::StartRun);
 	EIC->BindAction(RunAction, ETriggerEvent::Completed, this, &ThisClass::StopRun);
 	EIC->BindAction(InteractAction, ETriggerEvent::Started, this, &ThisClass::Interact);
 	EIC->BindAction(ThrowAction, ETriggerEvent::Started, this, &ThisClass::Throw);
-<<<<<<< HEAD
 	EIC->BindAction(ToggleViewAction, ETriggerEvent::Started, this, &ThisClass::ToggleView);
-=======
->>>>>>> new-repo/develop
-
 }
 
 // 게임 시작 시 수행
 void ATCPlayerCharacter::BeginPlay()
 {
 	Super::BeginPlay();
-	
+
 	// 로컬 플레이어가 조종하는 캐릭터인지 확인
 	if (IsLocallyControlled() == true)
 	{
@@ -149,7 +132,6 @@ void ATCPlayerCharacter::HandleLookInput(const FInputActionValue& InValue)
 // 플레이어 달리기 시작
 void ATCPlayerCharacter::StartRun(const FInputActionValue& InValue)
 {
-<<<<<<< HEAD
 	// 가구를 들고 있는지 확인
 	if (GrabComponent && GrabComponent->GetGrabbedActor())
 	{
@@ -176,14 +158,11 @@ void ATCPlayerCharacter::StartRun(const FInputActionValue& InValue)
 		}
 	}
 
-=======
->>>>>>> new-repo/develop
 	// 달리기 최대 속도 500
 	GetCharacterMovement()->MaxWalkSpeed = 500.f;
 
 	// 서버한테 알리기
 	ServerStartRun();
-
 }
 
 // 플레이어 달리기 종료 -> 걷기
@@ -194,7 +173,6 @@ void ATCPlayerCharacter::StopRun(const FInputActionValue& InValue)
 
 	// 서버한테 알리기
 	ServerStopRun();
-
 }
 
 // 상호작용(E키) - 잡기
@@ -217,7 +195,7 @@ void ATCPlayerCharacter::Interact(const FInputActionValue& InValue)
 		{
 			// 로컬 애니메이션 재생
 			PlayAnimMontage(GrabMontage);
-			
+
 			// 서버에 애니메이션 전송
 			ServerPlayActionMontage(0);
 		}
@@ -254,10 +232,9 @@ void ATCPlayerCharacter::Throw(const FInputActionValue& InValue)
 
 		// 상호작용-던지기 실행 명령
 		GrabComponent->TryThrow();
-	}	
+	}
 }
 
-<<<<<<< HEAD
 // 카메라 시점 변환 함수
 void ATCPlayerCharacter::ToggleView(const FInputActionValue& InValue)
 {
@@ -292,8 +269,6 @@ void ATCPlayerCharacter::TryJump()
 	Super::Jump();
 }
 
-=======
->>>>>>> new-repo/develop
 // 애니메이션 전체 클라이언트 동기화
 void ATCPlayerCharacter::MulticastPlayActionMontage_Implementation(int32 ActionID)
 {
@@ -331,5 +306,3 @@ void ATCPlayerCharacter::ServerStartRun_Implementation()
 {
 	GetCharacterMovement()->MaxWalkSpeed = 500.f;
 }
-
-
