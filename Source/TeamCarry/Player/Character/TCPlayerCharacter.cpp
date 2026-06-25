@@ -2,11 +2,16 @@
 
 
 #include "Player/Character/TCPlayerCharacter.h"
+<<<<<<< HEAD
 #include "Player/Component/GrabComponent.h"
 
 #include "Furniture/TCFurnitureActor.h"
 #include "CatchCharacter/Furniture/FurnitureGrabSystem.h"
 
+=======
+
+#include "Player/Component/GrabComponent.h"
+>>>>>>> new-repo/develop
 #include "EnhancedInputSubsystems.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/SpringArmComponent.h"
@@ -60,13 +65,20 @@ void ATCPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 	// 각 입력 액션 바인딩
 	EIC->BindAction(MoveAction, ETriggerEvent::Triggered, this, &ThisClass::HandleMoveInput);
 	EIC->BindAction(LookAction, ETriggerEvent::Triggered, this, &ThisClass::HandleLookInput);
+<<<<<<< HEAD
 	EIC->BindAction(JumpAction, ETriggerEvent::Triggered, this, &ThisClass::TryJump);
+=======
+	EIC->BindAction(JumpAction, ETriggerEvent::Triggered, this, &ACharacter::Jump);
+>>>>>>> new-repo/develop
 	EIC->BindAction(JumpAction, ETriggerEvent::Completed, this, &ACharacter::StopJumping);
 	EIC->BindAction(RunAction, ETriggerEvent::Started, this, &ThisClass::StartRun);
 	EIC->BindAction(RunAction, ETriggerEvent::Completed, this, &ThisClass::StopRun);
 	EIC->BindAction(InteractAction, ETriggerEvent::Started, this, &ThisClass::Interact);
 	EIC->BindAction(ThrowAction, ETriggerEvent::Started, this, &ThisClass::Throw);
+<<<<<<< HEAD
 	EIC->BindAction(ToggleViewAction, ETriggerEvent::Started, this, &ThisClass::ToggleView);
+=======
+>>>>>>> new-repo/develop
 
 }
 
@@ -137,6 +149,7 @@ void ATCPlayerCharacter::HandleLookInput(const FInputActionValue& InValue)
 // 플레이어 달리기 시작
 void ATCPlayerCharacter::StartRun(const FInputActionValue& InValue)
 {
+<<<<<<< HEAD
 	// 가구를 들고 있는지 확인
 	if (GrabComponent && GrabComponent->GetGrabbedActor())
 	{
@@ -163,6 +176,8 @@ void ATCPlayerCharacter::StartRun(const FInputActionValue& InValue)
 		}
 	}
 
+=======
+>>>>>>> new-repo/develop
 	// 달리기 최대 속도 500
 	GetCharacterMovement()->MaxWalkSpeed = 500.f;
 
@@ -242,6 +257,7 @@ void ATCPlayerCharacter::Throw(const FInputActionValue& InValue)
 	}	
 }
 
+<<<<<<< HEAD
 // 카메라 시점 변환 함수
 void ATCPlayerCharacter::ToggleView(const FInputActionValue& InValue)
 {
@@ -276,6 +292,8 @@ void ATCPlayerCharacter::TryJump()
 	Super::Jump();
 }
 
+=======
+>>>>>>> new-repo/develop
 // 애니메이션 전체 클라이언트 동기화
 void ATCPlayerCharacter::MulticastPlayActionMontage_Implementation(int32 ActionID)
 {

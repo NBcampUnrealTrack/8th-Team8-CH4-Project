@@ -23,10 +23,13 @@
 			]
 		},
 		{
+<<<<<<< HEAD
 			"Name": "ModelContextProtocol",
 			"Enabled": true
 		},
 		{
+=======
+>>>>>>> new-repo/develop
 			"Name": "CommonUI",
 			"Enabled": true
 		}
