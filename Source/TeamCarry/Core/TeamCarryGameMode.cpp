@@ -5,7 +5,7 @@
 ATeamCarryGameMode::ATeamCarryGameMode()
 {
     PrimaryActorTick.bCanEverTick = true;
-    bIsStopWatchRunning = false;
+    RemainingTime = 0.0f;
     TotalFurnitureCount = 0;
 
     // GameState 클래스 설정
@@ -16,21 +16,27 @@ void ATeamCarryGameMode::BeginPlay()
 {
     Super::BeginPlay();
 
-    // 스톱워치 시작
-    bIsStopWatchRunning = true;
+    RemainingTime = StageTotalTime;
 }
 
 void ATeamCarryGameMode::Tick(float DeltaTime)
 {
     Super::Tick(DeltaTime);
 
-    // 스톱워치 갱신
-    if (bIsStopWatchRunning)
+    if (RemainingTime > 0.0f)
     {
+        RemainingTime -= DeltaTime;
+
         ATeamCarryGameState* GS = GetGameState<ATeamCarryGameState>();
         if (GS)
         {
-            GS->ElapsedTime += DeltaTime;
+            GS->ElapsedTime = RemainingTime;
+        }
+
+        if (RemainingTime <= 0.0f)
+        {
+            RemainingTime = 0.0f;
+            FinishGame(true);
         }
     }
 }
@@ -46,24 +52,68 @@ void ATeamCarryGameMode::SetTotalFurnitureCount(int32 Count)
     }
 }
 
-void ATeamCarryGameMode::OnFurnitureLoaded(FName RowName, float CurrentHealth, float MaxHealth, int32 BaseScore)
+void ATeamCarryGameMode::OnFurnitureEnterTruck(FName RowName, float CurrentHealth, float MaxHealth, int32 BaseScore)
 {
     ATeamCarryGameState* GS = GetGameState<ATeamCarryGameState>();
     if (!GS) return;
+    
+    if (GS->bIsGameFinished) return;
 
-    // 중복 정산 방지는 가구 쪽(홍민기님)에서 처리
+    // 트럭 안 가구 목록에 추가
+    FTruckFurnitureInfo Info;
+    Info.RowName = RowName;
+    Info.CurrentHealth = CurrentHealth;
+    Info.MaxHealth = MaxHealth;
+    Info.BaseScore = BaseScore;
+    FurnitureInTruck.Add(Info);
 
-    // 점수 계산
-    int32 FinalScore = CalculateScore(CurrentHealth, MaxHealth, BaseScore);
-
-    // 점수 누적
-    GS->TotalScore += FinalScore;
-
-    // 남은 가구 개수 차감
+    // 남은 가구 차감
     GS->RemainingFurniture--;
 
-    // 승패 판정
-    CheckGameFinished();
+    // 예상 점수 계산 후 GameState에 반영
+    GS->TotalScore = CalculateFinalScore();
+
+    UE_LOG(LogTemp, Warning, TEXT("가구 트럭 진입: %s | 예상 점수: %d | 남은 가구: %d"),
+        *RowName.ToString(), GS->TotalScore, GS->RemainingFurniture);
+
+    // 모든 가구가 트럭 안에 들어오면 게임 종료
+    if (GS->RemainingFurniture <= 0)
+    {
+        FinishGame(true);
+    }
+}
+
+void ATeamCarryGameMode::OnFurnitureExitTruck(FName RowName)
+{
+    ATeamCarryGameState* GS = GetGameState<ATeamCarryGameState>();
+    if (!GS) return;
+    
+    if (GS->bIsGameFinished) return;
+
+    // 트럭 안 가구 목록에서 제거
+    FurnitureInTruck.RemoveAll([&RowName](const FTruckFurnitureInfo& Info)
+    {
+        return Info.RowName == RowName;
+    });
+
+    // 남은 가구 복구
+    GS->RemainingFurniture++;
+
+    // 예상 점수 재계산
+    GS->TotalScore = CalculateFinalScore();
+
+    UE_LOG(LogTemp, Warning, TEXT("가구 트럭 이탈: %s | 예상 점수: %d | 남은 가구: %d"),
+        *RowName.ToString(), GS->TotalScore, GS->RemainingFurniture);
+}
+
+int32 ATeamCarryGameMode::CalculateFinalScore()
+{
+    int32 Total = 0;
+    for (const FTruckFurnitureInfo& Info : FurnitureInTruck)
+    {
+        Total += CalculateScore(Info.CurrentHealth, Info.MaxHealth, Info.BaseScore);
+    }
+    return Total;
 }
 
 int32 ATeamCarryGameMode::CalculateScore(float CurrentHealth, float MaxHealth, int32 BaseScore)
@@ -83,28 +133,16 @@ int32 ATeamCarryGameMode::CalculateScore(float CurrentHealth, float MaxHealth, i
     return FMath::FloorToInt(BaseScore * PayoutRate);
 }
 
-void ATeamCarryGameMode::CheckGameFinished()
+void ATeamCarryGameMode::FinishGame(bool bIsClear)
 {
+    RemainingTime = 0.0f;
+
     ATeamCarryGameState* GS = GetGameState<ATeamCarryGameState>();
     if (!GS) return;
 
-    // 남은 가구가 0이면 클리어
-    if (GS->RemainingFurniture <= 0)
-    {
-        FinishGame(true);
-    }
-}
+    // 최종 점수 확정
+    GS->TotalScore = CalculateFinalScore();
+    GS->bIsGameFinished = true;
 
-void ATeamCarryGameMode::FinishGame(bool bIsClear)
-{
-    // 스톱워치 정지
-    bIsStopWatchRunning = false;
-
-    ATeamCarryGameState* GS = GetGameState<ATeamCarryGameState>();
-    if (GS)
-    {
-        GS->bIsGameFinished = true;
-    }
-
-    // 결과창 표시 (조민기님 UI 완성 후 연동)
+    UE_LOG(LogTemp, Warning, TEXT("게임 종료 | 최종 점수: %d"), GS->TotalScore);
 }
