@@ -1,3 +1,13 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:612b3ec0fd37751fcffca99abb6f27feebbd592da36077acbec3ddc1690593e6
-size 667
+폴더: UI
+담당: 조민기 (UI)
+용도: 전반 게임 위젯, 인게임 정보(시간·점수), 결과창
+주요 파일 예정:
+  - WBP_MainMenu / WBP_CharacterSelect / WBP_StageSelect
+  - WBP_InGameHUD          (남은 가구 수, 가구 내구도, 필요/현재 인원)
+  - WBP_Result             (점수, 클리어/패배)
+  - HUDController.h/.cpp    (게임스테이트 구독 → 위젯 갱신)
+수신:
+  - Core(GameState)로부터: 점수·남은 가구 수
+  - Furniture로부터: 내구도·필요 인원 표시 요청
+의존 방향: Core(인터페이스)만 참조 (게임 로직은 직접 호출하지 않음)
+스코프(브랜치/커밋): ui

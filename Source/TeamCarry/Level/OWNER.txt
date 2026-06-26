@@ -1,3 +1,18 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:c6a16d74488060d87978b7b4c41fee31a4268303fd888ea1a2f213d01ff332ac
-size 1019
+폴더: Level
+담당: 이경환 (레벨 디자인)
+용도: 스테이지 구현, 스테이지 선택 레벨, 환경·방해 구조물·문, 강도 AI
+주요 파일 예정:
+  - StageManager.h/.cpp             (스테이지 로드, 목표 가구 목록, 결과 집계)
+  - StageSelectActor.h/.cpp         (스테이지 선택 화면 연동)
+  - TruckGoalVolume.h/.cpp          (이삿짐 트럭 도착 판정 트리거)
+  - DoorActor / 방해 구조물          (운반 동선 방해 요소)
+  - RobberAI (강도 AI)              (방해형 NPC — 동선 교란/가구 위협)
+  - 충돌물(벽·다른 가구) 배치 규칙 — 카툰풍 아기자기 분위기 통일
+구성:
+  - 튜토리얼 / 스테이지 선택 / 인게임(여러 집) / 최종 결과 흐름
+수신:
+  - Furniture로부터: 트럭 도착·파손 이벤트
+인터페이스 제공:
+  - Core(GameMode)에게: 스테이지 클리어 조건 충족 여부
+의존 방향: Core(인터페이스)만 참조
+스코프(브랜치/커밋): level

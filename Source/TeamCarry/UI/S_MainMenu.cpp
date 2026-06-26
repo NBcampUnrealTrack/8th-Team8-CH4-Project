@@ -6,9 +6,25 @@
 #include "TeamCarry/UI/MockUIController.h"
 #include "Kismet/GameplayStatics.h"
 
+US_MainMenu::US_MainMenu()
+{
+	bSupportsActivationFocus = true;
+
+	UE_LOG(LogTemp, Log, TEXT("US_MainMenu Constructor"));
+}
+
 void US_MainMenu::NativeConstruct()
 {
 	Super::NativeConstruct();
+
+	if (Btn_Start)
+	{
+		Btn_Start->SetKeyboardFocus();
+
+		UE_LOG(LogTemp, Log, TEXT("Force Focus Start"));
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("US_MainMenu NativeConstruct"));
 
 	// Bind Start Button (게임 시작 → 세이브 슬롯 선택)
 	if (Btn_Start)
@@ -38,14 +54,21 @@ void US_MainMenu::NativeConstruct()
 	SetIsFocusable(true);
 }
 
+UWidget* US_MainMenu::NativeGetDesiredFocusTarget() const
+{
+	UE_LOG(LogTemp, Log, TEXT("US_MainMenu Focus Target"));
+
+	return Btn_Start;
+}
+
 void US_MainMenu::HandleStartClicked()
 {
 	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
 	{
-		// 명세 ③①: 게임 시작 → 세이브 슬롯 관리 화면(S_SlotSelect)으로 전환.
-		// 이어하기/새 게임 분기는 슬롯 선택 시점에 결정된다.
-		UE_LOG(LogTemp, Log, TEXT("[UI MainMenu] Start clicked. Transitioning to S_SlotSelect..."));
-		MockController->ReplaceState(EE_UIState::SlotSelect);
+		// 명세 3-1 / 3-8: 게임 시작 → 통합 접속 팝업(O_JoinRoom)을 오버레이로 띄운다(PushOverlay).
+		// 방 만들기/방 참가 분기와 S_SlotSelect·S_CharacterSelect 전환은 팝업 내부에서 결정된다.
+		UE_LOG(LogTemp, Log, TEXT("[UI MainMenu] Start clicked. Pushing O_JoinRoom overlay..."));
+		MockController->PushOverlay(TEXT("O_JoinRoom"));
 	}
 }
 

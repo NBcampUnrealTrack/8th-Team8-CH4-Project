@@ -7,6 +7,7 @@ ATeamCarryGameState::ATeamCarryGameState()
 	RemainingFurniture = 0;
 	ElapsedTime = 0.0f;
 	bIsGameFinished = false;
+	StarCount = 0;
 }
 
 void ATeamCarryGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -17,6 +18,7 @@ void ATeamCarryGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 	DOREPLIFETIME(ATeamCarryGameState, RemainingFurniture);
 	DOREPLIFETIME(ATeamCarryGameState, ElapsedTime);
 	DOREPLIFETIME(ATeamCarryGameState, bIsGameFinished);
+	DOREPLIFETIME(ATeamCarryGameState, StarCount);
 }
 
 void ATeamCarryGameState::OnRep_TotalScore()
@@ -32,4 +34,9 @@ void ATeamCarryGameState::OnRep_RemainingFurniture()
 void ATeamCarryGameState::OnRep_bIsGameFinished()
 {
 	// 결과창 표시
+}
+
+void ATeamCarryGameState::OnRep_StarCount()
+{
+	// 별 개수 UI 갱신
 }

@@ -60,6 +60,18 @@ TOptional<FUIInputConfig> UO_PauseMenu::GetDesiredInputConfig() const
 	return FUIInputConfig(ECommonInputMode::Menu, EMouseCaptureMode::NoCapture);
 }
 
+bool UO_PauseMenu::NativeOnHandleBackAction()
+{
+	// ESC = Resume(닫기)과 동일. 라우터를 통해 닫아 상태/스택 동기화를 유지한다.
+	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
+	{
+		UE_LOG(LogTemp, Log, TEXT("[UI PauseMenu] Back(ESC) handled. Popping pause menu via MockUIController."));
+		MockController->PopCurrentOverlay();
+	}
+	// 처리했음을 알려 상위 스택으로 Back 전파를 막는다.
+	return true;
+}
+
 void UO_PauseMenu::HandleResumeClicked()
 {
 	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())

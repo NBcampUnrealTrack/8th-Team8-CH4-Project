@@ -2,6 +2,7 @@
 
 #include "Player/Character/TCPlayerCharacter.h"
 #include "Player/Component/GrabComponent.h"
+#include "Player/Component/TCCarrySpeedComponent.h"
 #include "Furniture/TCFurnitureActor.h"
 #include "CatchCharacter/Furniture/FurnitureGrabSystem.h"
 #include "EnhancedInputSubsystems.h"
@@ -43,6 +44,9 @@ ATCPlayerCharacter::ATCPlayerCharacter()
 
 	// 가구 컴포넌트 연결
 	GrabComponent = CreateDefaultSubobject<UGrabComponent>(TEXT("GrabComponent"));
+
+	// 운반 인원비례 속도 조절 컴포넌트
+	CarrySpeedComponent = CreateDefaultSubobject<UTCCarrySpeedComponent>(TEXT("CarrySpeedComponent"));
 }
 
 // 플레이어 키보드와 마우스 입력을 캐릭터 동작 함수에 연결
