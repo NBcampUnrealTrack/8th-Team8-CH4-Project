@@ -70,3 +70,15 @@ void UO_Confirm::HandleCancelClicked()
 		MockController->PopCurrentOverlay();
 	}
 }
+
+bool UO_Confirm::NativeOnHandleBackAction()
+{
+	// ESC = 취소(No)와 동일하게 처리. 라우터를 통해 닫아 상태/스택 동기화를 유지한다.
+	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
+	{
+		UE_LOG(LogTemp, Log, TEXT("[UI Confirm] Back(ESC) handled as Cancel. Popping via MockUIController."));
+		MockController->PopCurrentOverlay();
+	}
+	// 처리했음을 알려 상위 스택으로 Back 전파를 막는다.
+	return true;
+}

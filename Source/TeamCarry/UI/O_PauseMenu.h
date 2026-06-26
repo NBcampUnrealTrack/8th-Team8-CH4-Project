@@ -29,6 +29,10 @@ protected:
 	// 활성화 시 입력을 메뉴(UI Only) 컨텍스트로 제한하여 하위 위젯 입력을 차단한다.
 	virtual TOptional<FUIInputConfig> GetDesiredInputConfig() const override;
 
+	// ESC = '한 단계 뒤로/닫기'(명세 5-1). 기본 동작(DeactivateWidget)은 라우터를 우회하므로,
+	// 닫기를 라우터(PopCurrentOverlay)로 위임해 상태/스택 동기화를 유지한다.
+	virtual bool NativeOnHandleBackAction() override;
+
 	// --- Pause Menu Buttons ---
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
 	TObjectPtr<UButton> Btn_Resume;
