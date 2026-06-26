@@ -33,6 +33,10 @@ protected:
 	// 기본 포커스 대상을 "아니오"(Btn_Cancel)로 지정하여 오조작을 방지한다.
 	virtual UWidget* NativeGetDesiredFocusTarget() const override;
 
+	// ESC = '한 단계 뒤로/닫기'(명세 5-1). 기본 동작(DeactivateWidget)은 라우터를 우회해
+	// 상태가 어긋나므로, 닫기를 라우터(PopCurrentOverlay)로 위임한다. ESC 는 취소(No)로 간주.
+	virtual bool NativeOnHandleBackAction() override;
+
 	// --- Confirm Modal Buttons ---
 	// 예 / 확인 (파괴적 액션 수행)
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")

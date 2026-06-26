@@ -1,3 +1,10 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:c085634ab125f0035d23a45a5519f4a18e886305e56bd83d8eba9e6cd98b38a9
-size 643
+폴더: Core
+담당: 윤준학 (GameMode)
+용도: 게임 흐름 제어, 점수 판정, 승패 조건 트리거, 공용 인터페이스/데이터 타입
+주요 파일 예정:
+  - TeamCarryGameMode.h/.cpp        (스테이지 진행, 클리어/패배 판정)
+  - TeamCarryGameState.h/.cpp       (전체 점수, 남은 가구 수 동기화)
+  - TC_Interfaces.h                 (Player↔Furniture↔UI 간 인터페이스)
+  - TC_DataTypes.h                  (공용 열거형·구조체: 가구 등급, 스테이지 결과 등)
+의존 방향: 없음 (Core는 다른 폴더를 include하지 않는다)
+스코프(브랜치/커밋): core

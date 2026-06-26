@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-# TeamCarry (Project A)
-=======
 # 8th-Team8-CH4-Project TeamCarry (Project C)
->>>>>>> new-repo/develop
 
 ## 문서
 
@@ -22,11 +18,7 @@
 
 | 항목 | 내용 |
 |---|---|
-<<<<<<< HEAD
-| **게임명** | Project A / TeamCarry (2~4인 협동) |
-=======
 | **게임명** | Project C / TeamCarry (2~4인 협동) |
->>>>>>> new-repo/develop
 | **장르** | 캐주얼 협동 이사/정리 (Moving Out 계열) |
 | **엔진** | Unreal Engine (버전 핀 미정) |
 | **언어** | C++ / Blueprint |
