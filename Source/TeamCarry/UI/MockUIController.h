@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 #pragma once
 
@@ -8,20 +8,20 @@
 
 // Forward declaration
 class AActor;
+class IUIHost;
 
 UENUM(BlueprintType)
 enum class EE_UIState : uint8
 {
 	None,
+	Boot,
 	MainMenu,
+	SlotSelect,
 	CharacterSelect,
 	Tutorial,
 	StageSelect,
 	InGame,
-	Result,
-	// 명세 2: 신규 풀스크린 State. 기존 항목의 enum 값 보존을 위해 끝에 추가한다.
-	Boot,       // S_Boot: 앱 실행 시 로고/인트로 연출
-	SlotSelect  // S_SlotSelect: 세이브 슬롯 관리(이어하기/새 게임 통합)
+	Result
 };
 
 USTRUCT(BlueprintType)
@@ -115,6 +115,13 @@ public:
 	void SetLobbySlotReady(int32 SlotIndex, bool bIsReady);
 
 
+	// --- UI Host (PlayerController) 등록 ---
+	// PC 가 BeginPlay/EndPlay 에서 자신을 호스트로 등록/해제한다.
+	// 라우터는 실제 위젯 생성/제거를 이 호스트에 위임한다.
+	void RegisterUIHost(const TScriptInterface<IUIHost>& InHost);
+	void UnregisterUIHost(const TScriptInterface<IUIHost>& InHost);
+
+
 private:
 	// Current State tracking
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "UI|Controller", meta = (AllowPrivateAccess = "true"))
@@ -131,4 +138,11 @@ private:
 
 	// Active overlay list (mock representation of UI stack)
 	TArray<FString> MockOverlayStack;
+
+	// 실제 위젯 생성/제거를 위임할 호스트(PC). 약참조로 보관하여 PC 파괴 시 dangling 을 방지한다.
+	UPROPERTY()
+	TWeakObjectPtr<UObject> UIHostObject;
+
+	// 약참조를 IUIHost* 로 해석. PC 가 이미 파괴되었으면 nullptr 을 반환한다.
+	IUIHost* GetUIHost() const;
 };

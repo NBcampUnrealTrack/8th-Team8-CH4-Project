@@ -25,7 +25,7 @@ struct FFurnitureScoreResult
 	EFurnitureGrade Grade;          // 가구 등급
 
 	UPROPERTY(BlueprintReadOnly)
-	int32 FinalScore;               // 최종 지급 점수($)
+	int32 FinalScore;               // 최종 지급 점수
 };
 
 // 스테이지 결과 구조체
@@ -35,7 +35,7 @@ struct FStageResult
 	GENERATED_BODY()
 
 	UPROPERTY(BlueprintReadOnly)
-	int32 TotalMoney;               // 최종 보유 $
+	int32 TotalMoney;               // 최종 보유
 
 	UPROPERTY(BlueprintReadOnly)
 	float ElapsedTime;              // 소요 시간 (초)
