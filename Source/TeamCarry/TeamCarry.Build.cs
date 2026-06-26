@@ -9,11 +9,13 @@ public class TeamCarry : ModuleRules
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 	
 		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "UMG", "CommonUI", "CommonInput", "GameplayTags", "CatchCharacter",
-            "AIModule",         
-	        "GameplayTasks",     
-	        "NavigationSystem" });
+            "AIModule",
+	        "GameplayTasks",
+	        "NavigationSystem",
+	        "OnlineSubsystem" });   // 세션 인터페이스 타입(IOnlineSessionPtr 등)을 헤더에서 사용
 
-        PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });
+        PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore",
+            "OnlineSubsystemUtils" });   // Online::GetSubsystem 헬퍼 (.cpp 전용)
 
 
         PublicIncludePaths.AddRange(new string[] 
