@@ -5,7 +5,6 @@
 ATeamCarryGameMode::ATeamCarryGameMode()
 {
     PrimaryActorTick.bCanEverTick = true;
-    RemainingTime = 0.0f;
     TotalFurnitureCount = 0;
 
     // GameState 클래스 설정
@@ -16,29 +15,22 @@ void ATeamCarryGameMode::BeginPlay()
 {
     Super::BeginPlay();
 
-    RemainingTime = StageTotalTime;
+    ATeamCarryGameState* GS = GetGameState<ATeamCarryGameState>();
+    if (GS)
+    {
+        GS->ElapsedTime = 0.0f;
+    }
 }
 
 void ATeamCarryGameMode::Tick(float DeltaTime)
 {
     Super::Tick(DeltaTime);
 
-    if (RemainingTime > 0.0f)
-    {
-        RemainingTime -= DeltaTime;
+    ATeamCarryGameState* GS = GetGameState<ATeamCarryGameState>();
+    if (!GS || GS->bIsGameFinished) return;
 
-        ATeamCarryGameState* GS = GetGameState<ATeamCarryGameState>();
-        if (GS)
-        {
-            GS->ElapsedTime = RemainingTime;
-        }
-
-        if (RemainingTime <= 0.0f)
-        {
-            RemainingTime = 0.0f;
-            FinishGame(true);
-        }
-    }
+    // 스톱워치 - 시간 올라감
+    GS->ElapsedTime += DeltaTime;
 }
 
 void ATeamCarryGameMode::SetTotalFurnitureCount(int32 Count)
@@ -106,6 +98,13 @@ void ATeamCarryGameMode::OnFurnitureExitTruck(FName RowName)
         *RowName.ToString(), GS->TotalScore, GS->RemainingFurniture);
 }
 
+int32 ATeamCarryGameMode::CalculateStar(float ElapsedTime)
+{
+    if (ElapsedTime <= StarThreeTime) return 3;
+    if (ElapsedTime <= StarTwoTime)  return 2;
+    return 1;
+}
+
 int32 ATeamCarryGameMode::CalculateFinalScore()
 {
     int32 Total = 0;
@@ -135,14 +134,15 @@ int32 ATeamCarryGameMode::CalculateScore(float CurrentHealth, float MaxHealth, i
 
 void ATeamCarryGameMode::FinishGame(bool bIsClear)
 {
-    RemainingTime = 0.0f;
-
     ATeamCarryGameState* GS = GetGameState<ATeamCarryGameState>();
     if (!GS) return;
 
     // 최종 점수 확정
     GS->TotalScore = CalculateFinalScore();
     GS->bIsGameFinished = true;
-
-    UE_LOG(LogTemp, Warning, TEXT("게임 종료 | 최종 점수: %d"), GS->TotalScore);
+    
+    int32 Stars = CalculateStar(GS->ElapsedTime);
+    
+    UE_LOG(LogTemp, Warning, TEXT("게임 종료 | 최종 점수: %d | 별: %d개 | 소요 시간: %.1f초"),
+        GS->TotalScore, Stars, GS->ElapsedTime);
 }

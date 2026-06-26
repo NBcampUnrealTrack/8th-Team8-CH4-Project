@@ -28,6 +28,10 @@ public:
 	// 게임 종료 여부
 	UPROPERTY(ReplicatedUsing = OnRep_bIsGameFinished, BlueprintReadOnly)
 	bool bIsGameFinished;
+	
+	// 별 개수
+	UPROPERTY(ReplicatedUsing = OnRep_StarCount, BlueprintReadOnly)
+	int32 StarCount;
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
@@ -40,4 +44,7 @@ protected:
 
 	UFUNCTION()
 	void OnRep_bIsGameFinished();
+	
+	UFUNCTION()
+	void OnRep_StarCount();
 };

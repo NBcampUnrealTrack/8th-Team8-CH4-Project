@@ -39,9 +39,11 @@ public:
 	UFUNCTION(BlueprintCallable)
 	void SetTotalFurnitureCount(int32 Count);
 
-	// 스테이지 제한 시간 (블루프린트에서 수정 가능)
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite)
-	float StageTotalTime = 600.0f; // 기본 10분
+	float StarThreeTime = 180.0f; // 기본 3분
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite)
+	float StarTwoTime = 600.0f; // 기본 10분
 
 protected:
 	// 점수 계산
@@ -49,11 +51,10 @@ protected:
 
 	// 게임 종료 처리
 	void FinishGame(bool bIsClear);
+	
+	int32 CalculateStar(float ElapsedTime);
 
 private:
-	// 남은 시간
-	float RemainingTime;
-
 	// 총 옮겨야 할 가구 개수
 	int32 TotalFurnitureCount;
 
