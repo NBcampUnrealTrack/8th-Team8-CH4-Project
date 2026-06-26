@@ -4,6 +4,7 @@
 #include "Level/Struct/BreakableProp.h"
 #include "Components/StaticMeshComponent.h"
 #include "Core/MovableFurniture.h"
+#include "Core/TCIDamageable.h"
 #include "Level/StageManager.h"
 #include "Kismet/GameplayStatics.h"
 #include "Net/UnrealNetwork.h"
@@ -61,3 +62,16 @@ void ABreakableProp::OnRep_DamageLevel()
 	OnDamageChanged(DamageLevel);
 }
 
+void ABreakableProp::ApplyDamage_Implementation(int32 Amount, AActor*)
+{
+	if (!HasAuthority() || DamageLevel >= MaxDamageLevel) return;
+
+	DamageLevel = FMath::Clamp(DamageLevel + Amount, 0, MaxDamageLevel);
+	OnDamageChanged(DamageLevel);
+
+	if (AStageManager* SM = Cast<AStageManager>(
+		UGameplayStatics::GetActorOfClass(this, AStageManager::StaticClass())))
+	{
+		SM->RegisterDamage(this);
+	}
+}

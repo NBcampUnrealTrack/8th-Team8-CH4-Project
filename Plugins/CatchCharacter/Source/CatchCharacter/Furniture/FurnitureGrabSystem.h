@@ -127,6 +127,12 @@ private:
 	// --- 서버 이동 로직 ---
 	void HandleMovement(float DeltaTime);
 
+	// 플레이어가 가구에 대해 있어야 할 위치(잡을 때의 상대 오프셋을 가구 회전량만큼 돌려 유지).
+	FVector GetAttachedLocation(ACharacter* Player, const FVector& FurnitureLoc, float FurnitureYaw) const;
+
+	// 플레이어가 유지해야 할 시선(Yaw) = 잡을때 시선 + 가구가 잡은 이후 실제 회전한 양.
+	float GetDesiredYaw(ACharacter* Player, float FurnitureYaw) const;
+
 	// 서버가 계산한 플레이어 보정(절대 목표 위치 + 시선 Yaw)을 소유 클라이언트에 적용
 	UFUNCTION(NetMulticast, Unreliable)
 	void Multicast_ApplyPlayerCorrection(ACharacter* Player, FVector TargetLocation, float TargetYaw);
