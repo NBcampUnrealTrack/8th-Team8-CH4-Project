@@ -21,6 +21,13 @@ ATCRobberCharacter::ATCRobberCharacter()
 	GetCharacterMovement()->MaxWalkSpeed = 400.f;
 }
 
+void ATCRobberCharacter::BeginPlay()
+{
+	Super::BeginPlay();
+	CachedMeshRelLocation = GetMesh()->GetRelativeLocation();
+	CachedMeshRelRotation = GetMesh()->GetRelativeRotation();
+}
+
 void ATCRobberCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
@@ -90,18 +97,35 @@ void ATCRobberCharacter::RecoverFromStun()
 
 	// 래그돌 해제 + 이동 복구
 	SetRagdoll(false);
-	GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+	
+	const FVector CapsuleLoc = GetCapsuleComponent()->GetComponentLocation();
+	FHitResult Ground;
+	FCollisionQueryParams Params;
+	Params.AddIgnoredActor(this);
+	if (GetWorld()->LineTraceSingleByChannel(Ground, CapsuleLoc, CapsuleLoc - FVector(0, 0, 2000.f), ECC_Visibility, Params))
+	{
+		FVector NewLoc = Ground.Location;
+		NewLoc.Z += GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+		SetActorLocation(NewLoc, false, nullptr, ETeleportType::TeleportPhysics);
+	}
+
+	UCharacterMovementComponent* Move = GetCharacterMovement();
+	Move->SetMovementMode(MOVE_Walking);
+	Move->Velocity = FVector::ZeroVector;
 
 	State = ERobberState::Normal; // OnRep_State에서 클라도 래그돌 해제
 
 	// AI 재가동
-	if (AAIController* AICon = Cast<AAIController>(GetController()))
+	GetWorldTimerManager().SetTimerForNextTick([this]()
 	{
-		if (UBrainComponent* Brain = AICon->GetBrainComponent())
+		if (AAIController* AICon = Cast<AAIController>(GetController()))
 		{
-			Brain->RestartLogic();
+			if (UBrainComponent* Brain = AICon->GetBrainComponent())
+			{
+				Brain->RestartLogic();
+			}
 		}
-	}
+	});
 }
 
 // 상태는 서버에서 자동으로 판정
@@ -171,12 +195,30 @@ void ATCRobberCharacter::SetRagdoll(bool bEnable)
 	}
 	else
 	{
-		// 물리 끄고 캡슐로 복귀
+		// 1) 물리 블렌딩 완전 차단
+		MeshComp->bBlendPhysics = false;
+
+		// 2) 모든 바디 물리 정지 + 끄기
 		MeshComp->SetAllBodiesSimulatePhysics(false);
 		MeshComp->SetSimulatePhysics(false);
+		MeshComp->PutAllRigidBodiesToSleep();
+
+		// 3) 콜리전 먼저 복구
 		MeshComp->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
-		MeshComp->AttachToComponent(GetCapsuleComponent(), FAttachmentTransformRules::SnapToTargetNotIncludingScale);
 		GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-		// 메시를 캡슐 기준 원위치로 (BeginPlay에서 캐시한 값으로 복원하면 더 정확)
+
+		// 4) 캡슐에 강제 재부착 + 기본 상대 트랜스폼
+		MeshComp->AttachToComponent(GetCapsuleComponent(),
+			FAttachmentTransformRules::SnapToTargetIncludingScale);
+		MeshComp->SetRelativeLocationAndRotation(CachedMeshRelLocation, CachedMeshRelRotation);
+
+		// 5) ★ 본 포즈를 애니메이션으로 강제 복귀 (래그돌 잔상 제거)
+		MeshComp->SetAnimationMode(EAnimationMode::AnimationBlueprint);
+		MeshComp->InitAnim(true);   // AnimBP 재초기화 → 물리 포즈 버리고 애니 포즈로
 	}
+}
+
+void ATCRobberCharacter::ReceiveStun_Implementation(float Duration, AActor*)
+{
+	ApplyStun(Duration);
 }
