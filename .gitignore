@@ -13,6 +13,7 @@
 
 # JetBrains Rider / IntelliJ (개인 IDE 설정)
 .idea/
+*.DotSettings.user
 
 # Visual Studio solution variants (UBT가 재생성)
 *.slnx

@@ -10,7 +10,7 @@ US_MainMenu::US_MainMenu()
 {
 	bSupportsActivationFocus = true;
 
-	UE_LOG(LogTemp, Error, TEXT("US_MainMenu Constructor"));
+	UE_LOG(LogTemp, Log, TEXT("US_MainMenu Constructor"));
 }
 
 void US_MainMenu::NativeConstruct()
@@ -21,10 +21,10 @@ void US_MainMenu::NativeConstruct()
 	{
 		Btn_Start->SetKeyboardFocus();
 
-		UE_LOG(LogTemp, Error, TEXT("Force Focus Start"));
+		UE_LOG(LogTemp, Log, TEXT("Force Focus Start"));
 	}
 
-	UE_LOG(LogTemp, Error, TEXT("US_MainMenu NativeConstruct"));
+	UE_LOG(LogTemp, Log, TEXT("US_MainMenu NativeConstruct"));
 
 	// Bind Start Button (게임 시작 → 세이브 슬롯 선택)
 	if (Btn_Start)
@@ -56,7 +56,7 @@ void US_MainMenu::NativeConstruct()
 
 UWidget* US_MainMenu::NativeGetDesiredFocusTarget() const
 {
-	UE_LOG(LogTemp, Error, TEXT("US_MainMenu Focus Target"));
+	UE_LOG(LogTemp, Log, TEXT("US_MainMenu Focus Target"));
 
 	return Btn_Start;
 }

@@ -259,13 +259,12 @@ void UTCGameInstance::HandleDestroySessionComplete(FName SessionName, bool bWasS
 }
 
 // ── 콘솔 테스트 트리거 ──
-// 테스트 맵(NetTest). 패키징 시 이 맵이 쿠킹되어야 함(DefaultGame.ini 참고).
-static const TCHAR* TC_TEST_MAP = TEXT("/Game/Developers/goldb/Network/Maps/NetTest");
+static const TCHAR* TC_PROTO_MAP = TEXT("/Game/Prototype/L_FurnitureProto");
 
 void UTCGameInstance::Steam_Host()
 {
 	UE_LOG(LogTCNet, Log, TEXT("[Exec] Steam_Host"));
-	HostSteamSession(TC_TEST_MAP, 4, false);
+	HostSteamSession(TC_PROTO_MAP, 4, false);
 }
 
 void UTCGameInstance::Steam_Find()
