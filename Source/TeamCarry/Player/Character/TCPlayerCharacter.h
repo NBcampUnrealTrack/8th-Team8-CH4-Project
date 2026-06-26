@@ -13,6 +13,7 @@ class USpringArmComponent;
 class UInputMappingContext;
 class UInputAction;
 class UGrabComponent;
+class UTCCarrySpeedComponent;
 
 UCLASS()
 class TEAMCARRY_API ATCPlayerCharacter : public ACharacter
@@ -54,6 +55,10 @@ protected:
 	// 상호작용 및 가구 잡기를 담당하는 컴포넌트
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "TCPlayerCharacter|Components")
 	TObjectPtr<UGrabComponent> GrabComponent;
+
+	// 가구 운반 중 인원비례 속도 조절 컴포넌트
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "TCPlayerCharacter|Components")
+	TObjectPtr<UTCCarrySpeedComponent> CarrySpeedComponent;
 
 #pragma endregion
 
