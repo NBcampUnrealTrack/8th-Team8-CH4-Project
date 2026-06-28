@@ -26,11 +26,8 @@ void UGrabComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorC
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-	// 로컬 플레이어(내 화면)에서만 트레이스를 쏘도록 제한
-	if (GetOwner()->GetLocalRole() == ROLE_AutonomousProxy || GetOwner()->GetLocalRole() == ROLE_Authority)
-	{
-		ScanBestTarget();
-	}
+	// 모든 플레이어의 트레이스 실행
+	ScanBestTarget();
 }
 
 // 대상이 존재하면 서버로 상호작용-잡기 시도 요청
@@ -61,10 +58,10 @@ void UGrabComponent::ScanBestTarget()
 	AActor* OwnerActor = GetOwner();
 	if (!OwnerActor) return;
 
-	// 박스 트레이스 범위 설정 (200cm, 50x50x50)
+	// 박스 트레이스 범위 설정 (100cm, 50x50x50)
 	FVector Start = OwnerActor->GetActorLocation();
 	FVector ForwardVector = OwnerActor->GetActorForwardVector();
-	FVector End = Start + (ForwardVector * 200.0f);
+	FVector End = Start + (ForwardVector * 100.0f);
 	FVector HalfSize = FVector(50.f, 50.f, 50.f);
 
 	// 충돌 검사 결과를 담기 위한 배열
