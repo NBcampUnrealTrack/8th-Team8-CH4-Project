@@ -94,8 +94,12 @@ private:
 	TMap<ACharacter*, float> OriginalMaxWalkSpeeds;
 
 	// 이전 틱에 피동(끌어당김) 상태였던 플레이어 집합
-	// GetCurrentAcceleration()/bFurnitureMoving 대신 드래그 여부로 능동/피동 판별
 	TSet<ACharacter*> DraggedLastTick;
+
+	// 이전 틱에 "피동→도달" 전환(bAtTarget && bWasDragged)이었던 플레이어 집합.
+	// 이 틱의 Step 1에서 가중치=0으로 처리해 역방향 견인력을 방지하되,
+	// DraggedLastTick에는 포함하지 않아 bWasDragged=false 유지 → Active 복귀 가능.
+	TSet<ACharacter*> StoppedDraggingLastTick;
 
 	void HandleMovement(float DeltaTime);
 	FVector GetAttachedLocation(ACharacter* Player, const FVector& FurnitureLoc, float FurnitureYaw) const;
@@ -105,6 +109,11 @@ private:
 	// 능동(직접 걷는 중)일 때는 Multicast를 보내지 않는다.
 	UFUNCTION(NetMulticast, Unreliable)
 	void Multicast_ApplyPlayerCorrection(ACharacter* Player, FVector CarryVelocity, float TargetYaw);
+
+	// 디버그: 가구 실속도 + 플레이어 속도 전체 표시 (서버→모든 클라)
+	UFUNCTION(NetMulticast, Unreliable)
+	void Multicast_ShowDebugSpeeds(float FurnActualSpeed, float FurnMaxSpeed,
+		const TArray<float>& MaxWalkSpeeds, const TArray<float>& ActualSpeeds);
 
 	// --- 클라 보간 (가구) ---
 	void UpdateClientInterpolation(float DeltaTime);

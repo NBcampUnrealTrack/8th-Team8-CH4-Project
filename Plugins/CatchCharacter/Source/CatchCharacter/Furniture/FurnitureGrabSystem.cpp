@@ -239,9 +239,9 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 
 	for (ACharacter* P : Players)
 	{
-		if (DraggedLastTick.Contains(P))
+		if (DraggedLastTick.Contains(P) || StoppedDraggingLastTick.Contains(P))
 		{
-			Weights.Add(0.0);  // 피동: 가구 위치 결정에서 제외 (Weights 배열은 Players와 인덱스 동기화 유지)
+			Weights.Add(0.0);  // 피동/전환: 가구 위치 결정에서 제외
 			continue;
 		}
 
@@ -342,6 +342,7 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 	//   bFurnitureMoving(프레임레이트 의존, 첫 틱 소이동 시 오판) 두 가지 방식 모두 폐기.
 
 	TSet<ACharacter*> CurrentTickDragged;
+	TSet<ACharacter*> StoppedDraggingThisTick;
 
 	for (ACharacter* P : Players)
 	{
@@ -374,9 +375,12 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 		if (bAtTarget && bWasDragged)
 		{
 			// 피동 플레이어가 방금 목표에 도달 → 정지 (관성 슬라이딩 방지)
-			// CurrentTickDragged에 추가하지 않음 → 다음 틱은 능동으로 전환
+			// StoppedDraggingThisTick에 추가: 다음 틱 Step 1에서 가중치=0 → 역방향 견인력 방지.
+			// CurrentTickDragged(=DraggedLastTick)에는 넣지 않아 bWasDragged=false 유지
+			// → 다음 틱에 bAtTarget이면 Active로 복귀 가능 (교착상태 방지).
 			CMC->Velocity = FVector::ZeroVector;
 			Multicast_ApplyPlayerCorrection(P, FVector::ZeroVector, DesiredYaw);
+			StoppedDraggingThisTick.Add(P);
 			continue;
 		}
 
@@ -392,7 +396,8 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 		CurrentTickDragged.Add(P);
 	}
 
-	DraggedLastTick = MoveTemp(CurrentTickDragged);
+	DraggedLastTick          = MoveTemp(CurrentTickDragged);
+	StoppedDraggingLastTick  = MoveTemp(StoppedDraggingThisTick);
 
 	// ---- 6. 안전장치 처리 ----
 	for (ACharacter* P : ToRelease)
@@ -401,11 +406,48 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 	// ---- 7. 클라 보간용 트랜스폼 갱신 ----
 	ServerLocation = Owner->GetActorLocation();
 	ServerRotation = Owner->GetActorRotation();
+
+#if !UE_BUILD_SHIPPING
+	{
+		const float FurnActualSpeed = FVector(ServerLocation - CurFurnLoc).Size2D() / DeltaTime;
+		const int32 Required        = FurnitureStat->GetRequiredPlayer();
+		const float BaseSpeed       = FurnitureStat->GetBaseSpeed();
+		const float FurnMaxSpeed    = (Required > 0) ? (BaseSpeed * Players.Num() / (float)Required) : 0.0f;
+
+		TArray<float> MaxSpeeds, ActualSpeeds;
+		for (ACharacter* P : Players)
+		{
+			if (UCharacterMovementComponent* CMC = P->GetCharacterMovement())
+			{
+				MaxSpeeds.Add(CMC->MaxWalkSpeed);
+				ActualSpeeds.Add(FVector(CMC->Velocity.X, CMC->Velocity.Y, 0.0f).Size());
+			}
+		}
+		Multicast_ShowDebugSpeeds(FurnActualSpeed, FurnMaxSpeed, MaxSpeeds, ActualSpeeds);
+	}
+#endif
 }
 
 // =====================================================================
 // Multicast: 클라이언트 CMC 속도 동기화
 // =====================================================================
+
+void UFurnitureGrabSystem::Multicast_ShowDebugSpeeds_Implementation(
+	float FurnActualSpeed, float FurnMaxSpeed,
+	const TArray<float>& MaxWalkSpeeds, const TArray<float>& ActualSpeeds)
+{
+#if !UE_BUILD_SHIPPING
+	if (!GEngine) return;
+	GEngine->AddOnScreenDebugMessage(9000, 0.1f, FColor::Yellow,
+		FString::Printf(TEXT("[가구] 실속도: %.0f  /  설정최대속도: %.0f"), FurnActualSpeed, FurnMaxSpeed));
+	for (int32 i = 0; i < MaxWalkSpeeds.Num(); ++i)
+	{
+		GEngine->AddOnScreenDebugMessage(9001 + i, 0.1f, FColor::Cyan,
+			FString::Printf(TEXT("  [P%d] MaxWalkSpeed: %.0f  /  현재속도: %.0f"),
+				i + 1, MaxWalkSpeeds[i], ActualSpeeds[i]));
+	}
+#endif
+}
 
 void UFurnitureGrabSystem::Multicast_ApplyPlayerCorrection_Implementation(
 	ACharacter* Player, FVector CarryVelocity, float TargetYaw)
