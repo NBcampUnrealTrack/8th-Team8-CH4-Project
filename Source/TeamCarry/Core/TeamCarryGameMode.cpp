@@ -1,6 +1,7 @@
 #include "TeamCarryGameMode.h"
 #include "TeamCarryGameState.h"
 #include "Kismet/GameplayStatics.h"
+#include "Furniture/TCFurnitureActor.h"
 
 ATeamCarryGameMode::ATeamCarryGameMode()
 {
@@ -14,12 +15,20 @@ ATeamCarryGameMode::ATeamCarryGameMode()
 void ATeamCarryGameMode::BeginPlay()
 {
     Super::BeginPlay();
+    
+    TArray<AActor*> FurnitureActors;
+    UGameplayStatics::GetAllActorsOfClass(GetWorld(), ATCFurnitureActor::StaticClass(), FurnitureActors);
+    SetTotalFurnitureCount(FurnitureActors.Num());
 
     ATeamCarryGameState* GS = GetGameState<ATeamCarryGameState>();
     if (GS)
     {
         GS->ElapsedTime = 0.0f;
     }
+    
+    // 게임 시작 시 카운트다운 시작
+    SetGamePhase(EGamePhase::WaitingToStart);
+    StartCountdown();
 }
 
 void ATeamCarryGameMode::Tick(float DeltaTime)
@@ -28,9 +37,12 @@ void ATeamCarryGameMode::Tick(float DeltaTime)
 
     ATeamCarryGameState* GS = GetGameState<ATeamCarryGameState>();
     if (!GS || GS->bIsGameFinished) return;
-
-    // 스톱워치 - 시간 올라감
-    GS->ElapsedTime += DeltaTime;
+    
+    // Playing 단계일 때만 스톱워치 작동
+    if (GS->CurrentPhase == EGamePhase::Playing)
+    {
+        GS->ElapsedTime += DeltaTime;
+    }
 }
 
 void ATeamCarryGameMode::SetTotalFurnitureCount(int32 Count)
@@ -42,6 +54,35 @@ void ATeamCarryGameMode::SetTotalFurnitureCount(int32 Count)
     {
         GS->RemainingFurniture = Count;
     }
+}
+
+void ATeamCarryGameMode::SetGamePhase(EGamePhase NewPhase)
+{
+    ATeamCarryGameState* GS = GetGameState<ATeamCarryGameState>();
+    if (!GS) return;
+
+    GS->CurrentPhase = NewPhase;
+
+    UE_LOG(LogTemp, Warning, TEXT("게임 단계 전환: %d"), (int32)NewPhase);
+}
+
+void ATeamCarryGameMode::StartCountdown()
+{
+    SetGamePhase(EGamePhase::Countdown);
+    CountdownTime = 3.0f;
+
+    GetWorldTimerManager().SetTimer(CountdownTimerHandle, [this]()
+    {
+        CountdownTime -= 1.0f;
+
+        UE_LOG(LogTemp, Warning, TEXT("카운트다운: %.0f"), CountdownTime);
+
+        if (CountdownTime <= 0.0f)
+        {
+            GetWorldTimerManager().ClearTimer(CountdownTimerHandle);
+            SetGamePhase(EGamePhase::Playing);
+        }
+    }, 1.0f, true);
 }
 
 void ATeamCarryGameMode::OnFurnitureEnterTruck(FName RowName, float CurrentHealth, float MaxHealth, int32 BaseScore)
@@ -140,9 +181,32 @@ void ATeamCarryGameMode::FinishGame(bool bIsClear)
     // 최종 점수 확정
     GS->TotalScore = CalculateFinalScore();
     GS->bIsGameFinished = true;
+    GS->StarCount = CalculateStar(GS->ElapsedTime);
     
-    int32 Stars = CalculateStar(GS->ElapsedTime);
-    
+    SetGamePhase(EGamePhase::Result);
+
     UE_LOG(LogTemp, Warning, TEXT("게임 종료 | 최종 점수: %d | 별: %d개 | 소요 시간: %.1f초"),
-        GS->TotalScore, Stars, GS->ElapsedTime);
+        GS->TotalScore, GS->StarCount, GS->ElapsedTime);
+}
+
+bool ATeamCarryGameMode::IsStageCleared() const
+{
+    ATeamCarryGameState* GS = GetGameState<ATeamCarryGameState>();
+    if (!GS) return false;
+    return GS->bIsGameFinished;
+}
+
+int32 ATeamCarryGameMode::GetDeliveredCount() const
+{
+    return FurnitureInTruck.Num();
+}
+
+int32 ATeamCarryGameMode::GetTargetCount() const
+{
+    return TotalFurnitureCount;
+}
+
+void ATeamCarryGameMode::OnStageCleared_Implementation()
+{
+    FinishGame(true);
 }

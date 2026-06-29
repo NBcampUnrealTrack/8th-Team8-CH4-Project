@@ -43,3 +43,13 @@ struct FStageResult
 	UPROPERTY(BlueprintReadOnly)
 	bool bIsClear;                  // 클리어 여부
 };
+
+// 게임 진행 단계
+UENUM(BlueprintType)
+enum class EGamePhase : uint8
+{
+	WaitingToStart  UMETA(DisplayName = "WaitingToStart"),  // 대기 중
+	Countdown       UMETA(DisplayName = "Countdown"),       // 카운트다운
+	Playing         UMETA(DisplayName = "Playing"),         // 게임 진행 중
+	Result          UMETA(DisplayName = "Result")           // 결과창
+};
