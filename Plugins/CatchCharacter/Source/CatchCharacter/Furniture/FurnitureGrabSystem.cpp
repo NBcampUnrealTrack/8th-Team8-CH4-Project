@@ -327,6 +327,33 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 	FVector ActualLoc = Owner->GetActorLocation();
 	const float ActualYaw = Owner->GetActorRotation().Yaw;
 
+	// ---- 3.5. 회전 막힘 감지 → 위치 기준점 리셋 (호(弧) 미끄러짐 방지) ----
+	// 회전이 막히면 TargetYaw는 매 틱 증가하지만 ActualYaw는 고정 → Step 2의 YC가 누적
+	// → TargetLoc이 호(弧)를 순회 → 가구가 벽을 따라 이리저리 미끄러짐.
+	// InitOffset+InitFurnYaw 리셋 시 다음 틱 YC ≈ 8.9°(1틱분) → TargetLoc ≈ ActualLoc(안정).
+	// InitAimYaw 유지 → ProposalYaw = ActualYaw + 원래카메라각도 → 막힘 해제 후 즉시 정상 회전.
+	{
+		const bool bRotationBlocked =
+			FMath::Abs(FMath::FindDeltaAngleDegrees(TargetYaw, ActualYaw)) > CorrectionDeadzone;
+		if (bRotationBlocked)
+		{
+			for (int32 i = 0; i < N; ++i)
+			{
+				ACharacter* P = Players[i];
+				if (!Anchors.Contains(P)) continue;
+				if (DraggedLastTick.Contains(P) || StoppedDraggingLastTick.Contains(P)) continue;
+
+				FGrabAnchor& Anc        = Anchors[P];
+				Anc.InitialOffset       = ActualLoc - P->GetActorLocation();
+				Anc.InitialFurnitureYaw = ActualYaw;
+				Anc.InitialAimYaw       = P->GetBaseAimRotation().Yaw;
+				// InitialPlayerYaw 유지 → GetDesiredYaw 정합성 유지
+				Multicast_SetPlayerAnchor(P, ActualYaw, Anc.InitialPlayerYaw,
+				                          Anc.InitialAimYaw, Anc.InitialOffset);
+			}
+		}
+	}
+
 	// 안전장치: 너무 멀어진 플레이어 자동 해제
 	TArray<ACharacter*> ToRelease;
 	const float MaxSepSq = FMath::Square(MaxGrabSeparationDistance);
