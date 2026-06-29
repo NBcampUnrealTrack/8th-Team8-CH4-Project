@@ -74,6 +74,26 @@ void UFurnitureGrabSystem::TickComponent(float DeltaTime, ELevelTick TickType, F
 		PreviousClientRot    = Owner->GetActorRotation();
 		bHasClientInterpInit = false;
 	}
+
+	// 로컬 플레이어 몸통 Yaw를 가구 회전에 직접 동기화 (서버·클라 공통)
+	// 서버가 원격 플레이어에 SetActorRotation을 보내면 CMC 예측과 충돌해 흔들림 →
+	// 대신 각 클라이언트가 자기 주도권으로 로컬에서 처리
+	if (bGrabbed && GetWorld())
+	{
+		APlayerController* PC       = GetWorld()->GetFirstPlayerController();
+		ACharacter*        LocalChar = PC ? Cast<ACharacter>(PC->GetPawn()) : nullptr;
+		if (LocalChar && GrabbedPlayers.Contains(LocalChar) && LocalChar->IsLocallyControlled()
+		    && Anchors.Contains(LocalChar))
+		{
+			const float DesiredYaw = GetDesiredYaw(LocalChar, Owner->GetActorRotation().Yaw);
+			if (FMath::Abs(FMath::FindDeltaAngleDegrees(LocalChar->GetActorRotation().Yaw, DesiredYaw)) > YawCorrectionDeadzone)
+			{
+				FRotator NewRot = LocalChar->GetActorRotation();
+				NewRot.Yaw      = DesiredYaw;
+				LocalChar->SetActorRotation(NewRot);
+			}
+		}
+	}
 }
 
 // =====================================================================
@@ -106,8 +126,10 @@ void UFurnitureGrabSystem::Grab(ACharacter* Grabber, FVector height, UPrimitiveC
 		FGrabAnchor Anchor;
 		Anchor.InitialOffset       = Owner->GetActorLocation() - Grabber->GetActorLocation();
 		Anchor.InitialFurnitureYaw = Owner->GetActorRotation().Yaw;
-		Anchor.InitialPlayerYaw    = Grabber->GetActorRotation().Yaw;
+		Anchor.InitialPlayerYaw    = Grabber->GetActorRotation().Yaw;       // 몸통 방향: GetDesiredYaw 기준, 그랩 시 스냅 방지
+		Anchor.InitialAimYaw       = Grabber->GetBaseAimRotation().Yaw;     // 카메라 방향: 가구 회전 기준
 		Anchors.Add(Grabber, Anchor);
+		Multicast_SetPlayerAnchor(Grabber, Anchor.InitialFurnitureYaw, Anchor.InitialPlayerYaw, Anchor.InitialAimYaw, Anchor.InitialOffset);
 	}
 
 	SetGrabCollisionState(Grabber, true);
@@ -228,38 +250,64 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 	const int32  N             = Players.Num();
 	const FVector CurFurnLoc   = Owner->GetActorLocation();
 	const float   CurFurnZ     = CurFurnLoc.Z;
+	const float   CurFurnYaw   = Owner->GetActorRotation().Yaw;
 
 	// ---- 1. 각 플레이어의 "내가 주도한다면 가구는 여기" 제안 + 활동량 가중치 계산 ----
 	//   활동량 = 현재 가구 위치에서 제안 위치까지의 거리. 더 많이 움직인 사람이 더 큰 가중치.
 	//   피동(끌려가는) 플레이어는 가중치 0: 뒤처진 피동 플레이어의 제안이 가구를 역방향으로 당기는 것을 방지.
 	const float Eps = 0.01f;
 	TArray<double> Weights;
-	Weights.Reserve(N);
+	Weights.Init(0.0, N);
 	double WTotal = 0.0, WSumSin = 0.0, WSumCos = 0.0;
 
-	for (ACharacter* P : Players)
+	for (int32 i = 0; i < N; ++i)
 	{
+		ACharacter* P = Players[i];
 		if (DraggedLastTick.Contains(P) || StoppedDraggingLastTick.Contains(P))
-		{
-			Weights.Add(0.0);  // 피동/전환: 가구 위치 결정에서 제외
-			continue;
-		}
+			continue;  // Weights[i] = 0 (이미 초기화됨)
 
 		const FGrabAnchor& Anc           = Anchors[P];
-		const float        PlayerYawDelta = FMath::FindDeltaAngleDegrees(Anc.InitialPlayerYaw, P->GetActorRotation().Yaw);
+		const float        PlayerAimYaw   = P->GetBaseAimRotation().Yaw;
+		const float        PlayerYawDelta = FMath::FindDeltaAngleDegrees(Anc.InitialAimYaw, PlayerAimYaw);
 		const float        ProposalYaw   = Anc.InitialFurnitureYaw + PlayerYawDelta;
 		const FVector      ProposalLoc   = P->GetActorLocation() + Anc.InitialOffset.RotateAngleAxis(PlayerYawDelta, FVector::UpVector);
 		const float        Demand        = FVector(ProposalLoc.X - CurFurnLoc.X, ProposalLoc.Y - CurFurnLoc.Y, 0.0f).Size();
 		const double       W             = Demand + Eps;
 
-		Weights.Add(W);
+		Weights[i] = W;
 		WTotal   += W;
 		WSumSin  += W * FMath::Sin(FMath::DegreesToRadians(ProposalYaw));
 		WSumCos  += W * FMath::Cos(FMath::DegreesToRadians(ProposalYaw));
 	}
 
+	// 교착 방지: 벽 충돌 등으로 전원 피동 판정 → WTotal=0 → 가구 영구 동결
+	// 피동 추적을 초기화해 모든 플레이어를 능동으로 복귀, 재계산
+	if (WTotal <= 0.0)
+	{
+		DraggedLastTick.Empty();
+		StoppedDraggingLastTick.Empty();
+		WTotal = 0.0; WSumSin = 0.0; WSumCos = 0.0;
+		for (int32 i = 0; i < N; ++i)
+		{
+			ACharacter* P = Players[i];
+			const FGrabAnchor& Anc           = Anchors[P];
+			const float        PlayerAimYaw   = P->GetBaseAimRotation().Yaw;
+			const float        PlayerYawDelta = FMath::FindDeltaAngleDegrees(Anc.InitialAimYaw, PlayerAimYaw);
+			const float        ProposalYaw   = Anc.InitialFurnitureYaw + PlayerYawDelta;
+			const FVector      ProposalLoc   = P->GetActorLocation() + Anc.InitialOffset.RotateAngleAxis(PlayerYawDelta, FVector::UpVector);
+			const float        Demand        = FVector(ProposalLoc.X - CurFurnLoc.X, ProposalLoc.Y - CurFurnLoc.Y, 0.0f).Size();
+			const double       W             = Demand + Eps;
+			Weights[i] = W;
+			WTotal   += W;
+			WSumSin  += W * FMath::Sin(FMath::DegreesToRadians(ProposalYaw));
+			WSumCos  += W * FMath::Cos(FMath::DegreesToRadians(ProposalYaw));
+		}
+	}
+
 	// ---- 2. 가구 목표 Yaw + 위치 결정 ----
-	const float TargetYaw = FMath::RadiansToDegrees(FMath::Atan2(WSumSin, WSumCos));
+	// FixedTurn: 한 틱에 FurnYawRotationSpeed*DT 이상 회전 불가 → 빠른 카메라 회전 시 가구 튐 방지
+	const float TargetYawRaw = FMath::RadiansToDegrees(FMath::Atan2(WSumSin, WSumCos));
+	const float TargetYaw    = FMath::FixedTurn(CurFurnYaw, TargetYawRaw, FurnYawRotationSpeed * DeltaTime);
 
 	FVector WLocSum = FVector::ZeroVector;
 	for (int32 i = 0; i < N; ++i)
@@ -357,13 +405,21 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 
 		if (bAtTarget && !bWasDragged)
 		{
-			// 능동 주도자: 이전 틱에도 드래그 없이 목표 위치에 있었음 = 직접 걷는 중.
-			// CMC 및 Yaw 모두 간섭하지 않는다.
-			// (Yaw는 플레이어 컨트롤러가 처리, 가구 Yaw는 Steps 1-2에서 이미 반영됨)
+			// 능동 주도자: CMC 속도 간섭 없음.
+			// Yaw는 서버에서 SetActorRotation → 자동 복제 → 다른 클라가 캐릭터 회전을 볼 수 있음.
+			// Multicast_ApplyPlayerCorrection → 해당 클라이언트 즉시 적용.
+			const float DesiredYaw = GetDesiredYaw(P, ActualYaw);
+			if (FMath::Abs(FMath::FindDeltaAngleDegrees(P->GetActorRotation().Yaw, DesiredYaw)) > YawCorrectionDeadzone)
+			{
+				FRotator NewRot = P->GetActorRotation();
+				NewRot.Yaw = DesiredYaw;
+				P->SetActorRotation(NewRot);
+				Multicast_ApplyPlayerCorrection(P, FVector::ZeroVector, DesiredYaw);
+			}
 			continue;
 		}
 
-		// 피동·정지 플레이어만 Yaw 보정 (능동 플레이어에게 SetActorRotation 하면 CMC 예측과 충돌 → 흔들림)
+		// 여기 이후 = 피동·정지 플레이어 (능동 주도자는 위 블록에서 continue됨)
 		const float DesiredYaw = GetDesiredYaw(P, ActualYaw);
 		if (FMath::Abs(FMath::FindDeltaAngleDegrees(P->GetActorRotation().Yaw, DesiredYaw)) > YawCorrectionDeadzone)
 		{
@@ -406,6 +462,7 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 	// ---- 7. 클라 보간용 트랜스폼 갱신 ----
 	ServerLocation = Owner->GetActorLocation();
 	ServerRotation = Owner->GetActorRotation();
+	Multicast_UpdateFurnitureTransform(ServerLocation, ServerRotation);
 
 #if !UE_BUILD_SHIPPING
 	{
@@ -431,6 +488,30 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 // =====================================================================
 // Multicast: 클라이언트 CMC 속도 동기화
 // =====================================================================
+
+void UFurnitureGrabSystem::Multicast_SetPlayerAnchor_Implementation(
+	ACharacter* Player, float InitFurnYaw, float InitPlayerYaw, float InitAimYaw, FVector InitOffset)
+{
+	if (!Player || (GetOwner() && GetOwner()->HasAuthority()))
+		return;
+
+	// 서버 Grab() 시점의 정확한 기준값으로 클라 앵커를 설정/갱신.
+	// OnRep에서 이미 임시 앵커가 만들어졌어도 Reliable이므로 반드시 덮어씀.
+	FGrabAnchor& A        = Anchors.FindOrAdd(Player);
+	A.InitialFurnitureYaw = InitFurnYaw;
+	A.InitialPlayerYaw    = InitPlayerYaw;
+	A.InitialAimYaw       = InitAimYaw;
+	A.InitialOffset       = InitOffset;
+}
+
+void UFurnitureGrabSystem::Multicast_UpdateFurnitureTransform_Implementation(FVector NewLocation, FRotator NewRotation)
+{
+	if (GetOwner() && GetOwner()->HasAuthority())
+		return;
+
+	ServerLocation = NewLocation;
+	ServerRotation = NewRotation;
+}
 
 void UFurnitureGrabSystem::Multicast_ShowDebugSpeeds_Implementation(
 	float FurnActualSpeed, float FurnMaxSpeed,
@@ -524,6 +605,7 @@ void UFurnitureGrabSystem::OnRep_GrabbedPlayers()
 			if (P)
 			{
 				SetGrabCollisionState(P, false);
+				Anchors.Remove(P);
 
 				if (P->IsLocallyControlled() && bLocalCMCModified)
 				{
@@ -547,7 +629,19 @@ void UFurnitureGrabSystem::OnRep_GrabbedPlayers()
 			SetGrabCollisionState(P, true);
 			ClientTrackedPlayers.Add(P);
 
-			// 로컬 플레이어의 CMC를 서버 Grab()과 동일한 상태로 전환 (BrakingDecel·GroundFriction 은 유지)
+			// 클라이언트에서 로컬 플레이어의 Anchor 복구 (Grab()은 서버 전용이므로 클라에는 없음)
+			// GetDesiredYaw 및 TickComponent 로컬 Yaw 보정에 필요
+			if (P->IsLocallyControlled() && GetOwner())
+			{
+				FGrabAnchor LocalAnchor;
+				LocalAnchor.InitialOffset       = GetOwner()->GetActorLocation() - P->GetActorLocation();
+				LocalAnchor.InitialFurnitureYaw = GetOwner()->GetActorRotation().Yaw;
+				LocalAnchor.InitialPlayerYaw    = P->GetActorRotation().Yaw;       // 몸통 방향 (스냅 방지)
+				LocalAnchor.InitialAimYaw       = P->GetBaseAimRotation().Yaw;     // 카메라 방향 (Multicast로 서버값으로 덮어씌워짐)
+				Anchors.Add(P, LocalAnchor);
+			}
+
+			// 로컬 플레이어의 CMC를 서버 Grab()과 동일한 상태로 전환
 			if (P->IsLocallyControlled() && !bLocalCMCModified)
 			{
 				if (UCharacterMovementComponent* CMC = P->GetCharacterMovement())

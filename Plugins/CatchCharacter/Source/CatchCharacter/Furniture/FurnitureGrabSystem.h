@@ -81,12 +81,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
 	float BlockStopThreshold = 1.0f;
 
+	// 가구 최대 회전 속도 (도/초). 빠른 카메라 회전 시 가구 위치 튐 방지.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
+	float FurnYawRotationSpeed = 270.0f;
+
 private:
 	struct FGrabAnchor
 	{
 		FVector InitialOffset        = FVector::ZeroVector;
 		float   InitialFurnitureYaw  = 0.0f;
-		float   InitialPlayerYaw     = 0.0f;
+		float   InitialPlayerYaw     = 0.0f;  // 그랩 시점 캐릭터 몸통 Yaw (GetDesiredYaw 기준, 스냅 방지)
+		float   InitialAimYaw        = 0.0f;  // 그랩 시점 카메라 Yaw (가구 회전 기준)
 	};
 	TMap<ACharacter*, FGrabAnchor> Anchors;
 
@@ -109,6 +114,15 @@ private:
 	// 능동(직접 걷는 중)일 때는 Multicast를 보내지 않는다.
 	UFUNCTION(NetMulticast, Unreliable)
 	void Multicast_ApplyPlayerCorrection(ACharacter* Player, FVector CarryVelocity, float TargetYaw);
+
+	// Grab 시점 앵커(초기 가구 Yaw·플레이어 카메라 Yaw·오프셋)를 클라이언트에 정확히 전달.
+	// OnRep_GrabbedPlayers는 타이밍이 달라 초기값이 틀릴 수 있으므로 Reliable로 보정.
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_SetPlayerAnchor(ACharacter* Player, float InitFurnYaw, float InitPlayerYaw, float InitAimYaw, FVector InitOffset);
+
+	// 가구 위치·회전을 매 서버 틱 클라이언트에 직접 전달 (DOREPLIFETIME 보완).
+	UFUNCTION(NetMulticast, Unreliable)
+	void Multicast_UpdateFurnitureTransform(FVector NewLocation, FRotator NewRotation);
 
 	// 디버그: 가구 실속도 + 플레이어 속도 전체 표시 (서버→모든 클라)
 	UFUNCTION(NetMulticast, Unreliable)
