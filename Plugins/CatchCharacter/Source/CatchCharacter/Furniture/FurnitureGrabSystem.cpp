@@ -358,7 +358,8 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 				Cap->GetScaledCapsuleRadius(), Cap->GetScaledCapsuleHalfHeight());
 			FCollisionQueryParams QP;
 			QP.AddIgnoredActor(Owner);
-			QP.AddIgnoredActor(P);
+			for (ACharacter* Other : Players)  // 그랩 플레이어끼리 오탐 WorstBlock 방지
+				QP.AddIgnoredActor(Other);
 
 			FHitResult Hit;
 			if (GetWorld()->SweepSingleByProfile(Hit, StartPos, EndPos, FQuat::Identity,
@@ -431,12 +432,22 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 		if (bAtTarget && bWasDragged)
 		{
 			// 피동 플레이어가 방금 목표에 도달 → 정지 (관성 슬라이딩 방지)
-			// StoppedDraggingThisTick에 추가: 다음 틱 Step 1에서 가중치=0 → 역방향 견인력 방지.
-			// CurrentTickDragged(=DraggedLastTick)에는 넣지 않아 bWasDragged=false 유지
-			// → 다음 틱에 bAtTarget이면 Active로 복귀 가능 (교착상태 방지).
 			CMC->Velocity = FVector::ZeroVector;
 			Multicast_ApplyPlayerCorrection(P, FVector::ZeroVector, DesiredYaw);
 			StoppedDraggingThisTick.Add(P);
+
+			// 앵커 갱신: 도달 시점의 가구 상태를 새 기준점으로 설정
+			// 갱신하지 않으면 다음 틱 ProposalYaw = grab당시InitFurnYaw + 카메라Delta
+			// = 이전 가구 Yaw 기준 → 능동 플레이어의 ProposalYaw와 충돌 → 역회전 → 상호 피동 진동.
+			// 갱신하면 ProposalYaw = ActualYaw + 0 = 현재 가구 Yaw → 두 플레이어 Yaw 제안 일치 → 안정.
+			{
+				FGrabAnchor& Anc        = Anchors[P];
+				Anc.InitialOffset       = ActualLoc - P->GetActorLocation();
+				Anc.InitialFurnitureYaw = ActualYaw;
+				Anc.InitialAimYaw       = P->GetBaseAimRotation().Yaw;
+				Anc.InitialPlayerYaw    = P->GetActorRotation().Yaw;
+				Multicast_SetPlayerAnchor(P, ActualYaw, Anc.InitialPlayerYaw, Anc.InitialAimYaw, Anc.InitialOffset);
+			}
 			continue;
 		}
 
