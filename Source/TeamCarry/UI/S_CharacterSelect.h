@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 #pragma once
 
@@ -44,6 +44,18 @@ protected:
 
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
 	TObjectPtr<UTextBlock> Slot2_Status;
+
+	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
+	TObjectPtr<UTextBlock> Slot3_Name;
+
+	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
+	TObjectPtr<UTextBlock> Slot3_Status;
+
+	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
+	TObjectPtr<UTextBlock> Slot4_Name;
+
+	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
+	TObjectPtr<UTextBlock> Slot4_Status;
 
 private:
 	UFUNCTION()

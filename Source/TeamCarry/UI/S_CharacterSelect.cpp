@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 
 #include "TeamCarry/UI/S_CharacterSelect.h"
@@ -39,6 +39,12 @@ void US_CharacterSelect::NativeConstruct()
 
 	if (Slot2_Name) Slot2_Name->SetText(FText::FromString(TEXT("Player_2 (AI)")));
 	if (Slot2_Status) Slot2_Status->SetText(FText::FromString(TEXT("READY")));
+
+	if (Slot3_Name) Slot3_Name->SetText(FText::FromString(TEXT("Player_3 (AI)")));
+	if (Slot3_Status) Slot3_Status->SetText(FText::FromString(TEXT("READY")));
+
+	if (Slot4_Name) Slot4_Name->SetText(FText::FromString(TEXT("Player_4 (AI)")));
+	if (Slot4_Status) Slot4_Status->SetText(FText::FromString(TEXT("READY")));
 
 	bLocalPlayerReady = false;
 	SetIsFocusable(true);
@@ -110,5 +116,13 @@ void US_CharacterSelect::HandleLobbySlotUpdated(int32 SlotIndex, FPlayerInfo Pla
 	else if (SlotIndex == 1)
 	{
 		if (Slot2_Status) Slot2_Status->SetText(StatusText);
+	}
+	else if (SlotIndex == 2)
+	{
+		if (Slot3_Status) Slot3_Status->SetText(StatusText);
+	}
+	else if (SlotIndex == 3)
+	{
+		if (Slot4_Status) Slot4_Status->SetText(StatusText);
 	}
 }
