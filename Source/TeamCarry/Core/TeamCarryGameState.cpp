@@ -8,6 +8,7 @@ ATeamCarryGameState::ATeamCarryGameState()
 	ElapsedTime = 0.0f;
 	bIsGameFinished = false;
 	StarCount = 0;
+	CurrentPhase = EGamePhase::WaitingToStart;
 }
 
 void ATeamCarryGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -19,6 +20,7 @@ void ATeamCarryGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 	DOREPLIFETIME(ATeamCarryGameState, ElapsedTime);
 	DOREPLIFETIME(ATeamCarryGameState, bIsGameFinished);
 	DOREPLIFETIME(ATeamCarryGameState, StarCount);
+	DOREPLIFETIME(ATeamCarryGameState, CurrentPhase);
 }
 
 void ATeamCarryGameState::OnRep_TotalScore()
@@ -39,4 +41,9 @@ void ATeamCarryGameState::OnRep_bIsGameFinished()
 void ATeamCarryGameState::OnRep_StarCount()
 {
 	// 별 개수 UI 갱신
+}
+
+void ATeamCarryGameState::OnRep_CurrentPhase()
+{
+	// UI 단계 갱신
 }

@@ -29,6 +29,10 @@ public:
 	UPROPERTY(ReplicatedUsing = OnRep_bIsGameFinished, BlueprintReadOnly)
 	bool bIsGameFinished;
 	
+	// 현재 게임 단계
+	UPROPERTY(ReplicatedUsing = OnRep_CurrentPhase, BlueprintReadOnly)
+	EGamePhase CurrentPhase;
+	
 	// 별 개수
 	UPROPERTY(ReplicatedUsing = OnRep_StarCount, BlueprintReadOnly)
 	int32 StarCount;
@@ -47,4 +51,7 @@ protected:
 	
 	UFUNCTION()
 	void OnRep_StarCount();
+	
+	UFUNCTION()
+	void OnRep_CurrentPhase();
 };
