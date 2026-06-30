@@ -21,4 +21,19 @@ public:
     virtual void OnFocus_Implementation() override;
     virtual void OnUnfocus_Implementation() override;
 
+protected:
+    virtual void BeginPlay() override;
+
+    UFUNCTION()
+    void DestroyFuniture();
+
+    UFUNCTION(NetMulticast, Reliable)
+    void Multicast_DestroyFurniture();
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destruction")
+    TObjectPtr<UStaticMesh> BrokenMesh;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destruction")
+    TObjectPtr<USoundBase> BreakSound;
+
 };

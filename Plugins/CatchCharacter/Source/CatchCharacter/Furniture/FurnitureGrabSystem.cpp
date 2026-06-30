@@ -205,10 +205,13 @@ void UFurnitureGrabSystem::Release(ACharacter* Grabber)
 	if (FurnitureStat)
 		FurnitureStat->UpdateGrabbedPlayers(GrabbedPlayers.Num());
 }
-
 void UFurnitureGrabSystem::AllRelease()
 {
-
+	TArray<ACharacter*> PlayersToRelease = GrabbedPlayers;
+	for (ACharacter* Player : PlayersToRelease)
+	{
+		Release(Player);
+	}
 }
 
 // =====================================================================
@@ -329,6 +332,20 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 
 	// ---- 3. 가구 이동 (sweep=true, 가구 자체 충돌) ----
 	Owner->SetActorLocationAndRotation(TargetLoc, FRotator(0.0f, TargetYaw, 0.0f), true);
+	
+	// sweep 이동 도중 발생한 물리/데미지 이벤트(가구 파괴 등)로 인해 
+	// 플레이어가 동기적으로 Release 되었을 수 있으므로 로컬 배열(Players)의 유효성을 다시 갱신합니다.
+	for (int32 i = Players.Num() - 1; i >= 0; --i)
+	{
+		if (!Anchors.Contains(Players[i]))
+		{
+			Players.RemoveAt(i);
+		}
+	}
+	// 갱신 후 남은 플레이어가 없다면 아래 로직(위치 보정 등)을 수행할 필요 없이 즉시 중단합니다.
+	if (Players.Num() == 0)
+		return;
+
 	FVector ActualLoc = Owner->GetActorLocation();
 	const float ActualYaw = Owner->GetActorRotation().Yaw;
 
