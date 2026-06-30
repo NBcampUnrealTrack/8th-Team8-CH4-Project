@@ -24,16 +24,16 @@ protected:
 	virtual void BeginPlay() override;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
-	UStaticMeshComponent* FurnitureMesh;
+	TObjectPtr<UStaticMeshComponent> FurnitureMesh;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
-	UFurnitureStat* FurnitureStat;
+	TObjectPtr<UFurnitureStat> FurnitureStat;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
-	UFurnitureGrabSystem* GrabSystem;
+	TObjectPtr<UFurnitureGrabSystem> GrabSystem;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
-	UFurnitureDamage* DamageSystem;
+	TObjectPtr<UFurnitureDamage> DamageSystem;
 
 	// --- 설정 데이터 ---
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Setup")
@@ -48,6 +48,7 @@ public:
 
 	UFurnitureGrabSystem* GetGrabSystem() const { return GrabSystem; }
 	UFurnitureStat* GetFurnitureStat() const { return FurnitureStat; }
+	UFurnitureDamage* GetDamageSystem() const { return DamageSystem; }
 
 	// 외곽선 하이라이트 (현재는 더미데이터)
 	UFUNCTION(BlueprintCallable, Category = "Furniture")

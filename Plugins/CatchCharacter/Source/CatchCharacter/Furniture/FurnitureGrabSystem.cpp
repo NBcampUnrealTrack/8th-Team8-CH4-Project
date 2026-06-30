@@ -206,6 +206,11 @@ void UFurnitureGrabSystem::Release(ACharacter* Grabber)
 		FurnitureStat->UpdateGrabbedPlayers(GrabbedPlayers.Num());
 }
 
+void UFurnitureGrabSystem::AllRelease()
+{
+
+}
+
 // =====================================================================
 // 헬퍼
 // =====================================================================

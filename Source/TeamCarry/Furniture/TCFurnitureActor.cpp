@@ -6,6 +6,19 @@
 #include "Player/Character/TCPlayerCharacter.h"
 
 
+void ATCFurnitureActor::BeginPlay()
+{
+    Super::BeginPlay();
+
+    // 파괴됨을 감지
+
+}
+
+void ATCFurnitureActor::DestroyFuniture()
+{
+
+}
+
 bool ATCFurnitureActor::CanInteract_Implementation(ATCPlayerCharacter* Player)
 {
     // 가구 잡기 시스템이 존재해야함
