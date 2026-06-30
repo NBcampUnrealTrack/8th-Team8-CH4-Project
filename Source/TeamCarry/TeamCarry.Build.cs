@@ -12,7 +12,8 @@ public class TeamCarry : ModuleRules
             "AIModule",
 	        "GameplayTasks",
 	        "NavigationSystem",
-	        "OnlineSubsystem" });   // 세션 인터페이스 타입(IOnlineSessionPtr 등)을 헤더에서 사용
+	        "OnlineSubsystem",
+            "GeometryCollectionEngine" });   // 세션 인터페이스 타입(IOnlineSessionPtr 등)을 헤더에서 사용
 
         PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore",
             "OnlineSubsystemUtils" });   // Online::GetSubsystem 헬퍼 (.cpp 전용)
