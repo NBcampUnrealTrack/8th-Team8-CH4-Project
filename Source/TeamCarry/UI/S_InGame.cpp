@@ -1,10 +1,13 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 
 #include "TeamCarry/UI/S_InGame.h"
 #include "Components/TextBlock.h"
 #include "Components/ProgressBar.h"
 #include "TeamCarry/UI/MockUIController.h"
+#include "Engine/Texture2D.h"
+#include "Components/Image.h"
+#include "Components/Button.h"
 
 void US_InGame::NativeConstruct()
 {
@@ -17,30 +20,42 @@ void US_InGame::NativeConstruct()
 	{
 		TextBlock_Score->SetText(FText::FromString(TEXT("$100")));
 	}
-	if (TextBlock_GoalScore)
+	if (TextBlock_Timer)
 	{
-		TextBlock_GoalScore->SetText(FText::FromString(TEXT("Goal: $2,000")));
+		TextBlock_Timer->SetText(FText::FromString(TEXT("00 : 00")));
 	}
 	if (TextBlock_InteractPrompt)
 	{
 		TextBlock_InteractPrompt->SetText(FText::GetEmpty());
 	}
-	if (ProgressBar_Durability)
+	if (Image_Map)
 	{
-		ProgressBar_Durability->SetPercent(1.0f);
+		if (MapTexture)
+		{
+			// 위젯에 텍스처를 브러시로 설정
+			Image_Map->SetBrushFromTexture(MapTexture);
+			// 위젯 자체를 표시
+			Image_Map->SetVisibility(ESlateVisibility::Visible);
+		}
+		else
+		{
+			// 텍스처가 할당되지 않았다면 위젯 숨김
+			Image_Map->SetVisibility(ESlateVisibility::Collapsed);
+		}
 	}
-	if (TextBlock_WarnPlayers)
+	if (Btn_Menu)
 	{
-		TextBlock_WarnPlayers->SetVisibility(ESlateVisibility::Collapsed);
+		Btn_Menu->OnClicked.AddUniqueDynamic(this, &US_InGame::HandleMenuClicked);
 	}
+
 
 	// Subscribe to MockUIController delegates
 	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
 	{
 		MockController->OnTeamMoneyUpdated.AddUniqueDynamic(this, &US_InGame::HandleTeamMoneyUpdated);
-		MockController->OnFurnitureSettled.AddUniqueDynamic(this, &US_InGame::HandleFurnitureSettled);
+		//MockController->OnFurnitureSettled.AddUniqueDynamic(this, &US_InGame::HandleFurnitureSettled);
 		MockController->OnInteractTargetChanged.AddUniqueDynamic(this, &US_InGame::HandleInteractTargetChanged);
-		MockController->OnDurabilityChanged.AddUniqueDynamic(this, &US_InGame::HandleDurabilityChanged);
+		//MockController->OnDurabilityChanged.AddUniqueDynamic(this, &US_InGame::HandleDurabilityChanged);
 
 		UE_LOG(LogTemp, Log, TEXT("[UI InGameHUD] Successfully bound to MockUIController delegates."));
 	}
@@ -52,9 +67,9 @@ void US_InGame::NativeDestruct()
 	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
 	{
 		MockController->OnTeamMoneyUpdated.RemoveAll(this);
-		MockController->OnFurnitureSettled.RemoveAll(this);
+		//MockController->OnFurnitureSettled.RemoveAll(this);
 		MockController->OnInteractTargetChanged.RemoveAll(this);
-		MockController->OnDurabilityChanged.RemoveAll(this);
+		//MockController->OnDurabilityChanged.RemoveAll(this);
 	}
 
 	Super::NativeDestruct();
@@ -84,18 +99,18 @@ void US_InGame::HandleTeamMoneyUpdated(int32 NewTotalMoney)
 	}
 }
 
-void US_InGame::HandleFurnitureSettled(int32 AddedMoney, int32 Grade)
-{
-	UE_LOG(LogTemp, Warning, TEXT("[UI InGameHUD] HUD Received Furniture Settled Event: +$%d, Grade: %d"), AddedMoney, Grade);
-	
-	// Temporarily display a settle notification on screen for visual feedback
-	if (TextBlock_WarnPlayers)
-	{
-		FText SettleText = FText::Format(NSLOCTEXT("InGameUI", "FurnitureSettleFormat", "+${0} (Perfect!)"), FText::AsNumber(AddedMoney));
-		TextBlock_WarnPlayers->SetText(SettleText);
-		TextBlock_WarnPlayers->SetVisibility(ESlateVisibility::Visible);
-	}
-}
+//void US_InGame::HandleFurnitureSettled(int32 AddedMoney, int32 Grade)
+//{
+//	UE_LOG(LogTemp, Warning, TEXT("[UI InGameHUD] HUD Received Furniture Settled Event: +$%d, Grade: %d"), AddedMoney, Grade);
+//	
+//	// Temporarily display a settle notification on screen for visual feedback
+//	if (TextBlock_WarnPlayers)
+//	{
+//		FText SettleText = FText::Format(NSLOCTEXT("InGameUI", "FurnitureSettleFormat", "+${0} (Perfect!)"), FText::AsNumber(AddedMoney));
+//		TextBlock_WarnPlayers->SetText(SettleText);
+//		TextBlock_WarnPlayers->SetVisibility(ESlateVisibility::Visible);
+//	}
+//}
 
 void US_InGame::HandleInteractTargetChanged(AActor* Target, FString Key)
 {
@@ -113,22 +128,30 @@ void US_InGame::HandleInteractTargetChanged(AActor* Target, FString Key)
 	}
 }
 
-void US_InGame::HandleDurabilityChanged(float Current, float Max)
+//void US_InGame::HandleDurabilityChanged(float Current, float Max)
+//{
+//	if (ProgressBar_Durability)
+//	{
+//		float Percent = Max > 0.0f ? (Current / Max) : 0.0f;
+//		ProgressBar_Durability->SetPercent(Percent);
+//		
+//		// If durability is low, show low durability warning
+//		if (TextBlock_WarnPlayers && Percent < 0.3f && Percent > 0.0f)
+//		{
+//			TextBlock_WarnPlayers->SetText(NSLOCTEXT("InGameUI", "LowDurabilityWarning", "주의: 가구 부서짐 위험!"));
+//			TextBlock_WarnPlayers->SetVisibility(ESlateVisibility::Visible);
+//		}
+//		else if (TextBlock_WarnPlayers && (Percent >= 0.3f || Percent == 0.0f))
+//		{
+//			TextBlock_WarnPlayers->SetVisibility(ESlateVisibility::Collapsed);
+//		}
+//	}
+//}
+
+void US_InGame::HandleMenuClicked()
 {
-	if (ProgressBar_Durability)
+	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
 	{
-		float Percent = Max > 0.0f ? (Current / Max) : 0.0f;
-		ProgressBar_Durability->SetPercent(Percent);
-		
-		// If durability is low, show low durability warning
-		if (TextBlock_WarnPlayers && Percent < 0.3f && Percent > 0.0f)
-		{
-			TextBlock_WarnPlayers->SetText(NSLOCTEXT("InGameUI", "LowDurabilityWarning", "주의: 가구 부서짐 위험!"));
-			TextBlock_WarnPlayers->SetVisibility(ESlateVisibility::Visible);
-		}
-		else if (TextBlock_WarnPlayers && (Percent >= 0.3f || Percent == 0.0f))
-		{
-			TextBlock_WarnPlayers->SetVisibility(ESlateVisibility::Collapsed);
-		}
+		UE_LOG(LogTemp, Log, TEXT("[UI InGame] Open Main Menu."));
 	}
 }
