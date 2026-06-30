@@ -1,8 +1,9 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 
 #include "TeamCarry/UI/O_SaveLoad.h"
-#include "Components/Button.h"
+#include "CommonButtonBase.h"
+#include "CommonAnimatedSwitcher.h"
 #include "Components/HorizontalBox.h"
 #include "TeamCarry/UI/MockUIController.h"
 #include "Input/CommonUIInputTypes.h"
@@ -22,7 +23,8 @@ void UO_SaveLoad::NativeConstruct()
 	// 취소/닫기 버튼 바인딩.
 	if (Btn_Cancel)
 	{
-		Btn_Cancel->OnClicked.AddUniqueDynamic(this, &UO_SaveLoad::HandleCancelClicked);
+		Btn_Cancel->OnClicked().RemoveAll(this);
+		Btn_Cancel->OnClicked().AddUObject(this, &UO_SaveLoad::HandleCancelClicked);
 	}
 
 	// 저장 슬롯 카드는 백엔드(USaveGame) 연동 시 Box_SaveSlots 에 채워진다.

@@ -27,7 +27,7 @@ void UO_Settings::NativeConstruct()
 	if (Btn_GraphicsTab)
 	{
 		Btn_GraphicsTab->OnClicked().RemoveAll(this);
-		Btn_GraphicsTab->OnClicked().AddUObject(this, &UO_Settings::HandleTabClicked, 0);
+		Btn_GraphicsTab->OnClicked().AddUObject(this, &UO_Settings::HandleTabClicked, 0);	
 	}
 	if (Btn_AudioTab)
 	{

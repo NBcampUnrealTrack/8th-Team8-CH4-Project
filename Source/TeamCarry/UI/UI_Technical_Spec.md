@@ -1,4 +1,5 @@
-﻿# 이사 협동 게임 UI 최종 기획 및 기술 명세서
+﻿# UI_Technical_Spec.md
+# 이사 협동 게임 UI 최종 기획 및 기술 명세서
 
 ## 1. UI 전체 구조도 (화면 흐름도)
 [S_Boot] 로고/인트로
@@ -32,9 +33,10 @@
         ▼
 [S_InGame] 인게임 HUD ──ESC──▶ (O_PauseMenu) ──[수동 저장]──▶ (O_SaveLoad)
    │                                 ├─[설정]──▶ (O_Settings)
+   │                                 ├─[조작법]──▶ (O_KeyGuide)
    │                                 ├─[게임 종료] ──▶ (O_Confirm: 방 종료) ──▶ [S_MainMenu]
    │                                 └─ESC (O_PauseMenu 닫기)──▶ 인게임 HUD
-   └─ 가구 전량 운반 완료
+   └─ 게임 시간 종료
         │
         ▼
 [S_Result] 최종 결과 ──확인──▶ [S_StageSelect] 또는 [S_MainMenu]
@@ -97,23 +99,26 @@
 * **연동:** 맵 선택 후 진입 시 메모리에 로드된 세이브 데이터 갱신(저장) 후 S_InGame 씬 전환.
 
 ### 6) S_InGame (인게임 HUD)
-* **역할:** 가구 운반 코어 루프.
-* **연동:** 가구 액터 상태 변화를 델리게이트로 수신해 점수판(HUD_Score), 프롬프트, 내구도 게이지 갱신.
-* **저장:** 게임 중 ESC를 눌러 호스트 권한으로 수동 저장.
+* **역할:** 가구 운반 코어 루프 진행 및 실시간 정보 제공.
+* **구성:** 점수판(HUD_Score).
+* **하위 컴포넌트 (Sub-Widgets):**
+  * **W_FurnitureStatus (가구 상태창 UI):** 화면 중앙의 크로스헤어 또는 커서가 가구에 올라갔을 때(Hover) 나타나는 툴팁 위젯. 가구 이름, 내구도 게이지를 표시.
+* **연동 로직 (이벤트 주도):**
+  * 가구 액터에 마우스를 올리거나 벗어날 때, UMockUIController의 `OnFurnitureHovered` 델리게이트를 Broadcast하여 W_FurnitureStatus 갱신.
+* **저장:** 게임 중 ESC를 눌러 호스트 권한으로 수동 저장 (O_PauseMenu 호출).
 
 ### 7) S_Result (최종 결과)
 * **정산:** 남은 내구도에 따라 0~5 등급. 점수 산정 후 Team_Money 표기. 확인 누르면 화면 이탈.
 
 ### 8) O_JoinRoom (통합 접속 팝업)
 * **역할:** 호스트의 방 생성과 클라이언트의 방 참가를 분기하는 모달 창.
-* **구성:** '방 만들기' 선택 버튼, '방 참가' 선택 버튼, 코드 입력란(EditableTextBox), Btn_Confirm(확인), Btn_Cancel(취소).
+* **구성:** '방 만들기' 선택 버튼, '방 참가' 선택 버튼, 코드 입력란(EditableTextBox), Btn_Cancel(취소).
 * **동작 및 시각적 피드백:**
-  * 항목('방 만들기' 또는 '방 참가') 클릭 시, 테두리(Outline/Highlight)를 표시하여 현재 선택 상태를 명확히 안내.
-  * 팝업 생성 초기에는 아무것도 선택되지 않은 상태이므로 Btn_Confirm을 비활성화(Disabled) 처리.
-  * 항목이 선택되고, '방 참가'의 경우 코드 입력란에 문자열이 존재할 때만 Btn_Confirm을 활성화(Enabled).
+  * 항목('방 만들기' 또는 '방 참가') 클릭 시, 확대되는 효과를 주며, 버튼이 제대로 눌렸음을 명시.
+  * 방 참가 버튼 클릭 시, 코드 입력란의 문자열이 유효한 경우에만 참가 로직을 실행하며, 아닌 경우 에러 팝업 모달 출력.
 * **입력 라우팅:**
-  * '방 만들기' 선택 후 확인 클릭: O_JoinRoom을 닫고 S_SlotSelect로 화면 교체.
-  * '방 참가' 선택 후 확인 클릭: 코드를 검증하여 성공 시 S_CharacterSelect로 화면 교체, 실패 시 에러 안내 모달 팝업 호출.
+  * '방 만들기' 클릭: O_JoinRoom을 닫고 S_SlotSelect로 화면 교체.
+  * '방 참가' 클릭: 코드를 검증하여 성공 시 S_CharacterSelect로 화면 교체, 실패 시 에러 안내 모달 팝업 호출.
   * 취소 버튼 또는 ESC: O_JoinRoom을 닫고 S_MainMenu로 복귀.
 
 ### 9) O_Confirm (확인 팝업)
@@ -121,14 +126,24 @@
 * **동작 로직:** 생성 시 강제 모달(Modal). Btn_No에 기본 포커스. Btn_Yes 클릭 시 전달받은 콜백(Delegate) 실행 후 스택에서 Pop.
 
 ### 10) O_PauseMenu (인게임 메뉴)
-* **구성:** Btn_Resume, Btn_Settings, Btn_Save, Btn_ToTitle.
-* **입력 라우팅:** Btn_Settings는 O_Settings를 Push. Btn_ToTitle은 O_Confirm 호출.
+* **구성:** Btn_Resume(계속하기), Btn_KeyGuide(조작법), Btn_Settings(설정), Btn_Save(수동 저장), Btn_ToTitle(타이틀로).
+* **입력 라우팅:**
+  * Btn_KeyGuide 클릭 시 O_KeyGuide를 Push.
+  * Btn_Settings 클릭 시 O_Settings를 Push.
+  * Btn_ToTitle 클릭 시 O_Confirm 호출.
 
 ### 11) O_Settings (설정 창)
 * **동작 로직:** 값 변경 후 적용 클릭 시 UGameUserSettings 호출. 비디오 설정 시 15초 미확인 시 이전 상태로 원복하는 안전 로직 구현.
 
 ### 12) O_SaveLoad (저장/불러오기 창)
 * **동작 로직:** 인게임 메뉴에서 호출되며, 현재 진행도의 덮어쓰기 및 빈 슬롯 기록 역할만 수행.
+
+### 13) O_KeyGuide (조작법 가이드 창)
+* **역할:** 플레이어의 기본 조작법(키보드/마우스/패드) 및 상황별 단축키를 안내하는 오버레이 팝업.
+* **구성:** 조작법 안내 그래픽 또는 텍스트 리스트, Btn_Back(닫기).
+* **동작 로직:**
+  * O_PauseMenu에서 호출되며, 생성 시 강제로 게임 입력을 차단하고 UI 전용 입력으로 전환합니다(GetDesiredInputConfig 오버라이드).
+  * Btn_Back 버튼 또는 ESC 키 입력 시 UMockUIController의 PopCurrentOverlay()를 호출하여 O_PauseMenu로 복귀합니다.
 
 ---
 
@@ -180,18 +195,18 @@ UMockUIController의 ReplaceState()에서 사용할 화면 식별자입니다. (
 * InGame
 * Result
 
-### 2) EJoinRoomMode (접속 모드 열거형)
-O_JoinRoom 팝업에서 유저의 현재 선택 상태를 추적합니다. (enum class로 선언, UENUM(BlueprintType) 적용)
-* None (초기 상태, 확인 버튼 비활성화)
-* CreateRoom (방 만들기 선택 상태)
-* JoinRoom (방 참가 선택 상태)
-
-### 3) FPlayerInfo (로비 및 플레이어 상태 구조체)
+### 2) FPlayerInfo (로비 및 플레이어 상태 구조체)
 USTRUCT(BlueprintType)으로 선언하며, 내부의 모든 멤버 변수는 반드시 `UPROPERTY(EditAnywhere, BlueprintReadWrite)` 매크로를 포함해야 UI 바인딩이 가능합니다.
 * int32 CharacterIndex;
 * FString PlayerName;
 * bool bIsReady;
 * bool bIsHost;
 
-### 4) 다이내믹 멀티캐스트 델리게이트 (Dynamic Multicast Delegate) 규칙
+### 3) 다이내믹 멀티캐스트 델리게이트 (Dynamic Multicast Delegate) 규칙
 UI 위젯의 NativeConstruct에서 `AddDynamic`을 통해 이벤트를 수신할 수 있도록, UMockUIController에 선언되는 모든 델리게이트(OnTeamMoneyUpdated, OnDurabilityChanged 등)는 반드시 `DECLARE_DYNAMIC_MULTICAST_DELEGATE` 계열의 매크로를 사용하여 선언해야 합니다.
+
+### 4) FFurnitureStatusData (가구 상태 정보 구조체)
+인게임에서 가구를 바라볼 때(Hover) W_FurnitureStatus UI에 전달할 데이터 묶음입니다. USTRUCT(BlueprintType)으로 선언하며, 멤버 변수에 `UPROPERTY(EditAnywhere, BlueprintReadWrite)`를 적용합니다.
+* FString FurnitureName;
+* float CurrentDurability;
+* float MaxDurability;

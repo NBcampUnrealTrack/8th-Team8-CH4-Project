@@ -6,24 +6,9 @@
 #include "CommonActivatableWidget.h"
 #include "O_JoinRoom.generated.h"
 
-class UButton;
+class UCommonButtonBase;
 class UEditableTextBox;
 class UWidget;
-
-/**
- * EJoinRoomMode - 접속 모드 열거형 (명세 6-2).
- *
- * O_JoinRoom 팝업에서 유저의 현재 선택 상태를 추적한다.
- * - CreateRoom : '방 만들기' 선택 상태.
- * - JoinRoom   : '방 참가' 선택 상태(코드 입력 필요).
- */
-UENUM(BlueprintType)
-enum class EJoinRoomMode : uint8
-{
-	None,
-	CreateRoom,
-	JoinRoom
-};
 
 /**
  * UO_JoinRoom - 통합 접속 팝업 오버레이 (명세 3-8).
@@ -56,11 +41,11 @@ protected:
 	// --- 모드 선택 버튼 ---
 	// '방 만들기' 선택 버튼.
 	UPROPERTY(meta = (BindWidget), BlueprintReadOnly, Category = "UI|Widget")
-	TObjectPtr<UButton> Btn_CreateRoom;
+	TObjectPtr<UCommonButtonBase> Btn_CreateRoom;
 
 	// '방 참가' 선택 버튼.
 	UPROPERTY(meta = (BindWidget), BlueprintReadOnly, Category = "UI|Widget")
-	TObjectPtr<UButton> Btn_JoinRoom;
+	TObjectPtr<UCommonButtonBase> Btn_JoinRoom;
 
 	// --- 코드 입력란 ---
 	// 방 참가 시 입력하는 방 코드.
@@ -69,7 +54,7 @@ protected:
 
 	// 취소(팝업 닫고 S_MainMenu 복귀).
 	UPROPERTY(meta = (BindWidget), BlueprintReadOnly, Category = "UI|Widget")
-	TObjectPtr<UButton> Btn_Cancel;
+	TObjectPtr<UCommonButtonBase> Btn_Cancel;
 
 private:
 	UFUNCTION()
@@ -79,11 +64,15 @@ private:
 	void HandleJoinRoomClicked();
 
 	UFUNCTION()
-	void HandleCodeTextChanged(const FText& Text);
-
-	UFUNCTION()
 	void HandleCancelClicked();
 
-	// 현재 선택된 접속 모드(초기 None).
-	EJoinRoomMode CurrentMode = EJoinRoomMode::None;
+	UFUNCTION()
+	void HandleCodeTextChanged(const FText& Text);
+
+	// 네트워크 세션 델리게이트 수신 핸들러
+	UFUNCTION()
+	void OnFindSessionsComplete(bool bWasSuccessful, int32 NumResults);
+
+	UFUNCTION()
+	void OnJoinSessionComplete(bool bWasSuccessful);
 };
