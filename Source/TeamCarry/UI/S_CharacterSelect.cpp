@@ -75,14 +75,14 @@ void US_CharacterSelect::NativeConstruct()
 		MockController->OnLobbySlotUpdated.AddUniqueDynamic(this, &US_CharacterSelect::HandleLobbySlotUpdated);
 	}
 
-	if (Slot1_Name) Slot1_Name->SetText(FText::FromString(TEXT("Player_1 (You)")));
-	if (Slot1_Status) Slot1_Status->SetText(FText::FromString(TEXT("NOT READY")));
-	if (Slot2_Name) Slot2_Name->SetText(FText::FromString(TEXT("Player_2 (AI)")));
-	if (Slot2_Status) Slot2_Status->SetText(FText::FromString(TEXT("READY")));
-	if (Slot3_Name) Slot3_Name->SetText(FText::FromString(TEXT("Player_3 (AI)")));
-	if (Slot3_Status) Slot3_Status->SetText(FText::FromString(TEXT("READY")));
-	if (Slot4_Name) Slot4_Name->SetText(FText::FromString(TEXT("Player_4 (AI)")));
-	if (Slot4_Status) Slot4_Status->SetText(FText::FromString(TEXT("READY")));
+	if (Txt_Slot1_Name) Txt_Slot1_Name->SetText(FText::FromString(TEXT("Player_1 (You)")));
+	if (Txt_Slot1_Status) Txt_Slot1_Status->SetText(FText::FromString(TEXT("NOT READY")));
+	if (Txt_Slot2_Name) Txt_Slot2_Name->SetText(FText::FromString(TEXT("Player_2 (AI)")));
+	if (Txt_Slot2_Status) Txt_Slot2_Status->SetText(FText::FromString(TEXT("READY")));
+	if (Txt_Slot3_Name) Txt_Slot3_Name->SetText(FText::FromString(TEXT("Player_3 (AI)")));
+	if (Txt_Slot3_Status) Txt_Slot3_Status->SetText(FText::FromString(TEXT("READY")));
+	if (Txt_Slot4_Name) Txt_Slot4_Name->SetText(FText::FromString(TEXT("Player_4 (AI)")));
+	if (Txt_Slot4_Status) Txt_Slot4_Status->SetText(FText::FromString(TEXT("READY")));
 }
 
 void US_CharacterSelect::NativeDestruct()
@@ -131,10 +131,10 @@ void US_CharacterSelect::GetSlotTexts(int32 SlotIndex, UTextBlock*& OutName, UTe
 	OutStatus = nullptr;
 	switch (SlotIndex)
 	{
-	case 0: OutName = Slot1_Name; OutStatus = Slot1_Status; break;
-	case 1: OutName = Slot2_Name; OutStatus = Slot2_Status; break;
-	case 2: OutName = Slot3_Name; OutStatus = Slot3_Status; break;
-	case 3: OutName = Slot4_Name; OutStatus = Slot4_Status; break;
+	case 0: OutName = Txt_Slot1_Name; OutStatus = Txt_Slot1_Status; break;
+	case 1: OutName = Txt_Slot2_Name; OutStatus = Txt_Slot2_Status; break;
+	case 2: OutName = Txt_Slot3_Name; OutStatus = Txt_Slot3_Status; break;
+	case 3: OutName = Txt_Slot4_Name; OutStatus = Txt_Slot4_Status; break;
 	default: break;
 	}
 }

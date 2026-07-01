@@ -36,28 +36,28 @@ protected:
 
 	// --- Optional Slot Texts for Visualizing Lobby State ---
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
-	TObjectPtr<UTextBlock> Slot1_Name;
+	TObjectPtr<UTextBlock> Txt_Slot1_Name;
 
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
-	TObjectPtr<UTextBlock> Slot1_Status;
+	TObjectPtr<UTextBlock> Txt_Slot1_Status;
 
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
-	TObjectPtr<UTextBlock> Slot2_Name;
+	TObjectPtr<UTextBlock> Txt_Slot2_Name;
 
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
-	TObjectPtr<UTextBlock> Slot2_Status;
+	TObjectPtr<UTextBlock> Txt_Slot2_Status;
 
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
-	TObjectPtr<UTextBlock> Slot3_Name;
+	TObjectPtr<UTextBlock> Txt_Slot3_Name;
 
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
-	TObjectPtr<UTextBlock> Slot3_Status;
+	TObjectPtr<UTextBlock> Txt_Slot3_Status;
 
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
-	TObjectPtr<UTextBlock> Slot4_Name;
+	TObjectPtr<UTextBlock> Txt_Slot4_Name;
 
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
-	TObjectPtr<UTextBlock> Slot4_Status;
+	TObjectPtr<UTextBlock> Txt_Slot4_Status;
 
 private:
 	UFUNCTION()
