@@ -1,20 +1,14 @@
-﻿// Fill out your copyright notice in the Description page of Project Settings.
+// Fill out your copyright notice in the Description page of Project Settings.
 
 
 #include "TeamCarry/UI/O_JoinRoom.h"
-#include "Components/Button.h"
 #include "Components/EditableTextBox.h"
 #include "TeamCarry/UI/MockUIController.h"
+#include "CommonButtonBase.h"
+#include "Network/Session/TCSessionFlow.h"
 #include "Input/CommonUIInputTypes.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
-
-namespace
-{
-	// 모드 선택 시각 피드백용 색상(명세 3-8: 선택 항목 테두리/하이라이트 표시).
-	const FLinearColor SelectedColor(0.20f, 0.55f, 1.0f, 1.0f);   // 선택됨(파란 하이라이트)
-	const FLinearColor UnselectedColor(1.0f, 1.0f, 1.0f, 1.0f);   // 미선택(기본)
-}	
 
 UO_JoinRoom::UO_JoinRoom()
 {
@@ -28,30 +22,40 @@ void UO_JoinRoom::NativeConstruct()
 {
 	Super::NativeConstruct();
 
-	// 모드 선택 버튼 바인딩
+	// CommonUI 네이티브 바인딩(OnClicked().AddUObject).
 	if (Btn_CreateRoom)
 	{
-		Btn_CreateRoom->OnClicked.AddUniqueDynamic(this, &UO_JoinRoom::HandleCreateRoomClicked);
+		Btn_CreateRoom->OnClicked().AddUObject(this, &UO_JoinRoom::HandleCreateRoomClicked);
 	}
-
 	if (Btn_JoinRoom)
 	{
-		Btn_JoinRoom->OnClicked.AddUniqueDynamic(this, &UO_JoinRoom::HandleJoinRoomClicked);
+		Btn_JoinRoom->OnClicked().AddUObject(this, &UO_JoinRoom::HandleJoinRoomClicked);
+	}
+	if (Btn_Cancel)
+	{
+		Btn_Cancel->OnClicked().AddUObject(this, &UO_JoinRoom::HandleCancelClicked);
 	}
 
-	// 코드 입력 변경 감지(방 참가 시 확인 버튼 활성/비활성 판단)
+	// 코드 입력 변경 감지(참가 버튼 활성/비활성 판단).
 	if (Txt_Code)
 	{
 		Txt_Code->OnTextChanged.AddUniqueDynamic(this, &UO_JoinRoom::HandleCodeTextChanged);
 	}
 
-	if (Btn_Cancel)
+	// 초기 상태: 코드 미입력 → 참가 버튼 비활성.
+	if (Btn_JoinRoom)
 	{
-		Btn_Cancel->OnClicked.AddUniqueDynamic(this, &UO_JoinRoom::HandleCancelClicked);
+		Btn_JoinRoom->SetIsEnabled(false);
 	}
 
-	// 초기 상태: 모드 미선택(None) → 확인 버튼 비활성화, 하이라이트 없음.
-	CurrentMode = EJoinRoomMode::None;
+	// 세션 단계 통지 구독(검색/조인 진행·실패 → UI 반영). 세션 로직은 SessionFlow 담당.
+	BindSessionFlow(true);
+}
+
+void UO_JoinRoom::NativeDestruct()
+{
+	BindSessionFlow(false);
+	Super::NativeDestruct();
 }
 
 TOptional<FUIInputConfig> UO_JoinRoom::GetDesiredInputConfig() const
@@ -67,7 +71,6 @@ UWidget* UO_JoinRoom::NativeGetDesiredFocusTarget() const
 	{
 		return Btn_CreateRoom;
 	}
-
 	return Super::NativeGetDesiredFocusTarget();
 }
 
@@ -79,27 +82,40 @@ bool UO_JoinRoom::NativeOnHandleBackAction()
 		UE_LOG(LogTemp, Log, TEXT("[UI JoinRoom] Back(ESC) handled as Cancel. Popping via MockUIController."));
 		MockController->PopCurrentOverlay();
 	}
-	// 처리했음을 알려 상위 스택으로 Back 전파를 막는다.
 	return true;
 }
 
 void UO_JoinRoom::HandleCreateRoomClicked()
 {
-	// '방 만들기' 선택. 코드 입력은 불필요하므로 확인 버튼 즉시 활성화 대상.
-	CurrentMode = EJoinRoomMode::CreateRoom;
-	UE_LOG(LogTemp, Log, TEXT("[UI JoinRoom] Mode selected: CreateRoom."));
+	// '방 만들기' → 팝업 닫고 세이브 슬롯 선택 화면으로 교체(실제 호스팅은 슬롯 확정 시).
+	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
+	{
+		UE_LOG(LogTemp, Log, TEXT("[UI JoinRoom] Hosting room. Replacing state to SlotSelect..."));
+		MockController->PopCurrentOverlay();
+		MockController->ReplaceState(EE_UIState::SlotSelect);
+	}
 }
 
 void UO_JoinRoom::HandleJoinRoomClicked()
 {
-	// '방 참가' 선택. 코드 입력란에 문자열이 있어야 확인 버튼이 활성화된다.
-	CurrentMode = EJoinRoomMode::JoinRoom;
-	UE_LOG(LogTemp, Log, TEXT("[UI JoinRoom] Mode selected: JoinRoom."));
-}
+	// '방 참가' → 코드로 세션 검색·조인. 검색/코드매칭/조인/ClientTravel 은 SessionFlow 가 수행.
+	const FString Code = Txt_Code ? Txt_Code->GetText().ToString().TrimStartAndEnd() : FString();
+	if (Code.IsEmpty())
+	{
+		UE_LOG(LogTemp, Log, TEXT("[UI JoinRoom] 코드 미입력 — 참가 보류."));
+		return;
+	}
 
-void UO_JoinRoom::HandleCodeTextChanged(const FText& /*Text*/)
-{
-	// 코드 입력 변경 시(주로 JoinRoom 모드) 확인 버튼 활성화 상태를 재평가한다.
+	if (UTCSessionFlow* Flow = GetGameInstance()->GetSubsystem<UTCSessionFlow>())
+	{
+		UE_LOG(LogTemp, Log, TEXT("[UI JoinRoom] JoinRoomByCode: %s"), *Code);
+		SetBusy(true);
+		Flow->JoinRoomByCode(Code);
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[UI JoinRoom] UTCSessionFlow 없음 — 참가 불가."));
+	}
 }
 
 void UO_JoinRoom::HandleCancelClicked()
@@ -109,5 +125,77 @@ void UO_JoinRoom::HandleCancelClicked()
 	{
 		UE_LOG(LogTemp, Log, TEXT("[UI JoinRoom] Cancel clicked. Closing popup, returning to MainMenu."));
 		MockController->PopCurrentOverlay();
+	}
+}
+
+void UO_JoinRoom::HandleCodeTextChanged(const FText& Text)
+{
+	// 코드 입력란에 1글자 이상 존재할 때만 참가 버튼 활성화.
+	if (Btn_JoinRoom)
+	{
+		Btn_JoinRoom->SetIsEnabled(!Text.IsEmpty());
+	}
+}
+
+void UO_JoinRoom::HandleSessionPhaseChanged(ETCSessionPhase Phase, const FString& Message)
+{
+	switch (Phase)
+	{
+	case ETCSessionPhase::Searching:
+	case ETCSessionPhase::Joining:
+		SetBusy(true);
+		break;
+
+	case ETCSessionPhase::Joined:
+		// 조인 성공 → SessionFlow/TCGameInstance 가 ClientTravel 수행. 대기.
+		UE_LOG(LogTemp, Log, TEXT("[UI JoinRoom] 방 접속 완료 — ClientTravel 대기."));
+		break;
+
+	case ETCSessionPhase::Failed:
+		UE_LOG(LogTemp, Warning, TEXT("[UI JoinRoom] 세션 실패: %s"), *Message);
+		SetBusy(false);
+		if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
+		{
+			MockController->PushOverlay(TEXT("O_Error"));
+		}
+		break;
+
+	default:
+		break;
+	}
+}
+
+void UO_JoinRoom::SetBusy(bool bBusy)
+{
+	// 검색/조인 중 중복 요청 방지용 버튼 잠금.
+	if (Btn_JoinRoom)
+	{
+		Btn_JoinRoom->SetIsEnabled(!bBusy);
+	}
+	if (Btn_CreateRoom)
+	{
+		Btn_CreateRoom->SetIsEnabled(!bBusy);
+	}
+}
+
+void UO_JoinRoom::BindSessionFlow(bool bBind)
+{
+	UGameInstance* GI = GetGameInstance();
+	if (!GI)
+	{
+		return;
+	}
+	UTCSessionFlow* Flow = GI->GetSubsystem<UTCSessionFlow>();
+	if (!Flow)
+	{
+		return;
+	}
+	if (bBind)
+	{
+		Flow->OnSessionPhaseChanged.AddUniqueDynamic(this, &UO_JoinRoom::HandleSessionPhaseChanged);
+	}
+	else
+	{
+		Flow->OnSessionPhaseChanged.RemoveDynamic(this, &UO_JoinRoom::HandleSessionPhaseChanged);
 	}
 }

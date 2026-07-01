@@ -1,10 +1,16 @@
-﻿// Fill out your copyright notice in the Description page of Project Settings.
+// Fill out your copyright notice in the Description page of Project Settings.
 
 
 #include "TeamCarry/UI/S_CharacterSelect.h"
 #include "Components/Button.h"
 #include "Components/TextBlock.h"
 #include "TeamCarry/UI/MockUIController.h"
+#include "Player/PlayerController/TCPlayerController.h"
+#include "Player/PlayerState/TCPlayerState.h"
+#include "Network/Session/TCLobbyGameState.h"
+#include "Engine/World.h"
+#include "GameFramework/GameStateBase.h"
+#include "TimerManager.h"
 
 void US_CharacterSelect::NativeConstruct()
 {
@@ -27,68 +33,155 @@ void US_CharacterSelect::NativeConstruct()
 		Btn_Back->OnClicked.AddUniqueDynamic(this, &US_CharacterSelect::HandleBackClicked);
 	}
 
-	// Listen to Lobby slot update delegate from MockUIController
+	bLocalPlayerReady = false;
+	SetIsFocusable(true);
+
+	// ── 네트워크 로비가 있으면 복제 데이터 경로, 없으면 mock 경로 ──
+	bNetworkedLobby = TryBindNetworkLobby();
+	if (bNetworkedLobby)
+	{
+		// 클라이언트는 Start 를 누를 수 없다(호스트 독점).
+		const bool bIsHost = GetWorld() && GetWorld()->GetNetMode() != NM_Client;
+		if (Btn_Start)
+		{
+			Btn_Start->SetVisibility(bIsHost ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+		}
+		RefreshLobbyFromGameState();
+		return;
+	}
+
+	// 클라이언트에서 로비 GameState 복제가 1틱 늦게 도착하는 경우를 위한 지연 재바인딩.
+	// (싱글/순수 mock 환경이면 다음 틱에도 GameState 가 없으므로 그대로 mock 유지)
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateWeakLambda(this, [this]()
+		{
+			if (!bNetworkedLobby && TryBindNetworkLobby())
+			{
+				bNetworkedLobby = true;
+				const bool bIsHost = GetWorld() && GetWorld()->GetNetMode() != NM_Client;
+				if (Btn_Start)
+				{
+					Btn_Start->SetVisibility(bIsHost ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+				}
+				RefreshLobbyFromGameState();
+			}
+		}));
+	}
+
+	// ── mock 폴백(프로토타입 단일레벨) ──
 	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
 	{
 		MockController->OnLobbySlotUpdated.AddUniqueDynamic(this, &US_CharacterSelect::HandleLobbySlotUpdated);
 	}
 
-	// Setup initial dummy slots visual representation
 	if (Slot1_Name) Slot1_Name->SetText(FText::FromString(TEXT("Player_1 (You)")));
 	if (Slot1_Status) Slot1_Status->SetText(FText::FromString(TEXT("NOT READY")));
-
 	if (Slot2_Name) Slot2_Name->SetText(FText::FromString(TEXT("Player_2 (AI)")));
 	if (Slot2_Status) Slot2_Status->SetText(FText::FromString(TEXT("READY")));
-
 	if (Slot3_Name) Slot3_Name->SetText(FText::FromString(TEXT("Player_3 (AI)")));
 	if (Slot3_Status) Slot3_Status->SetText(FText::FromString(TEXT("READY")));
-
 	if (Slot4_Name) Slot4_Name->SetText(FText::FromString(TEXT("Player_4 (AI)")));
 	if (Slot4_Status) Slot4_Status->SetText(FText::FromString(TEXT("READY")));
-
-	bLocalPlayerReady = false;
-	SetIsFocusable(true);
 }
 
 void US_CharacterSelect::NativeDestruct()
 {
-	// Clean up delegate listener
+	// mock 경로 정리
 	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
 	{
 		MockController->OnLobbySlotUpdated.RemoveAll(this);
 	}
 
+	// 네트워크 경로 정리
+	if (ATCLobbyGameState* LobbyGS = BoundLobbyState.Get())
+	{
+		LobbyGS->OnLobbyPlayersChanged.RemoveAll(this);
+	}
+	BoundLobbyState = nullptr;
+
 	Super::NativeDestruct();
+}
+
+bool US_CharacterSelect::TryBindNetworkLobby()
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return false;
+	}
+	ATCLobbyGameState* LobbyGS = World->GetGameState<ATCLobbyGameState>();
+	if (!LobbyGS)
+	{
+		return false;
+	}
+	LobbyGS->OnLobbyPlayersChanged.AddUniqueDynamic(this, &US_CharacterSelect::HandleLobbyPlayersChanged);
+	BoundLobbyState = LobbyGS;
+	return true;
+}
+
+ATCPlayerController* US_CharacterSelect::GetTCPlayerController() const
+{
+	return Cast<ATCPlayerController>(GetOwningPlayer());
+}
+
+void US_CharacterSelect::GetSlotTexts(int32 SlotIndex, UTextBlock*& OutName, UTextBlock*& OutStatus) const
+{
+	OutName = nullptr;
+	OutStatus = nullptr;
+	switch (SlotIndex)
+	{
+	case 0: OutName = Slot1_Name; OutStatus = Slot1_Status; break;
+	case 1: OutName = Slot2_Name; OutStatus = Slot2_Status; break;
+	case 2: OutName = Slot3_Name; OutStatus = Slot3_Status; break;
+	case 3: OutName = Slot4_Name; OutStatus = Slot4_Status; break;
+	default: break;
+	}
 }
 
 void US_CharacterSelect::HandleReadyClicked()
 {
+	bLocalPlayerReady = !bLocalPlayerReady;
+	UE_LOG(LogTemp, Log, TEXT("[UI CharacterSelect] Btn_Ready Clicked. Ready State: %s"), bLocalPlayerReady ? TEXT("TRUE") : TEXT("FALSE"));
+
+	if (bNetworkedLobby)
+	{
+		// 서버 권위에 위임. 시작버튼 활성/슬롯표시는 복제 갱신(HandleLobbyPlayersChanged)에서 처리.
+		if (ATCPlayerController* PC = GetTCPlayerController())
+		{
+			PC->RequestSetReady(bLocalPlayerReady);
+		}
+		return;
+	}
+
+	// ── mock 폴백 ──
 	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
 	{
-		// Toggle ready state
-		bLocalPlayerReady = !bLocalPlayerReady;
-		
-		UE_LOG(LogTemp, Log, TEXT("[UI CharacterSelect] Btn_Ready Clicked. Ready State: %s"), bLocalPlayerReady ? TEXT("TRUE") : TEXT("FALSE"));
-		
-		// Set local player (slot 0) status
 		MockController->SetLobbySlotReady(0, bLocalPlayerReady);
-
-		// AI Single-player ready condition:
-		// S_CharacterSelect에서 AI 혼자 시작할 수 있도록, Btn_Ready 클릭 시 즉시 조건을 만족시켜 Btn_Start를 활성화할 것
 		if (Btn_Start)
 		{
 			Btn_Start->SetIsEnabled(bLocalPlayerReady);
-			UE_LOG(LogTemp, Warning, TEXT("[UI CharacterSelect] Auto-satisfied start condition! Btn_Start Enabled: %s"), bLocalPlayerReady ? TEXT("True") : TEXT("False"));
 		}
 	}
 }
 
 void US_CharacterSelect::HandleStartClicked()
 {
+	if (bNetworkedLobby)
+	{
+		// 호스트 시작 요청 → 서버가 전원 준비 검증 후 ServerTravel.
+		if (ATCPlayerController* PC = GetTCPlayerController())
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[UI CharacterSelect] Host requested start (networked)."));
+			PC->RequestStartGame();
+		}
+		return;
+	}
+
+	// ── mock 폴백 ──
 	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[UI CharacterSelect] Host started the game. Transitioning to S_Tutorial..."));
-		
+		UE_LOG(LogTemp, Warning, TEXT("[UI CharacterSelect] Host started the game (mock). Transitioning to S_Tutorial..."));
 		MockController->ReplaceState(EE_UIState::Tutorial);
 	}
 }
@@ -102,27 +195,73 @@ void US_CharacterSelect::HandleBackClicked()
 	}
 }
 
+void US_CharacterSelect::HandleLobbyPlayersChanged()
+{
+	RefreshLobbyFromGameState();
+}
+
+void US_CharacterSelect::RefreshLobbyFromGameState()
+{
+	ATCLobbyGameState* LobbyGS = BoundLobbyState.Get();
+	if (!LobbyGS)
+	{
+		return;
+	}
+
+	// 먼저 모든 슬롯을 빈 상태로.
+	for (int32 i = 0; i < 4; ++i)
+	{
+		UTextBlock* NameText = nullptr;
+		UTextBlock* StatusText = nullptr;
+		GetSlotTexts(i, NameText, StatusText);
+		if (NameText) NameText->SetText(FText::FromString(TEXT("---")));
+		if (StatusText) StatusText->SetText(FText::FromString(TEXT("EMPTY")));
+	}
+
+	// 복제된 PlayerState 로 슬롯 채우기.
+	for (APlayerState* PS : LobbyGS->PlayerArray)
+	{
+		const ATCPlayerState* TCPS = Cast<ATCPlayerState>(PS);
+		if (!TCPS)
+		{
+			continue;
+		}
+		const int32 SlotIdx = TCPS->GetLobbySlotIndex();
+		if (SlotIdx < 0 || SlotIdx > 3)
+		{
+			continue;
+		}
+		UTextBlock* NameText = nullptr;
+		UTextBlock* StatusText = nullptr;
+		GetSlotTexts(SlotIdx, NameText, StatusText);
+		if (NameText)
+		{
+			NameText->SetText(FText::FromString(TCPS->GetPlayerName()));
+		}
+		if (StatusText)
+		{
+			StatusText->SetText(FText::FromString(TCPS->IsReady() ? TEXT("READY") : TEXT("NOT READY")));
+		}
+	}
+
+	// 호스트만: 전원 준비 시 시작버튼 활성.
+	const bool bIsHost = GetWorld() && GetWorld()->GetNetMode() != NM_Client;
+	if (Btn_Start && bIsHost)
+	{
+		Btn_Start->SetIsEnabled(LobbyGS->AreAllPlayersReady());
+	}
+}
+
 void US_CharacterSelect::HandleLobbySlotUpdated(int32 SlotIndex, FPlayerInfo PlayerInfo)
 {
+	// mock 경로 전용.
 	FText StatusText = PlayerInfo.bIsReady ? FText::FromString(TEXT("READY")) : FText::FromString(TEXT("NOT READY"));
 
-	UE_LOG(LogTemp, Log, TEXT("[UI CharacterSelect] Delegate Received -> Slot %d (%s): %s"), 
-		SlotIndex, *PlayerInfo.PlayerName, PlayerInfo.bIsReady ? TEXT("READY") : TEXT("NOT READY"));
-
-	if (SlotIndex == 0)
+	UTextBlock* NameText = nullptr;
+	UTextBlock* SlotStatus = nullptr;
+	GetSlotTexts(SlotIndex, NameText, SlotStatus);
+	if (SlotStatus)
 	{
-		if (Slot1_Status) Slot1_Status->SetText(StatusText);
-	}
-	else if (SlotIndex == 1)
-	{
-		if (Slot2_Status) Slot2_Status->SetText(StatusText);
-	}
-	else if (SlotIndex == 2)
-	{
-		if (Slot3_Status) Slot3_Status->SetText(StatusText);
-	}
-	else if (SlotIndex == 3)
-	{
-		if (Slot4_Status) Slot4_Status->SetText(StatusText);
+		SlotStatus->SetText(StatusText);
 	}
 }

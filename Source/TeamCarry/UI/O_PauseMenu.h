@@ -7,6 +7,7 @@
 #include "O_PauseMenu.generated.h"
 
 class UButton;
+class UCommonButtonBase;
 
 /**
  * UO_PauseMenu - In-game pause menu overlay (O_PauseMenu).
@@ -40,6 +41,11 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
 	TObjectPtr<UButton> Btn_Settings;
 
+	// 조작법 가이드 버튼: 클릭 시 O_KeyGuide 오버레이를 스택에 Push (명세 3-10).
+	// 명세 5-5: 버튼 클래스는 UCommonButtonBase 로 통일.
+	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
+	TObjectPtr<UCommonButtonBase> Btn_KeyGuide;
+
 	// 수동 저장 버튼: 호스트 전용 (명세 3-1). 프로토타입에서는 권한 로직 위치만 표시한다.
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
 	TObjectPtr<UButton> Btn_Save;
@@ -55,6 +61,9 @@ private:
 	// Btn_Settings: 설정창 푸시 → MockController->PushOverlay("O_Settings")
 	UFUNCTION()
 	void HandleSettingsClicked();
+
+	// Btn_KeyGuide: 조작법 가이드 팝업 푸시 → MockController->PushOverlay("O_KeyGuide")
+	void HandleKeyGuideClicked();
 
 	// Btn_Save: 수동 저장 (호스트 전용, 프로토타입은 로그만)
 	UFUNCTION()

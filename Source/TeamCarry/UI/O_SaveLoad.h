@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 #pragma once
 
@@ -6,7 +6,7 @@
 #include "CommonActivatableWidget.h"
 #include "O_SaveLoad.generated.h"
 
-class UButton;
+class UCommonButtonBase;
 class UHorizontalBox;
 class UWidget;
 
@@ -49,7 +49,7 @@ protected:
 	// --- 네비게이션 ---
 	// 취소/닫기(오버레이만 Pop).
 	UPROPERTY(meta = (BindWidget), BlueprintReadOnly, Category = "UI|Widget")
-	TObjectPtr<UButton> Btn_Cancel;
+	TObjectPtr<UCommonButtonBase> Btn_Cancel;
 
 private:
 	UFUNCTION()
