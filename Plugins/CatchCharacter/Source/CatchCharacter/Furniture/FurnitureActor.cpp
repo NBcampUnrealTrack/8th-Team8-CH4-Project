@@ -81,6 +81,14 @@ void AFurnitureActor::SetHighlight(bool bEnabled)
 	// 지금은 더미임
 }
 
+void AFurnitureActor::FurnitureOffset(FVector LocationOffset, float YawOffset)
+{
+	if (HasAuthority() && bTestAutoOffset && GrabSystem)
+	{
+		GrabSystem->AddFurnitureOffset(LocationOffset, YawOffset);
+	}
+}
+
 void AFurnitureActor::ExecuteTestOffset()
 {
 	if (HasAuthority() && bTestAutoOffset && GrabSystem)

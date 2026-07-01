@@ -64,6 +64,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Furniture")
 	void SetHighlight(bool bEnabled);
 
+	// 서버에서 요청해주세요. 서버가 아니면 처리안해줍니다.
+	// LocationOffset : 얼마니 이동할지, YawOffset : 얼마나 각도로 회전 할 지
+	void FurnitureOffset(FVector LocationOffset, float YawOffset);
+
 private:
 	// 테스트용 타이머를 제어할 핸들
 	FTimerHandle TestTimerHandle;
