@@ -1,6 +1,7 @@
 #include "TeamCarryGameMode.h"
 #include "TeamCarryGameState.h"
 #include "Kismet/GameplayStatics.h"
+#include "TCSaveGame.h"
 #include "Furniture/TCFurnitureActor.h"
 
 ATeamCarryGameMode::ATeamCarryGameMode()
@@ -54,6 +55,72 @@ void ATeamCarryGameMode::SetTotalFurnitureCount(int32 Count)
     {
         GS->RemainingFurniture = Count;
     }
+}
+
+void ATeamCarryGameMode::Logout(AController* Exiting)
+{
+    Super::Logout(Exiting);
+
+    // 남은 플레이어 수 확인
+    int32 PlayerCount = GetNumPlayers();
+    UE_LOG(LogTemp, Warning, TEXT("플레이어 이탈 | 남은 플레이어: %d"), PlayerCount - 1);
+
+    // 모든 플레이어가 나가면 게임 종료
+    if (PlayerCount <= 1)
+    {
+        FinishGame(false);
+    }
+}
+
+void ATeamCarryGameMode::PostLogin(APlayerController* NewPlayer)
+{
+    Super::PostLogin(NewPlayer);
+
+    ATeamCarryGameState* GS = GetGameState<ATeamCarryGameState>();
+    if (!GS) return;
+
+    UE_LOG(LogTemp, Warning, TEXT("플레이어 재접속 | 현재 단계: %d"), (int32)GS->CurrentPhase);
+
+    // 게임 진행 중에 재접속하면 현재 게임 상태 동기화
+    if (GS->CurrentPhase == EGamePhase::Playing)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("플레이어 재접속 | 게임 진행 중 복귀"));
+    }
+}
+
+void ATeamCarryGameMode::SaveGame(const FString& StageName)
+{
+    ATeamCarryGameState* GS = GetGameState<ATeamCarryGameState>();
+    if (!GS) return;
+
+    // 기존 세이브 불러오기 (없으면 새로 생성)
+    UTCSaveGame* SaveData = LoadGame();
+    if (!SaveData)
+    {
+        SaveData = Cast<UTCSaveGame>(UGameplayStatics::CreateSaveGameObject(UTCSaveGame::StaticClass()));
+    }
+
+    // 스테이지 기록 갱신
+    FStageRecord& Record = SaveData->StageRecords.FindOrAdd(StageName);
+    Record.bIsCleared = true;
+    Record.BestStar = FMath::Max(Record.BestStar, GS->StarCount);
+    Record.BestScore = FMath::Max(Record.BestScore, GS->TotalScore);
+    SaveData->LastPlayedStage = StageName;
+
+    // 저장
+    UGameplayStatics::SaveGameToSlot(SaveData, TEXT("TCGameSave"), 0);
+
+    UE_LOG(LogTemp, Warning, TEXT("게임 저장 완료 | 스테이지: %s | 별: %d | 점수: %d"),
+        *StageName, Record.BestStar, Record.BestScore);
+}
+
+UTCSaveGame* ATeamCarryGameMode::LoadGame()
+{
+    if (UGameplayStatics::DoesSaveGameExist(TEXT("TCGameSave"), 0))
+    {
+        return Cast<UTCSaveGame>(UGameplayStatics::LoadGameFromSlot(TEXT("TCGameSave"), 0));
+    }
+    return nullptr;
 }
 
 void ATeamCarryGameMode::SetGamePhase(EGamePhase NewPhase)
@@ -139,6 +206,21 @@ void ATeamCarryGameMode::OnFurnitureExitTruck(FName RowName)
         *RowName.ToString(), GS->TotalScore, GS->RemainingFurniture);
 }
 
+void ATeamCarryGameMode::OnFurnitureDestroyed()
+{
+    ATeamCarryGameState* GS = GetGameState<ATeamCarryGameState>();
+    if (!GS || GS->bIsGameFinished) return;
+
+    GS->RemainingFurniture--;
+
+    UE_LOG(LogTemp, Warning, TEXT("가구 파괴 | 남은 가구: %d"), GS->RemainingFurniture);
+
+    if (GS->RemainingFurniture <= 0)
+    {
+        FinishGame(true);
+    }
+}
+
 int32 ATeamCarryGameMode::CalculateStar(float ElapsedTime)
 {
     if (ElapsedTime <= StarThreeTime) return 3;
@@ -184,6 +266,11 @@ void ATeamCarryGameMode::FinishGame(bool bIsClear)
     GS->StarCount = CalculateStar(GS->ElapsedTime);
     
     SetGamePhase(EGamePhase::Result);
+    
+    if (bIsClear)
+    {
+        SaveGame(GetWorld()->GetMapName());
+    }
 
     UE_LOG(LogTemp, Warning, TEXT("게임 종료 | 최종 점수: %d | 별: %d개 | 소요 시간: %.1f초"),
         GS->TotalScore, GS->StarCount, GS->ElapsedTime);
