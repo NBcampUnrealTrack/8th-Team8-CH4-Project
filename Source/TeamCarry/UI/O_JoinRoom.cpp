@@ -5,6 +5,7 @@
 #include "Components/Button.h"
 #include "Components/EditableTextBox.h"
 #include "TeamCarry/UI/MockUIController.h"
+#include "Network/Session/TCSessionFlow.h"
 #include "Input/CommonUIInputTypes.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
@@ -95,6 +96,19 @@ void UO_JoinRoom::HandleJoinRoomClicked()
 	// '방 참가' 선택. 코드 입력란에 문자열이 있어야 확인 버튼이 활성화된다.
 	CurrentMode = EJoinRoomMode::JoinRoom;
 	UE_LOG(LogTemp, Log, TEXT("[UI JoinRoom] Mode selected: JoinRoom."));
+
+	// 코드가 있으면 실제 세션 검색→조인을 시작(클라이언트 경로).
+	const FString Code = Txt_Code ? Txt_Code->GetText().ToString().TrimStartAndEnd() : FString();
+	if (Code.IsEmpty())
+	{
+		UE_LOG(LogTemp, Log, TEXT("[UI JoinRoom] 코드 미입력 — 검색 보류."));
+		return;
+	}
+	if (UTCSessionFlow* Flow = GetGameInstance()->GetSubsystem<UTCSessionFlow>())
+	{
+		UE_LOG(LogTemp, Log, TEXT("[UI JoinRoom] JoinRoomByCode: %s"), *Code);
+		Flow->JoinRoomByCode(Code);
+	}
 }
 
 void UO_JoinRoom::HandleCodeTextChanged(const FText& /*Text*/)

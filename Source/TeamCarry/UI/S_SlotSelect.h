@@ -43,6 +43,12 @@ protected:
 	UPROPERTY(meta = (BindWidget), BlueprintReadOnly, Category = "UI|Widget")
 	TObjectPtr<UButton> Btn_Back;
 
+	// 슬롯 카드(BP)에서 슬롯 확정 시 호출하는 seam.
+	// SlotName = 세이브 슬롯 식별자, bContinue = 이어하기 여부(저장 데이터 존재).
+	// 내부에서 UTCSessionFlow 에 세이브 선택을 저장하고 방 생성(호스트)을 시작한다.
+	UFUNCTION(BlueprintCallable, Category = "UI|Slot")
+	void ConfirmSlotAndCreateRoom(const FString& SlotName, bool bContinue);
+
 private:
 	UFUNCTION()
 	void HandleBackClicked();

@@ -5,6 +5,7 @@
 #include "Components/Button.h"
 #include "Components/HorizontalBox.h"
 #include "TeamCarry/UI/MockUIController.h"
+#include "Network/Session/TCSessionFlow.h"
 
 void US_SlotSelect::NativeConstruct()
 {
@@ -39,6 +40,21 @@ bool US_SlotSelect::NativeOnHandleBackAction()
 	// ESC = 뒤로 가기 버튼과 동일하게 메인 메뉴로 복귀.
 	HandleBackClicked();
 	return true;
+}
+
+void US_SlotSelect::ConfirmSlotAndCreateRoom(const FString& SlotName, bool bContinue)
+{
+	// 명세 호스트 2~3단계: 슬롯 확정 → 세이브 선택 저장 → 세션 생성 + 로비 ServerTravel.
+	if (UTCSessionFlow* Flow = GetGameInstance()->GetSubsystem<UTCSessionFlow>())
+	{
+		UE_LOG(LogTemp, Log, TEXT("[UI SlotSelect] ConfirmSlot: '%s' continue=%d → HostCreateRoom"), *SlotName, bContinue);
+		Flow->SetSaveSelection(SlotName, bContinue);
+		Flow->HostCreateRoom();
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[UI SlotSelect] UTCSessionFlow 없음 — 방 생성 불가"));
+	}
 }
 
 void US_SlotSelect::HandleBackClicked()
