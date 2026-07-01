@@ -226,14 +226,14 @@ void US_CharacterSelect::RefreshLobbyFromGameState()
 		{
 			continue;
 		}
-		const int32 Slot = TCPS->GetLobbySlotIndex();
-		if (Slot < 0 || Slot > 3)
+		const int32 SlotIdx = TCPS->GetLobbySlotIndex();
+		if (SlotIdx < 0 || SlotIdx > 3)
 		{
 			continue;
 		}
 		UTextBlock* NameText = nullptr;
 		UTextBlock* StatusText = nullptr;
-		GetSlotTexts(Slot, NameText, StatusText);
+		GetSlotTexts(SlotIdx, NameText, StatusText);
 		if (NameText)
 		{
 			NameText->SetText(FText::FromString(TCPS->GetPlayerName()));
