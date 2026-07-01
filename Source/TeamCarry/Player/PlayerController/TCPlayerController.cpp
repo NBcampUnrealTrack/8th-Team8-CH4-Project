@@ -10,11 +10,6 @@ void ATCPlayerController::RequestSetReady(bool bInReady)
 	ServerSetReady(bInReady);
 }
 
-void ATCPlayerController::RequestSetCharacterIndex(int32 InIndex)
-{
-	ServerSetCharacterIndex(InIndex);
-}
-
 void ATCPlayerController::RequestStartGame()
 {
 	ServerRequestStartGame();
@@ -25,14 +20,6 @@ void ATCPlayerController::ServerSetReady_Implementation(bool bInReady)
 	if (ATCPlayerState* PS = GetPlayerState<ATCPlayerState>())
 	{
 		PS->SetReadyAuthoritative(bInReady);
-	}
-}
-
-void ATCPlayerController::ServerSetCharacterIndex_Implementation(int32 InIndex)
-{
-	if (ATCPlayerState* PS = GetPlayerState<ATCPlayerState>())
-	{
-		PS->SetCharacterIndexAuthoritative(InIndex);
 	}
 }
 

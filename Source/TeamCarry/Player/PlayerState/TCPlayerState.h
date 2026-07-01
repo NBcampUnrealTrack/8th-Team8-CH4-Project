@@ -9,7 +9,7 @@
 /**
  * ATCPlayerState - 로비 복제 상태를 담는 PlayerState.
  *
- * 명세(세션 흐름) 4단계의 "캐릭터 선택 + bIsReady 복제"를 담당한다.
+ * 명세(세션 흐름) 4단계의 bIsReady(준비 상태) 복제를 담당한다.
  * UI 레이어에 의존하지 않는다(원시 복제 변수 + 변경 알림만 제공). UI(S_CharacterSelect)는
  * ATCLobbyGameState 의 OnLobbyPlayersChanged 를 구독해 PlayerArray 를 읽어 슬롯을 갱신한다.
  *
@@ -30,9 +30,6 @@ public:
 	UFUNCTION(BlueprintPure, Category = "TeamCarry|Lobby")
 	bool IsReady() const { return bIsReady; }
 
-	UFUNCTION(BlueprintPure, Category = "TeamCarry|Lobby")
-	int32 GetCharacterIndex() const { return CharacterIndex; }
-
 	// GameMode 가 PostLogin 때 배정하는 로비 슬롯(0~3). UI 슬롯 위젯 매핑용.
 	UFUNCTION(BlueprintPure, Category = "TeamCarry|Lobby")
 	int32 GetLobbySlotIndex() const { return LobbySlotIndex; }
@@ -41,17 +38,12 @@ public:
 	// HasAuthority() 가드 내장. 클라가 직접 부르면 무시된다(로그만).
 
 	void SetReadyAuthoritative(bool bInReady);
-	void SetCharacterIndexAuthoritative(int32 InIndex);
 	void SetLobbySlotIndexAuthoritative(int32 InSlot);
 
 protected:
 	// 준비 완료 플래그.
 	UPROPERTY(ReplicatedUsing = OnRep_LobbyInfo, VisibleAnywhere, Category = "TeamCarry|Lobby")
 	bool bIsReady = false;
-
-	// 선택한 캐릭터 인덱스.
-	UPROPERTY(ReplicatedUsing = OnRep_LobbyInfo, VisibleAnywhere, Category = "TeamCarry|Lobby")
-	int32 CharacterIndex = 0;
 
 	// 로비 슬롯 인덱스(서버 배정).
 	UPROPERTY(ReplicatedUsing = OnRep_LobbyInfo, VisibleAnywhere, Category = "TeamCarry|Lobby")

@@ -10,7 +10,7 @@
  * ATCPlayerController - UI 호스트(AGameUIPlayerController) + 로비 네트워크 RPC.
  *
  * AGameUIPlayerController 를 상속해 위젯 호스팅 능력을 그대로 갖고,
- * 그 위에 로비의 Ready/캐릭터선택/시작 요청을 서버로 올리는 RPC 를 더한다.
+ * 그 위에 로비의 Ready/시작 요청을 서버로 올리는 RPC 를 더한다.
  * 모든 레벨의 PlayerControllerClass 를 이 클래스(또는 BP 서브클래스)로 지정한다(EDITOR-TASKS §2).
  */
 UCLASS()
@@ -25,9 +25,6 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "TeamCarry|Lobby")
 	void RequestSetReady(bool bInReady);
 
-	UFUNCTION(BlueprintCallable, Category = "TeamCarry|Lobby")
-	void RequestSetCharacterIndex(int32 InIndex);
-
 	// 호스트 전용: 전원 준비 시 게임 시작(레벨 트래블).
 	UFUNCTION(BlueprintCallable, Category = "TeamCarry|Lobby")
 	void RequestStartGame();
@@ -35,9 +32,6 @@ public:
 private:
 	UFUNCTION(Server, Reliable)
 	void ServerSetReady(bool bInReady);
-
-	UFUNCTION(Server, Reliable)
-	void ServerSetCharacterIndex(int32 InIndex);
 
 	UFUNCTION(Server, Reliable)
 	void ServerRequestStartGame();
