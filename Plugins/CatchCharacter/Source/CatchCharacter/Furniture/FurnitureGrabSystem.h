@@ -37,6 +37,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Interaction")
 	bool CanAcceptGrab() const;
 
+	// 외부에서 잡고 있는 플레이어 배열을 가져갈 수 있도록 Getter 추가
+	const TArray<ACharacter*>& GetGrabbedPlayers() const { return GrabbedPlayers; }
+
 protected:
 	virtual void BeginPlay() override;
 

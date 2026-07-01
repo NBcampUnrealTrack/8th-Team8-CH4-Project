@@ -143,21 +143,23 @@ void ATCPlayerCharacter::StartRun(const FInputActionValue& InValue)
 
 		if (Furniture)
 		{
+			// 가구의 GrabSystem을 통해 가구를 들고 있는 플레이어 인원수 조회
 			UFurnitureGrabSystem* FGS = Furniture->GetGrabSystem();
 
 			if (FGS)
 			{
-				// GrabbedPlayers 배열의 길이를 확인하여 잡고 있는 인원수 산출
-				int32 GrabberCount = FGS->IsGrabbedBy(this) ? 1 : 0;
-
 				// 팀원 코드에 맞춰 잡고 있는 인원수를 가져오는 함수로 수정 필요
-				//int32 GrabberCount = FGS->GetGrabbedPlayers().Num();
+				int32 GrabberCount = FGS->GetGrabbedPlayers().Num();
 
 				// 2명 이상이 가구를 들고 있다면 달리기 불가 처리 후 함수 종료
-				/*if (GrabberCount >= 2)
+				if (GrabberCount >= 2)
 				{
+					if (GEngine)
+					{
+						GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Yellow, TEXT("2명 이상 운반 중: 달리기 불가"));
+					}
 					return;
-				}*/
+				}
 			}
 		}
 	}
@@ -194,8 +196,11 @@ void ATCPlayerCharacter::Interact(const FInputActionValue& InValue)
 		// 출력 로그
 		UE_LOG(LogTemp, Warning, TEXT("E키 입력 : 가구 잡기 시도"));
 
-		// 애니메이션 재생
-		if (GrabMontage)
+		// 상호작용 - 잡기 실행 명령을 먼저 호출하고 성공 여부를 반환받음
+		bool bIsGrabSuccess = GrabComponent->TryInteract();
+
+		// 가구 잡기에 성공(true)했을 경우에만 애니메이션 재생
+		if (bIsGrabSuccess && GrabMontage)
 		{
 			// 로컬 애니메이션 재생
 			PlayAnimMontage(GrabMontage);
@@ -205,7 +210,7 @@ void ATCPlayerCharacter::Interact(const FInputActionValue& InValue)
 		}
 
 		// 상호작용-잡기 실행 명령
-		GrabComponent->TryInteract();
+		// GrabComponent->TryInteract();
 	}
 }
 

@@ -24,7 +24,7 @@ public:
 	AActor* CurrentBestTarget;
 
 	// 캐릭터가 상호작용 키(E)를 눌렀을 때 호출할 함수
-	void TryInteract();
+	bool TryInteract();
 
 	// 캐릭터가 던지기 키(F)를 눌렀을 때 호출할 함수
 	void TryThrow();

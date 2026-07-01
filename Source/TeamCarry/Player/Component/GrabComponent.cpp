@@ -31,10 +31,28 @@ void UGrabComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorC
 }
 
 // 대상이 존재하면 서버로 상호작용-잡기 시도 요청
-void UGrabComponent::TryInteract()
+bool UGrabComponent::TryInteract()
 {
-	// 클라이언트가 파악한 대상을 서버로 보내서 상호작용 처리 요청
-	ServerTryInteract(CurrentBestTarget);
+	// 대상이 있는지 확인
+	if (CurrentBestTarget != nullptr)
+	{
+		// 대상이 있다면 서버로 상호작용 처리 요청
+		ServerTryInteract(CurrentBestTarget);
+
+		// 잡기에 성공했으면 true 반환
+		return true;
+	}
+
+	// 이미 가구를 들고 있는 경우 (내려놓기)
+	if (GrabbedActor != nullptr)
+	{
+		ServerTryInteract(nullptr); // 서버에 내려놓기 처리 요청
+		return false; // 잡기 몽타주를 재생하지 않도록 false 반환
+	}
+
+	// 대상이 없다면 false 반환
+	return false;
+
 }
 
 // 서버로 상호작용-던지기 시도 요청
