@@ -72,6 +72,16 @@ public:
 	UFUNCTION(BlueprintPure, Category = "TeamCarry|Session|Steam")
 	FString GetFoundSessionName(int32 SearchResultIndex) const;
 
+	// ── 방 코드(Room Code) ──
+
+	// 호스트가 광고 중인 방 코드. 생성 후 UI 표시·공유용. 호스트가 아니면 빈 문자열.
+	UFUNCTION(BlueprintPure, Category = "TeamCarry|Session|Steam")
+	FString GetHostRoomCode() const { return HostRoomCode; }
+
+	// 검색 결과 세션에 광고된 방 코드(클라이언트 코드 매칭용). 없으면 빈 문자열.
+	UFUNCTION(BlueprintPure, Category = "TeamCarry|Session|Steam")
+	FString GetFoundSessionCode(int32 SearchResultIndex) const;
+
 	// ── BP 바인딩용 결과 이벤트 ──
 	UPROPERTY(BlueprintAssignable, Category = "TeamCarry|Session|Steam")
 	FTCSessionBoolEvent OnCreateSessionComplete;
@@ -88,6 +98,12 @@ private:
 
 	// CreateSession 완료 후 이동할 맵
 	FString PendingTravelMap;
+
+	// 호스트가 이번 세션에 광고한 방 코드(6자리 A-Z0-9). 호스트 전용.
+	FString HostRoomCode;
+
+	// 6자리 방 코드 생성(혼동 문자 제외).
+	static FString GenerateRoomCode();
 
 	// 직전 검색 결과 보관(Join 시 참조)
 	TSharedPtr<FOnlineSessionSearch> SessionSearch;

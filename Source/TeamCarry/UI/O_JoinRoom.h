@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "CommonActivatableWidget.h"
+#include "Network/Session/TCSessionFlow.h"   // ETCSessionPhase (세션 단계 통지)
 #include "O_JoinRoom.generated.h"
 
 class UCommonButtonBase;
@@ -28,6 +29,7 @@ public:
 
 protected:
 	virtual void NativeConstruct() override;
+	virtual void NativeDestruct() override;
 
 	// 기본 포커스 대상을 '방 만들기' 버튼에 둔다.
 	virtual UWidget* NativeGetDesiredFocusTarget() const override;
@@ -69,10 +71,13 @@ private:
 	UFUNCTION()
 	void HandleCodeTextChanged(const FText& Text);
 
-	// 네트워크 세션 델리게이트 수신 핸들러
+	// UTCSessionFlow 단계 통지 수신(검색/조인 진행·실패). 세션 로직은 SessionFlow 가 담당.
 	UFUNCTION()
-	void OnFindSessionsComplete(bool bWasSuccessful, int32 NumResults);
+	void HandleSessionPhaseChanged(ETCSessionPhase Phase, const FString& Message);
 
-	UFUNCTION()
-	void OnJoinSessionComplete(bool bWasSuccessful);
+	// 검색/조인 중 버튼 잠금·해제 헬퍼.
+	void SetBusy(bool bBusy);
+
+	// SessionFlow 구독 등록/해제(수명 정리).
+	void BindSessionFlow(bool bBind);
 };
