@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 #pragma once
 
@@ -6,7 +6,7 @@
 #include "CommonActivatableWidget.h"
 #include "S_SlotSelect.generated.h"
 
-class UButton;
+class UCommonButtonBase;
 class UHorizontalBox;
 class UWidget;
 
@@ -25,6 +25,12 @@ class TEAMCARRY_API US_SlotSelect : public UCommonActivatableWidget
 {
 	GENERATED_BODY()
 
+	// ==========================================
+	// 함수 (Functions) 영역
+	// ==========================================
+public:
+	// (현재 public 함수는 없습니다)
+
 protected:
 	virtual void NativeConstruct() override;
 
@@ -33,6 +39,21 @@ protected:
 	// ESC = '한 단계 뒤로'(명세 5-1). 라우터를 통해 S_MainMenu 로 교체한다.
 	virtual bool NativeOnHandleBackAction() override;
 
+private:
+	// 근본 규칙에 따라 매개변수를 완전히 제거했습니다.
+	UFUNCTION()
+	void HandleBackClicked();
+
+	UFUNCTION()
+	void HandleTempEmptySlotClicked();
+
+	// ==========================================
+	// 변수 (Variables) 영역
+	// ==========================================
+public:
+	// (현재 public 변수는 없습니다)
+
+protected:
 	// --- 가로형 카드 배치용 컨테이너 (명세 3-2) ---
 	// 세이브 슬롯 카드들이 가로로 나열되는 컨테이너.
 	UPROPERTY(meta = (BindWidget), BlueprintReadOnly, Category = "UI|Widget")
@@ -41,7 +62,12 @@ protected:
 	// --- 네비게이션 ---
 	// 뒤로 가기(메인 메뉴 복귀).
 	UPROPERTY(meta = (BindWidget), BlueprintReadOnly, Category = "UI|Widget")
-	TObjectPtr<UButton> Btn_Back;
+	TObjectPtr<UCommonButtonBase> Btn_Back;
+
+	// (임시 테스트용) 빈 슬롯 선택 버튼 바인딩. 동적 생성 구현 전 팝업 테스트 용도입니다.
+	// 블루프린트에서 해당 버튼을 배치해야 동작하며, 필수가 아니도록 OptionalWidget 처리했습니다.
+	UPROPERTY(meta = (BindWidget, OptionalWidget = "true"))
+	TObjectPtr<UCommonButtonBase> Btn_TempEmptySlot;
 
 	// 슬롯 카드(BP)에서 슬롯 확정 시 호출하는 seam.
 	// SlotName = 세이브 슬롯 식별자, bContinue = 이어하기 여부(저장 데이터 존재).
@@ -50,6 +76,5 @@ protected:
 	void ConfirmSlotAndCreateRoom(const FString& SlotName, bool bContinue);
 
 private:
-	UFUNCTION()
-	void HandleBackClicked();
+	// (현재 private 변수는 없습니다)
 };

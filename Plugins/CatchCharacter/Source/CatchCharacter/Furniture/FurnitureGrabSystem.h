@@ -27,6 +27,7 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Interaction")
 	void Release(ACharacter* Grabber);
+	void AllRelease();
 
 	void Setup(UStaticMeshComponent* InMesh, UFurnitureStat* InStat);
 

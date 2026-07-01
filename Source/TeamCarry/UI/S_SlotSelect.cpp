@@ -1,20 +1,21 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 
 #include "TeamCarry/UI/S_SlotSelect.h"
-#include "Components/Button.h"
+#include "CommonButtonBase.h"
 #include "Components/HorizontalBox.h"
 #include "TeamCarry/UI/MockUIController.h"
 #include "Network/Session/TCSessionFlow.h"
+#include "Engine/GameInstance.h"
 
 void US_SlotSelect::NativeConstruct()
 {
 	Super::NativeConstruct();
 
-	// 뒤로 가기 버튼 바인딩(메인 메뉴 복귀).
+	// CommonUI의 네이티브 바인딩 방식인 OnClicked().AddUObject 를 적용했습니다.
 	if (Btn_Back)
 	{
-		Btn_Back->OnClicked.AddUniqueDynamic(this, &US_SlotSelect::HandleBackClicked);
+		Btn_Back->OnClicked().AddUObject(this, &US_SlotSelect::HandleBackClicked);
 	}
 
 	// 가로형 카드 컨테이너는 백엔드 연동 시 슬롯 카드 위젯으로 채워진다.
@@ -23,22 +24,37 @@ void US_SlotSelect::NativeConstruct()
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[UI SlotSelect] Box_SlotCards is not bound. Check the WBP hierarchy."));
 	}
+
+	if (Btn_TempEmptySlot)
+	{
+		Btn_TempEmptySlot->OnClicked().AddUObject(this, &US_SlotSelect::HandleTempEmptySlotClicked);
+	}
+
+	SetIsFocusable(true);
 }
 
 UWidget* US_SlotSelect::NativeGetDesiredFocusTarget() const
 {
-	if (Btn_Back)
+	// 화면 진입 시 첫 슬롯에 기본 포커스를 부여합니다.
+	if (Btn_TempEmptySlot)
+	{
+		return Btn_TempEmptySlot;
+	}
+	else if (Btn_Back)
 	{
 		return Btn_Back;
 	}
-
 	return Super::NativeGetDesiredFocusTarget();
 }
 
 bool US_SlotSelect::NativeOnHandleBackAction()
 {
-	// ESC = 뒤로 가기 버튼과 동일하게 메인 메뉴로 복귀.
-	HandleBackClicked();
+	// 명세 5-1 및 3-2: ESC 입력 시 S_MainMenu로 복귀
+	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
+	{
+		UE_LOG(LogTemp, Log, TEXT("[UI SlotSelect] Returning to Main Menu."));
+		MockController->ReplaceState(EE_UIState::MainMenu);
+	}
 	return true;
 }
 
@@ -59,10 +75,15 @@ void US_SlotSelect::ConfirmSlotAndCreateRoom(const FString& SlotName, bool bCont
 
 void US_SlotSelect::HandleBackClicked()
 {
+	NativeOnHandleBackAction();
+}
+
+void US_SlotSelect::HandleTempEmptySlotClicked()
+{
+	// 명세 3-2: 빈 슬롯 선택(또는 기존 데이터 삭제) 시 O_Confirm 팝업 호출
 	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
 	{
-		// 명세 1 흐름: S_SlotSelect ──뒤로(ESC)──▶ S_MainMenu (풀스크린 교체).
-		UE_LOG(LogTemp, Log, TEXT("[UI SlotSelect] Back clicked. Replacing to MainMenu."));
-		MockController->ReplaceState(EE_UIState::MainMenu);
+		UE_LOG(LogTemp, Log, TEXT("[UI SlotSelect] Empty slot clicked. Pushing O_Confirm overlay..."));
+		MockController->PushOverlay(TEXT("O_Confirm"));
 	}
 }

@@ -7,6 +7,11 @@
 #include "FurnitureDataTable.h"
 #include "FurnitureStat.generated.h"
 
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnFurnitureDamage, float, MaxHealth , float, OldHealth, float, NewHealth);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnFurnitureDestroy);
+
+
 UCLASS( ClassGroup=(Custom), meta=(BlueprintSpawnableComponent) )
 class CATCHCHARACTER_API UFurnitureStat : public UActorComponent
 {
@@ -26,6 +31,27 @@ public:
 	// 현재 인원수가 요구 인원을 충족하는지 확인
 	bool IsRequirementMet() const { return CurrentGrabbedPlayer >= RequiredPlayer; }
 
+	// 데미지 처리
+	UFUNCTION()
+	void TakeDamage(AActor* DamagedActor,
+		float Damage,
+		const UDamageType* DamageType,
+		AController* Instigator,
+		AActor* Causer
+	);
+
+	// 무적 설정 함수
+	UFUNCTION(BlueprintCallable, Category = "Furniture|State")
+	void SetInvincible(float Duration);
+
+	// 무적 해제 함수
+	UFUNCTION(BlueprintCallable, Category = "Furniture|State")
+	void DisableInvincible();
+
+	// 무적 상태인지 여부 반환
+	UFUNCTION(BlueprintPure, Category = "Furniture|State")
+	bool IsInvincible() const { return bIsInvincible; }
+
 	// getter
 	const FFurnitureData& GetFurnitureData() const { return DefaultStats; }
 	int32 GetCurrentGrabbedPlayer() const { return CurrentGrabbedPlayer; }
@@ -33,8 +59,15 @@ public:
 	float GetCurrentHealth() const { return CurrentHealth; }
 	int32 GetGrabbedPlayerNum() const { return CurrentGrabbedPlayer; }
 	int32 GetRequiredPlayer() const { return RequiredPlayer; }
+	float GetCollisionDamageMultiplier() const { return CollisionDamageMultiplier; }
 	float GetMass() const { return Mass; }
 	float GetFriction() const { return Friction; }
+
+	UPROPERTY(BlueprintAssignable)
+	FOnFurnitureDamage OnFurnitureDamage;
+
+	UPROPERTY(BlueprintAssignable)
+	FOnFurnitureDestroy OnFurnitureDestroy;
 
 protected:
 	virtual void BeginPlay() override;
@@ -64,4 +97,9 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Replicated, Category = "Furniture|State")
 	float Friction;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Replicated, Category = "Furniture|State")
+	bool bIsInvincible;
+
+	FTimerHandle InvincibilityTimerHandle;
 };
