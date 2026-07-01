@@ -29,6 +29,9 @@ public:
 	void Release(ACharacter* Grabber);
 	void AllRelease();
 
+	UFUNCTION(BlueprintCallable, Category = "Interaction")
+	void AddFurnitureOffset(FVector LocationOffset, float YawOffset);
+
 	void Setup(UStaticMeshComponent* InMesh, UFurnitureStat* InStat);
 
 	UFUNCTION(BlueprintPure, Category = "Interaction")
@@ -121,9 +124,16 @@ private:
 	UFUNCTION(NetMulticast, Reliable)
 	void Multicast_SetPlayerAnchor(ACharacter* Player, float InitFurnYaw, float InitPlayerYaw, float InitAimYaw, FVector InitOffset);
 
+	// 패킷 순서 보장용 시퀀스 ID
+	uint8 SystemOffsetSequence = 0;
+	uint8 LocalSystemOffsetSequence = 0;
 	// 가구 위치·회전을 매 서버 틱 클라이언트에 직접 전달 (DOREPLIFETIME 보완).
 	UFUNCTION(NetMulticast, Unreliable)
-	void Multicast_UpdateFurnitureTransform(FVector NewLocation, FRotator NewRotation);
+	void Multicast_UpdateFurnitureTransform(FVector NewLocation, FRotator NewRotation, uint8 SeqID);
+
+	// 가구 단독이동 시 가구와 플레이어 동시에 처리를 위해 추가.
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_ApplySystemOffset(FVector ActualLocDelta, float ActualYawDelta, FVector NewServerLoc, FRotator NewServerRot, uint8 SeqID);
 
 	// 디버그: 가구 실속도 + 플레이어 속도 전체 표시 (서버→모든 클라)
 	UFUNCTION(NetMulticast, Unreliable)
@@ -144,6 +154,9 @@ private:
 	float LocalOriginalMaxWalkSpeed = 0.0f;
 	bool  bLocalCMCModified         = false;
 	bool  bLocalSpeedReduced        = false;
+
+	// RPC과정에서 타이밍이 어긋나 회전이 제대로 안되는걸 방지를 위한 로컬 회전값
+	float LocalSyncTargetYaw = 0.0f;
 
 	void UpdateLocalWalkSpeed();
 	void SetGrabCollisionState(ACharacter* Player, bool bEnable);
