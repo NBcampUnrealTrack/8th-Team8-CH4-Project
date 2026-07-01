@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 
 #include "TeamCarry/UI/S_CharacterSelect.h"
@@ -83,6 +83,11 @@ void US_CharacterSelect::NativeConstruct()
 	if (Txt_Slot3_Status) Txt_Slot3_Status->SetText(FText::FromString(TEXT("READY")));
 	if (Txt_Slot4_Name) Txt_Slot4_Name->SetText(FText::FromString(TEXT("Player_4 (AI)")));
 	if (Txt_Slot4_Status) Txt_Slot4_Status->SetText(FText::FromString(TEXT("READY")));
+
+	if (Txt_Session_Code)
+	{
+		Txt_Session_Code->SetText(FText::FromString(TEXT("방 코드: 000000")));
+	}
 }
 
 void US_CharacterSelect::NativeDestruct()

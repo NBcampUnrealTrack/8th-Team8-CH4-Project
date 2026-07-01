@@ -59,6 +59,10 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
 	TObjectPtr<UTextBlock> Txt_Slot4_Status;
 
+	// --- Session Code ---
+	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
+	TObjectPtr<UTextBlock> Txt_Session_Code;
+
 private:
 	UFUNCTION()
 	void HandleReadyClicked();

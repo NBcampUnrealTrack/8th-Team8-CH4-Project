@@ -99,8 +99,8 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "UI|Controller")
 	void ReplaceState(EE_UIState NewState);
 
-	UFUNCTION(BlueprintCallable, Category = "UI|Controller")
-	void PushOverlay(const FString& OverlayName);
+	UFUNCTION(BlueprintCallable, Category = "UI")
+	class UCommonActivatableWidget* PushOverlay(const FString& OverlayName);
 
 	UFUNCTION(BlueprintCallable, Category = "UI|Controller")
 	void PopCurrentOverlay();
