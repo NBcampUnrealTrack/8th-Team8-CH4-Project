@@ -13,6 +13,9 @@ namespace
 	// TeamCarry 세션 식별 키 — 검색 시 우리 게임 세션만 필터링.
 	const FName TC_SESSION_KEY = TEXT("TCGameName");
 	const FString TC_SESSION_VALUE = TEXT("TeamCarry");
+
+	// 방 코드 광고 키 — 클라이언트가 입력한 코드와 매칭.
+	const FName TC_ROOMCODE_KEY = TEXT("TCRoomCode");
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -53,6 +56,20 @@ void UTCGameInstance::JoinByAddress(const FString& Address)
 // Steam OSS 세션
 // ─────────────────────────────────────────────────────────────
 
+// 6자리 방 코드 생성 — 혼동 문자(0/O, 1/I) 제외한 32자 집합.
+FString UTCGameInstance::GenerateRoomCode()
+{
+	static const TCHAR Alphabet[] = TEXT("ABCDEFGHJKLMNPQRSTUVWXYZ23456789");
+	const int32 AlphabetLen = UE_ARRAY_COUNT(Alphabet) - 1; // 널 종단 제외
+	FString Code;
+	Code.Reserve(6);
+	for (int32 i = 0; i < 6; ++i)
+	{
+		Code.AppendChar(Alphabet[FMath::RandRange(0, AlphabetLen - 1)]);
+	}
+	return Code;
+}
+
 IOnlineSessionPtr UTCGameInstance::GetSessionInterface() const
 {
 	IOnlineSubsystem* OSS = Online::GetSubsystem(GetWorld());
@@ -83,6 +100,10 @@ void UTCGameInstance::HostSteamSession(const FString& MapName, int32 MaxPlayers,
 
 	PendingTravelMap = MapName;
 
+	// 이번 세션의 방 코드 생성 — 호스트 UI 표시 + 클라 매칭용.
+	HostRoomCode = GenerateRoomCode();
+	UE_LOG(LogTCNet, Log, TEXT("HostSteamSession: 방 코드 = %s"), *HostRoomCode);
+
 	FOnlineSessionSettings Settings;
 	Settings.bIsLANMatch = bLAN;
 	Settings.NumPublicConnections = FMath::Max(1, MaxPlayers);
@@ -94,9 +115,10 @@ void UTCGameInstance::HostSteamSession(const FString& MapName, int32 MaxPlayers,
 	Settings.bUseLobbiesIfAvailable = !bLAN;     // Steam 로비 API
 	Settings.bAllowInvites = true;
 
-	// 식별 키 + 맵 이름 광고(검색 측에서 필터·표시)
+	// 식별 키 + 맵 이름 + 방 코드 광고(검색 측에서 필터·표시·매칭)
 	Settings.Set(TC_SESSION_KEY, TC_SESSION_VALUE, EOnlineDataAdvertisementType::ViaOnlineServiceAndPing);
 	Settings.Set(SETTING_MAPNAME, MapName, EOnlineDataAdvertisementType::ViaOnlineServiceAndPing);
+	Settings.Set(TC_ROOMCODE_KEY, HostRoomCode, EOnlineDataAdvertisementType::ViaOnlineServiceAndPing);
 
 	CreateSessionCompleteHandle = Sessions->AddOnCreateSessionCompleteDelegate_Handle(
 		FOnCreateSessionCompleteDelegate::CreateUObject(this, &UTCGameInstance::HandleCreateSessionComplete));
@@ -256,6 +278,7 @@ void UTCGameInstance::HandleDestroySessionComplete(FName SessionName, bool bWasS
 		Sessions->ClearOnDestroySessionCompleteDelegate_Handle(DestroySessionCompleteHandle);
 	}
 	UE_LOG(LogTCNet, Log, TEXT("DestroySession 완료: %s (성공=%d)"), *SessionName.ToString(), bWasSuccessful);
+	HostRoomCode.Reset();
 }
 
 // ── 콘솔 테스트 트리거 ──
@@ -306,4 +329,16 @@ FString UTCGameInstance::GetFoundSessionName(int32 SearchResultIndex) const
 		return MapName;
 	}
 	return Result.Session.OwningUserName;
+}
+
+FString UTCGameInstance::GetFoundSessionCode(int32 SearchResultIndex) const
+{
+	if (!SessionSearch.IsValid() || !SessionSearch->SearchResults.IsValidIndex(SearchResultIndex))
+	{
+		return FString();
+	}
+
+	FString RoomCode;
+	SessionSearch->SearchResults[SearchResultIndex].Session.SessionSettings.Get(TC_ROOMCODE_KEY, RoomCode);
+	return RoomCode;
 }

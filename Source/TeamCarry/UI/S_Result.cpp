@@ -5,6 +5,8 @@
 #include "Components/Button.h"
 #include "Components/TextBlock.h"
 #include "TeamCarry/UI/MockUIController.h"
+#include "Network/Session/TCSessionFlow.h"
+#include "Engine/World.h"
 
 void US_Result::NativeConstruct()
 {
@@ -52,9 +54,21 @@ void US_Result::HandleConfirmClicked()
 
 void US_Result::HandleToTitleClicked()
 {
+	// 네트워크 세션 중이면 세션 파기 후 타이틀 맵으로 복귀.
+	const bool bNetworked = GetWorld() && GetWorld()->GetNetMode() != NM_Standalone;
+	if (bNetworked)
+	{
+		if (UTCSessionFlow* Flow = GetGameInstance()->GetSubsystem<UTCSessionFlow>())
+		{
+			UE_LOG(LogTemp, Log, TEXT("[UI Result] To Title (networked). DestroySession → Title."));
+			Flow->LeaveToTitle();
+			return;
+		}
+	}
+
+	// ── mock 폴백 ──
 	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
 	{
-		// 보조 경로: 타이틀(S_MainMenu)로 복귀.
 		UE_LOG(LogTemp, Log, TEXT("[UI Result] To Title clicked. Replacing to MainMenu."));
 		MockController->ReplaceState(EE_UIState::MainMenu);
 	}

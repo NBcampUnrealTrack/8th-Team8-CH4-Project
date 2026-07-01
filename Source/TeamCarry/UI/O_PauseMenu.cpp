@@ -1,8 +1,9 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 
 #include "TeamCarry/UI/O_PauseMenu.h"
 #include "Components/Button.h"
+#include "CommonButtonBase.h"
 #include "TeamCarry/UI/MockUIController.h"
 #include "Input/CommonUIInputTypes.h"
 
@@ -28,6 +29,14 @@ void UO_PauseMenu::NativeConstruct()
 	if (Btn_Settings)
 	{
 		Btn_Settings->OnClicked.AddUniqueDynamic(this, &UO_PauseMenu::HandleSettingsClicked);
+	}
+
+	// Bind KeyGuide Button (조작법 가이드 팝업 푸시, 명세 3-10)
+	// UCommonButtonBase 는 OnClicked() 멤버 함수로 바인딩한다.
+	if (Btn_KeyGuide)
+	{
+		Btn_KeyGuide->OnClicked().RemoveAll(this);
+		Btn_KeyGuide->OnClicked().AddUObject(this, &UO_PauseMenu::HandleKeyGuideClicked);
 	}
 
 	// Bind Save Button (호스트 전용 수동 저장)
@@ -87,6 +96,15 @@ void UO_PauseMenu::HandleSettingsClicked()
 	{
 		UE_LOG(LogTemp, Log, TEXT("[UI PauseMenu] Settings clicked. Pushing O_Settings overlay."));
 		MockController->PushOverlay(TEXT("O_Settings"));
+	}
+}
+
+void UO_PauseMenu::HandleKeyGuideClicked()
+{
+	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
+	{
+		UE_LOG(LogTemp, Log, TEXT("[UI PauseMenu] KeyGuide clicked. Pushing O_KeyGuide overlay."));
+		MockController->PushOverlay(TEXT("O_KeyGuide"));
 	}
 }
 

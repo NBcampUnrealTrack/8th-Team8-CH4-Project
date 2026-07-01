@@ -20,6 +20,8 @@ AFurnitureActor::AFurnitureActor()
 	GrabSystem = CreateDefaultSubobject<UFurnitureGrabSystem>(TEXT("GrabSystem"));
 	
 	DamageSystem = CreateDefaultSubobject<UFurnitureDamage>(TEXT("DamageSystem"));
+
+	FurnitureMesh->OnComponentHit.AddDynamic(DamageSystem, &UFurnitureDamage::OnHit);
 }
 
 void AFurnitureActor::BeginPlay()
@@ -43,6 +45,10 @@ void AFurnitureActor::BeginPlay()
 			{
 				FurnitureStat->InitializeStats(*Data);
 			}
+		}
+		if (IsValid(FurnitureStat) && IsValid(DamageSystem))
+		{
+			DamageSystem->Setup(FurnitureStat);
 		}
 	}
 
