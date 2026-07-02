@@ -14,6 +14,10 @@
 
 ATCFurnitureActor::ATCFurnitureActor()
 {
+    // 파괴 후 콜리전 꺼짐을 감시하는 용도로만 틱 사용 (평소엔 꺼둠, 파괴 시 활성화)
+    PrimaryActorTick.bCanEverTick = true;
+    PrimaryActorTick.bStartWithTickEnabled = false;
+
     // 지오메트리 컬렉션 컴포넌트 생성
     GeometryCollectionComp = CreateDefaultSubobject<UGeometryCollectionComponent>(TEXT("GeometryCollectionComp"));
 
@@ -26,6 +30,9 @@ ATCFurnitureActor::ATCFurnitureActor()
     GeometryCollectionComp->SetVisibility(false);
     GeometryCollectionComp->SetSimulatePhysics(false);
     GeometryCollectionComp->SetCollisionProfileName(TEXT("NoCollision"));
+
+    // 조각의 위치까지 동기화x 어차피 플레이어랑 상호작용안될거.
+    GeometryCollectionComp->SetIsReplicated(false);
 }
 
 void ATCFurnitureActor::BeginPlay()
@@ -71,11 +78,21 @@ void ATCFurnitureActor::DestroyFurniture()
             FGS->AllRelease();
         }
 
+        // AllRelease() → Release() 내부에서 SetSimulatePhysics(true)와 SetReplicateMovement(true)가 복원됨.
+        // FurnitureMesh가 RootComponent이므로 물리가 활성화되면 액터 전체가 중력으로 낙하하고
+        // 거기에 붙은 GC 컴포넌트도 통째로 따라 이동해 흔들려 보임 → 즉시 다시 꺼서 차단.
+        if (FurnitureMesh)
+        {
+            FurnitureMesh->SetSimulatePhysics(false);
+        }
+        SetReplicateMovement(false);
+
         // 파괴 효과
         Multicast_DestroyFurniture();
 
-        // 파괴 메쉬가 없다면 액터를 완전히 삭제 예약 (다른작업의 처리 시간 확보를 위해 0.1초 지연)
-        if (!GeometryCollectionComp)
+        // GC 컴포넌트가 없거나, 있어도 파괴 메쉬(RestCollection)가 등록되지 않았다면
+        // 조각날 것이 없으므로 액터를 즉시 삭제 예약 (다른작업의 처리 시간 확보를 위해 0.1초 지연)
+        if (!GeometryCollectionComp || !GeometryCollectionComp->GetRestCollection())
         {
             SetLifeSpan(0.1f);
         }
@@ -89,6 +106,12 @@ void ATCFurnitureActor::DestroyFurniture()
 
 void ATCFurnitureActor::Multicast_DestroyFurniture_Implementation()
 {
+    // 클라이언트에서도 파괴 상태를 기록하고 감시 틱 시작.
+    // OnRep_GrabbedPlayers가 이 RPC보다 늦게 도착하면 FurnitureMesh의
+    // 물리/콜리전을 되살려 투명 벽이 생기므로, Tick에서 즉시 다시 꺼서 방어.
+    bIsFurnitureDestroyed = true;
+    SetActorTickEnabled(true);
+
     // 파괴음 재생
     if (BreakSound)
     {
@@ -103,14 +126,39 @@ void ATCFurnitureActor::Multicast_DestroyFurniture_Implementation()
         FurnitureMesh->SetCollisionProfileName(TEXT("NoCollision"));
     }
 
-    if (GeometryCollectionComp)
+    // 파괴 메쉬(RestCollection)가 실제로 등록된 경우에만 조각내기 시뮬레이션 실행.
+    // 컴포넌트만 있고 메쉬가 비어 있으면 조각날 것이 없으므로 건너뜀.
+    if (GeometryCollectionComp && GeometryCollectionComp->GetRestCollection())
     {
-        // 지오메트리 컬렉션과 물리를 킨다
         GeometryCollectionComp->SetVisibility(true);
+
+        // 바닥·벽과 충돌하는 기본 프로파일을 먼저 적용한 뒤 Pawn 채널만 무시
+        GeometryCollectionComp->SetCollisionProfileName(TEXT("BlockAllDynamic"));
+        GeometryCollectionComp->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
+
+        // 루트(StaticMesh)에서 분리: 붙어 있으면 어태치먼트 구속(부모 위치 유지)과
+        // 물리 시뮬레이션(자유 낙하)이 매 프레임 상충해 조각 전체가 흔들림 → 분리해 독립 시뮬레이션.
+        GeometryCollectionComp->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
+
+        // TODO : GC 에셋에서 Enable Clustering=false 또는 Damage Threshold≈0 설정 필요
         GeometryCollectionComp->SetSimulatePhysics(true);
 
-        // 파괴용 콜리전 프로파일을 사용
-        GeometryCollectionComp->SetCollisionProfileName(TEXT("Destructible"));
+        GeometryCollectionComp->AddRadialImpulse(
+            GetActorLocation(), 40.0f, 80.0f, RIF_Linear, true);
+    }
+}
+
+void ATCFurnitureActor::Tick(float DeltaSeconds)
+{
+    Super::Tick(DeltaSeconds);
+
+    // 파괴 후 OnRep_GrabbedPlayers가 뒤늦게 도착해 콜리전을 되살리는 경우 대비:
+    // 살아나는 즉시 다음 틱에 다시 꺼서 파괴된 가구 자리의 투명 벽 방지
+    if (bIsFurnitureDestroyed && FurnitureMesh &&
+        FurnitureMesh->GetCollisionEnabled() != ECollisionEnabled::NoCollision)
+    {
+        FurnitureMesh->SetSimulatePhysics(false);
+        FurnitureMesh->SetCollisionProfileName(TEXT("NoCollision"));
     }
 }
 
