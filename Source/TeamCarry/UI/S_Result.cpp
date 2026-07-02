@@ -1,5 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 #include "TeamCarry/UI/S_Result.h"
 #include "Components/Button.h"
@@ -7,6 +6,7 @@
 #include "TeamCarry/UI/MockUIController.h"
 #include "Network/Session/TCSessionFlow.h"
 #include "Engine/World.h"
+// UGameplayStatics.h 인클루드는 더 이상 UI에서 필요하지 않으므로 삭제되었습니다.
 
 void US_Result::NativeConstruct()
 {
@@ -42,34 +42,27 @@ UWidget* US_Result::NativeGetDesiredFocusTarget() const
 	return Super::NativeGetDesiredFocusTarget();
 }
 
+// 확인 버튼 클릭 시 스테이지 선택 레벨로 이동
 void US_Result::HandleConfirmClicked()
 {
-	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
+	if (UTCSessionFlow* Flow = GetGameInstance()->GetSubsystem<UTCSessionFlow>())
 	{
-		// 명세 3-7 / 1 흐름: 확인 → S_StageSelect 로 복귀(다음 스테이지 선택).
-		UE_LOG(LogTemp, Log, TEXT("[UI Result] Confirm clicked. Replacing to StageSelect."));
-		MockController->ReplaceState(EE_UIState::StageSelect);
+		UE_LOG(LogTemp, Log, TEXT("[UI Result] Confirm clicked. Requesting Stage Select."));
+
+		// 캡슐화가 완벽히 지켜진 스테이지 선택 전용 함수를 호출합니다.
+		// (싱글/멀티 판별 및 클라이언트 대기 처리는 Flow 내부에서 알아서 안전하게 진행됩니다.)
+		Flow->HostReturnToStageSelect();
 	}
 }
 
+// 타이틀 복귀 버튼 클릭 시 타이틀 레벨로 이동
 void US_Result::HandleToTitleClicked()
 {
-	// 네트워크 세션 중이면 세션 파기 후 타이틀 맵으로 복귀.
-	const bool bNetworked = GetWorld() && GetWorld()->GetNetMode() != NM_Standalone;
-	if (bNetworked)
+	if (UTCSessionFlow* Flow = GetGameInstance()->GetSubsystem<UTCSessionFlow>())
 	{
-		if (UTCSessionFlow* Flow = GetGameInstance()->GetSubsystem<UTCSessionFlow>())
-		{
-			UE_LOG(LogTemp, Log, TEXT("[UI Result] To Title (networked). DestroySession → Title."));
-			Flow->LeaveToTitle();
-			return;
-		}
-	}
+		UE_LOG(LogTemp, Log, TEXT("[UI Result] To Title clicked. Requesting Leave To Title."));
 
-	// ── mock 폴백 ──
-	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
-	{
-		UE_LOG(LogTemp, Log, TEXT("[UI Result] To Title clicked. Replacing to MainMenu."));
-		MockController->ReplaceState(EE_UIState::MainMenu);
+		// TCSessionFlow의 LeaveToTitle이 이미 세션 파기 및 타이틀 이동을 모두 처리합니다.
+		Flow->LeaveToTitle();
 	}
 }

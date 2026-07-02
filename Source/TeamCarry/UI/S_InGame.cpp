@@ -90,6 +90,12 @@ FReply US_InGame::NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& 
 	return Super::NativeOnKeyDown(InGeometry, InKeyEvent);
 }
 
+TOptional<FUIInputConfig> US_InGame::GetDesiredInputConfig() const
+{
+	// TOptional 객체로 감싸서 반환합니다.
+	return TOptional<FUIInputConfig>(FUIInputConfig(ECommonInputMode::Game, EMouseCaptureMode::CapturePermanently, true));
+}
+
 void US_InGame::HandleTeamMoneyUpdated(int32 NewTotalMoney)
 {
 	UE_LOG(LogTemp, Log, TEXT("[UI InGameHUD] HUD Received Team Money Update: $%d"), NewTotalMoney);
