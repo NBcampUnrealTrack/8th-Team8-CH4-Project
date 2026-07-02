@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 
 #include "TeamCarry/UI/S_Tutorial.h"
@@ -32,6 +32,12 @@ UWidget* US_Tutorial::NativeGetDesiredFocusTarget() const
 	}
 
 	return Super::NativeGetDesiredFocusTarget();
+}
+
+TOptional<FUIInputConfig> US_Tutorial::GetDesiredInputConfig() const
+{
+	// TOptional 객체로 감싸서 반환합니다.
+	return TOptional<FUIInputConfig>(FUIInputConfig(ECommonInputMode::Game, EMouseCaptureMode::CapturePermanently, true));
 }
 
 void US_Tutorial::HandleSkipClicked()
