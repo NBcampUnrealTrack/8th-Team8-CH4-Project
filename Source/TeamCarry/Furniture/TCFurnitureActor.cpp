@@ -75,14 +75,14 @@ void ATCFurnitureActor::DestroyFurniture()
         Multicast_DestroyFurniture();
 
         // 파괴 메쉬가 없다면 액터를 완전히 삭제 예약 (다른작업의 처리 시간 확보를 위해 0.1초 지연)
-        if (!GeometryCollectionComp)
-        {
-            SetLifeSpan(0.1f);
-        }
-        else
+        if (GeometryCollectionComp && GeometryCollectionComp->GetRestCollection())
         {
             // 조각나고나서 5초후 삭제
             SetLifeSpan(5.f);
+        }
+        else
+        {
+            SetLifeSpan(0.1f);
         }
     }
 }
@@ -103,7 +103,7 @@ void ATCFurnitureActor::Multicast_DestroyFurniture_Implementation()
         FurnitureMesh->SetCollisionProfileName(TEXT("NoCollision"));
     }
 
-    if (GeometryCollectionComp)
+    if (GeometryCollectionComp && GeometryCollectionComp->GetRestCollection())
     {
         // 지오메트리 컬렉션과 물리를 킨다
         GeometryCollectionComp->SetVisibility(true);
