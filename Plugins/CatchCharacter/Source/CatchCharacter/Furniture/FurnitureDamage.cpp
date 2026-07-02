@@ -54,18 +54,18 @@ void UFurnitureDamage::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, U
 	// 애초에 둔각인 노말벡터가 올리가 없으니(있다면 버그일거임) 최소 0
 	ImpactSpeed = FMath::Max(0.f, ImpactSpeed);
 
-	GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Red, FString::Printf(TEXT("충격 속도 : %f (최소 요구: %f)"), ImpactSpeed, MinImpactSpeedForDamage));
+	//GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Red, FString::Printf(TEXT("충격 속도 : %f (최소 요구: %f)"), ImpactSpeed, MinImpactSpeedForDamage));
 	// 데미지 배율 = 충격량 * 가구의 데미지 배율
 	float Damage = ImpactSpeed * FurnitureStat->GetCollisionDamageMultiplier();
 
-	GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Yellow, FString::Printf(TEXT("피해량 : %f"), Damage));
+	//GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Yellow, FString::Printf(TEXT("피해량 : %f"), Damage));
 
 	if (MinImpactSpeedForDamage < ImpactSpeed)
 	{
 		Damage *= DamagePerImpactSpeed;
 
-		GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Red,
-			FString::Printf(TEXT("[%s] ApplyDamage 호출! 데미지: %f"), *NetMode, Damage));
+		//GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Red,
+			//FString::Printf(TEXT("[%s] ApplyDamage 호출! 데미지: %f"), *NetMode, Damage));
 
 		UGameplayStatics::ApplyDamage(
 			Owner,							// 맞은 녀석 : 자기자신
