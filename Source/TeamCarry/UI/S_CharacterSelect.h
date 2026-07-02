@@ -24,6 +24,9 @@ protected:
 	virtual void NativeConstruct() override;
 	virtual void NativeDestruct() override;
 
+	// ESC = '한 단계 뒤로'(명세 5-1). Btn_Back 클릭과 동일하게 O_Confirm 모달을 거친다.
+	virtual bool NativeOnHandleBackAction() override;
+
 	// --- Control Buttons ---
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
 	TObjectPtr<UButton> Btn_Ready;
@@ -72,6 +75,10 @@ private:
 
 	UFUNCTION()
 	void HandleBackClicked();
+
+	// O_Confirm 팝업에서 '확인'을 눌렀을 때 실행될 브릿지 함수(방 종료 → 타이틀 복귀).
+	UFUNCTION()
+	void OnConfirmLeaveLobby();
 
 	// Delegate listener (mock 경로 — MockUIController 목 데이터)
 	UFUNCTION()

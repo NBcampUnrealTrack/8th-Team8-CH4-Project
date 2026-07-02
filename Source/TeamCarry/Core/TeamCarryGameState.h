@@ -39,6 +39,10 @@ public:
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
+	// 리슨 서버(호스트)는 자기 자신에게 OnRep이 호출되지 않으므로,
+	// GameMode가 서버 권한으로 값을 직접 수정한 직후 해당 OnRep을 수동으로 호출할 수 있도록 허용한다.
+	friend class ATeamCarryGameMode;
+
 protected:
 	UFUNCTION()
 	void OnRep_TotalScore();
