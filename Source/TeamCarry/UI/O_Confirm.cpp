@@ -32,6 +32,8 @@ void UO_Confirm::NativeConstruct()
 	{
 		Btn_Cancel->OnClicked().AddUObject(this, &UO_Confirm::HandleCancelClicked);
 	}
+
+	SetIsFocusable(true);
 }
 
 TOptional<FUIInputConfig> UO_Confirm::GetDesiredInputConfig() const
@@ -91,7 +93,7 @@ void UO_Confirm::HandleCancelClicked()
 	}
 }
 
-bool UO_Confirm::NativeOnHandleBackAction()
+bool UO_Confirm::NativeOnHandleBackAction()	
 {
 	// ESC = 취소(No)와 동일하게 처리. 라우터를 통해 닫아 상태/스택 동기화를 유지한다.
 	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())

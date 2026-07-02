@@ -2,6 +2,7 @@
 
 
 #include "TeamCarry/UI/S_SlotSelect.h"
+#include "TeamCarry/UI/O_Confirm.h"
 #include "CommonButtonBase.h"
 #include "Components/HorizontalBox.h"
 #include "TeamCarry/UI/MockUIController.h"
@@ -59,7 +60,7 @@ bool US_SlotSelect::NativeOnHandleBackAction()
 }
 
 void US_SlotSelect::ConfirmSlotAndCreateRoom(const FString& SlotName, bool bContinue)
-{
+{	
 	// 명세 호스트 2~3단계: 슬롯 확정 → 세이브 선택 저장 → 세션 생성 + 로비 ServerTravel.
 	if (UTCSessionFlow* Flow = GetGameInstance()->GetSubsystem<UTCSessionFlow>())
 	{
@@ -84,6 +85,30 @@ void US_SlotSelect::HandleTempEmptySlotClicked()
 	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
 	{
 		UE_LOG(LogTemp, Log, TEXT("[UI SlotSelect] Empty slot clicked. Pushing O_Confirm overlay..."));
-		MockController->PushOverlay(TEXT("O_Confirm"));
+
+		// 1. 팝업을 띄우고 생성된 위젯의 포인터를 받아옵니다.
+		UCommonActivatableWidget* OverlayWidget = MockController->PushOverlay(TEXT("O_Confirm"));
+
+		// 2. 해당 위젯을 UO_Confirm 타입으로 캐스팅합니다.
+		if (UO_Confirm* ConfirmUI = Cast<UO_Confirm>(OverlayWidget))
+		{
+			// 3. 브릿지 함수를 델리게이트에 묶습니다.
+			FOnConfirmYesAction YesAction;
+			YesAction.BindDynamic(this, &US_SlotSelect::OnConfirmNewGame);
+
+			// 4. 팝업에 제목, 내용, 그리고 실행할 액션을 주입합니다.
+			ConfirmUI->SetupConfirm(
+				FText::FromString(TEXT("새 게임")),
+				FText::FromString(TEXT("새로운 게임을 생성하시겠습니까?")),
+				YesAction
+			);
+		}
 	}
+}
+
+// 팝업에서 '확인'을 누르면 이 함수가 호출됩니다.
+void US_SlotSelect::OnConfirmNewGame()
+{
+	// 명세에 따라 슬롯 이름과 bContinue = false (새 게임) 값을 방 생성 로직에 넘깁니다.
+	ConfirmSlotAndCreateRoom(TEXT("SaveSlot_Temp"), false);
 }

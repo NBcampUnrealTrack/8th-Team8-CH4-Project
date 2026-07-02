@@ -1,4 +1,4 @@
-// TCSessionFlow.h
+﻿// TCSessionFlow.h
 
 #pragma once
 
@@ -92,13 +92,18 @@ public:
 	UFUNCTION(BlueprintPure, Category = "TeamCarry|Session")
 	FString GetRoomCode() const;
 
+	// --- UI 테스트용 ---
+	// 세션을 유지한 채 스테이지 선택 화면으로 복귀 (호스트 전용)
+	UFUNCTION(BlueprintCallable, Category = "TeamCarry|Session")
+	void HostReturnToStageSelect();
+
 protected:
 	// ── 레벨 경로(Config=Game 로 ini 덮어쓰기 가능) ──
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "TeamCarry|Session|Maps")
 	FString TitleMapPath = TEXT("/Game/Maps/L_Title");
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "TeamCarry|Session|Maps")
-	FString LobbyMapPath = TEXT("/Game/Maps/L_Lobby");
+	FString LobbyMapPath = TEXT("/Game/Maps/L_Lobby");	
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "TeamCarry|Session|Maps")
 	FString TutorialMapPath = TEXT("/Game/Maps/L_Tutorial");

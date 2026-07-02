@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "CommonActivatableWidget.h"
+#include "CommonInputModeTypes.h"
 #include "S_InGame.generated.h"
 
 class UTextBlock;
@@ -24,6 +25,9 @@ protected:
 	virtual void NativeConstruct() override;
 	virtual void NativeDestruct() override;
 	virtual FReply NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
+
+	// CommonUI가 이 위젯을 화면에 띄울 때 요구할 입력 설정을 C++ 단에서 오버라이드합니다.
+	virtual TOptional<FUIInputConfig> GetDesiredInputConfig() const override;
 
 	// --- HUD Bound Widgets ---
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
