@@ -1,4 +1,4 @@
-// TCSessionFlow.cpp
+﻿// TCSessionFlow.cpp
 
 #include "Network/Session/TCSessionFlow.h"
 #include "Network/Session/TCGameInstance.h"
@@ -158,6 +158,20 @@ FString UTCSessionFlow::GetRoomCode() const
 {
 	const UTCGameInstance* GI = GetTCGameInstance();
 	return GI ? GI->GetHostRoomCode() : FString();
+}
+
+// --- UI 테스트용 ---
+void UTCSessionFlow::HostReturnToStageSelect()
+{
+	// 방장(호스트)이 아니면 실행을 무시합니다. (싱글 플레이는 IsHost()가 true를 반환하므로 정상 실행됨)
+	if (!IsHost())
+	{
+		UE_LOG(LogTCNet, Warning, TEXT("[SessionFlow] HostReturnToStageSelect: 호스트 아님 — 무시"));
+		return;
+	}
+
+	// 내부 창고(protected)에 있는 맵 경로를 찾아 알아서 이동을 지시합니다.
+	HostServerTravel(StageSelectMapPath);
 }
 
 // ── 공용 ──

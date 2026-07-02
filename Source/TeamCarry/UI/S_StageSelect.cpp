@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 
 #include "TeamCarry/UI/S_StageSelect.h"
@@ -30,6 +30,20 @@ void US_StageSelect::NativeConstruct()
 	else
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[UI StageSelect] List_Stages is not bound. Check the WBP hierarchy."));
+	}
+
+	// List_Stages 위젯이 정상적으로 바인딩되어 있는지 확인
+	if (List_Stages)
+	{
+		// 임시로 3개의 스테이지 데이터를 생성하여 리스트에 추가합니다.
+		for (int32 i = 1; i <= 3; ++i)
+		{
+			// UObject 기반의 데이터 클래스(예: UStageItemData)를 생성해야 합니다.
+			//UStageItemData* NewStageData = NewObject<UStageItemData>(this);
+
+			// 생성한 데이터를 리스트뷰에 추가합니다. 이 순간 화면에 항목이 1개씩 그려집니다.
+			//List_Stages->AddItem(NewStageData);
+		}
 	}
 }
 
