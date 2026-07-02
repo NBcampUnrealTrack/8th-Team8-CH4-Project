@@ -1,4 +1,4 @@
-// TCPlayerController.h
+﻿// TCPlayerController.h
 
 #pragma once
 
@@ -28,6 +28,10 @@ public:
 	// 호스트 전용: 전원 준비 시 게임 시작(레벨 트래블).
 	UFUNCTION(BlueprintCallable, Category = "TeamCarry|Lobby")
 	void RequestStartGame();
+
+protected:
+	// --- UI 테스트용 BeginPlay() ---
+	virtual void BeginPlay() override;
 
 private:
 	UFUNCTION(Server, Reliable)

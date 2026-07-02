@@ -75,8 +75,8 @@ void UFurnitureStat::TakeDamage(AActor* DamagedActor, float Damage, const UDamag
 	float PreviousHealth = CurrentHealth;
 	CurrentHealth = FMath::Max(0.f, CurrentHealth - Damage);
 
-	GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red,
-		FString::Printf(TEXT("가구 최대 체력 : %f / 남은 체력 : %f"), DefaultStats.MaxHealth, CurrentHealth));
+	//GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red,
+		//FString::Printf(TEXT("가구 최대 체력 : %f / 남은 체력 : %f"), DefaultStats.MaxHealth, CurrentHealth));
 
 	OnFurnitureDamage.Broadcast(DefaultStats.MaxHealth, PreviousHealth, CurrentHealth);
 	if (CurrentHealth <= 0.f)
