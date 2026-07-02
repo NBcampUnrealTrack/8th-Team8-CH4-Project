@@ -1,4 +1,4 @@
-// TCSessionFlow.h
+﻿// TCSessionFlow.h
 
 #pragma once
 
@@ -98,7 +98,7 @@ protected:
 	FString TitleMapPath = TEXT("/Game/Maps/L_Title");
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "TeamCarry|Session|Maps")
-	FString LobbyMapPath = TEXT("/Game/Maps/L_Lobby");
+	FString LobbyMapPath = TEXT("/Game/Maps/L_Lobby");	
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "TeamCarry|Session|Maps")
 	FString TutorialMapPath = TEXT("/Game/Maps/L_Tutorial");

@@ -94,12 +94,12 @@ void ATCFurnitureActor::DestroyFurniture()
         // 조각날 것이 없으므로 액터를 즉시 삭제 예약 (다른작업의 처리 시간 확보를 위해 0.1초 지연)
         if (!GeometryCollectionComp || !GeometryCollectionComp->GetRestCollection())
         {
-            SetLifeSpan(0.1f);
+            // 조각나고나서 5초후 삭제
+            SetLifeSpan(5.f);
         }
         else
         {
-            // 조각나고나서 5초후 삭제
-            SetLifeSpan(5.f);
+            SetLifeSpan(0.1f);
         }
     }
 }

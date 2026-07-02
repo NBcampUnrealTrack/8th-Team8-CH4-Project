@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 
 #include "TeamCarry/UI/MockUIController.h"
@@ -84,14 +84,14 @@ void UMockUIController::ReplaceState(EE_UIState NewState)
 	}
 }
 
-void UMockUIController::PushOverlay(const FString& OverlayName)
+UCommonActivatableWidget* UMockUIController::PushOverlay(const FString& OverlayName)
 {
 	IUIHost* Host = GetUIHost();
 	if (!Host)
 	{
 		// 띄울 수 없으면 상태도 누적하지 않는다(스택 오염 방지).
 		UE_LOG(LogTemp, Warning, TEXT("[UI Stack] No UI Host registered. Push aborted: %s"), *OverlayName);
-		return;
+		return nullptr; // void가 아니므로 nullptr을 반환해야 합니다.
 	}
 
 	// ① 상태 먼저 갱신: 호스트의 ShowOverlay 내부가 일관된 스택/상태를 보도록 한다.
@@ -105,10 +105,13 @@ void UMockUIController::PushOverlay(const FString& OverlayName)
 	{
 		MockOverlayStack.Pop();
 		UE_LOG(LogTemp, Error, TEXT("[UI Stack] ShowOverlay failed, rolled back: %s"), *OverlayName);
-		return;
+		return nullptr; // void가 아니므로 nullptr을 반환해야 합니다.
 	}
 
 	UE_LOG(LogTemp, Log, TEXT("[UI Stack] Push Overlay: %s. Current Stack Size: %d"), *OverlayName, MockOverlayStack.Num());
+
+	// ④ 성공적으로 생성된 위젯의 포인터를 최종 반환합니다.
+	return Created;
 }
 
 void UMockUIController::PopCurrentOverlay()
