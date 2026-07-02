@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+ï»¿// Fill out your copyright notice in the Description page of Project Settings.
 
 #pragma once
 
@@ -26,22 +26,24 @@ public:
 protected:
     virtual void BeginPlay() override;
 
+    virtual void Tick(float DeltaSeconds) override;
+
     UFUNCTION()
     void DestroyFurniture();
 
     UFUNCTION(NetMulticast, Reliable)
     void Multicast_DestroyFurniture();
 
-    // °¡±¸ ÆÄ±«¿ë ¸Ş½¬
+    // ê°€êµ¬ íŒŒê´´ìš© ë©”ì‰¬
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Destruction")
     TObjectPtr<UGeometryCollectionComponent> GeometryCollectionComp;
 
-    // ÆÄ±« »ç¿îµå
+    // íŒŒê´´ ì‚¬ìš´ë“œ
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destruction")
     TObjectPtr<USoundBase> BreakSound;
 
-    // °¡±¸°¡ ÆÄ±«µÇ¾ú´ÂÁö ¿©ºÎ¸¦ ÀúÀåÇÏ´Â ÇÃ·¡±×
-    //UPROPERTY(Replicated) ¼­¹ö¿¡¼­¸¸ Ã³¸®ÇÏ¸éµÇ´Ï ÇÊ¿ä¾øÀ»°Å¶ó ÆÇ´Ü.
+    // ê°€êµ¬ê°€ íŒŒê´´ë˜ì—ˆëŠ”ì§€ ì—¬ë¶€ë¥¼ ì €ì¥í•˜ëŠ” í”Œë˜ê·¸
+    //UPROPERTY(Replicated) ì„œë²„ì—ì„œë§Œ ì²˜ë¦¬í•˜ë©´ë˜ë‹ˆ í•„ìš”ì—†ì„ê±°ë¼ íŒë‹¨.
     bool bIsFurnitureDestroyed = false;
 
 };

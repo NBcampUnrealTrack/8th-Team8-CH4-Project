@@ -25,12 +25,6 @@ class TEAMCARRY_API US_SlotSelect : public UCommonActivatableWidget
 {
 	GENERATED_BODY()
 
-	// ==========================================
-	// 함수 (Functions) 영역
-	// ==========================================
-public:
-	// (현재 public 함수는 없습니다)
-
 protected:
 	virtual void NativeConstruct() override;
 
@@ -47,11 +41,9 @@ private:
 	UFUNCTION()
 	void HandleTempEmptySlotClicked();
 
-	// ==========================================
-	// 변수 (Variables) 영역
-	// ==========================================
-public:
-	// (현재 public 변수는 없습니다)
+	// O_Confirm 팝업에서 '확인'을 눌렀을 때 실행될 브릿지 함수
+	UFUNCTION()
+	void OnConfirmNewGame();
 
 protected:
 	// --- 가로형 카드 배치용 컨테이너 (명세 3-2) ---
@@ -75,6 +67,4 @@ protected:
 	UFUNCTION(BlueprintCallable, Category = "UI|Slot")
 	void ConfirmSlotAndCreateRoom(const FString& SlotName, bool bContinue);
 
-private:
-	// (현재 private 변수는 없습니다)
 };
