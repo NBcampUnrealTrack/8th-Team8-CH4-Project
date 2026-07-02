@@ -35,6 +35,9 @@ public:
 	// 현재 잡고 있는 액터 반환
 	AActor* GetGrabbedActor() const { return GrabbedActor; }
 
+	// 플레이어가 가구 회전을 요청할 때 호출할 함수
+	void TryRotateFurniture(FRotator RotationDelta);
+
 private:
 	// 매 프레임 전방을 스캔하여 BestTarget을 찾는 함수
 	void ScanBestTarget();
@@ -52,5 +55,9 @@ protected:
 	// 서버에 상호작용-던지기를 요청하는 RPC 함수
 	UFUNCTION(Server, Reliable)
 	void ServerTryThrow();
+
+	// 서버 - 가구 회전을 요청하는 RPC 함수
+	UFUNCTION(Server, Reliable)
+	void ServerRotateFurniture(FRotator RotationDelta);
 
 };

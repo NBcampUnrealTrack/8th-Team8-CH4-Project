@@ -67,6 +67,8 @@ void ATCPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 	EIC->BindAction(InteractAction, ETriggerEvent::Started, this, &ThisClass::Interact);
 	EIC->BindAction(ThrowAction, ETriggerEvent::Started, this, &ThisClass::Throw);
 	EIC->BindAction(ToggleViewAction, ETriggerEvent::Started, this, &ThisClass::ToggleView);
+	EIC->BindAction(RotateZAction, ETriggerEvent::Started, this, &ThisClass::RotateZ);
+	EIC->BindAction(RotateYAction, ETriggerEvent::Started, this, &ThisClass::RotateY);
 }
 
 // 게임 시작 시 수행
@@ -276,6 +278,26 @@ void ATCPlayerCharacter::TryJump()
 	}
 
 	Super::Jump();
+}
+
+// 가구 z축 회전 함수
+void ATCPlayerCharacter::RotateZ(const FInputActionValue& InValue)
+{
+	if (GrabComponent)
+	{
+		// FRotator(Y축, Z축, X축)
+		GrabComponent->TryRotateFurniture(FRotator(0.0f, 45.0f, 0.0f));
+	}
+}
+
+// 가구 y축 회전 함수
+void ATCPlayerCharacter::RotateY(const FInputActionValue& InValue)
+{
+	if (GrabComponent)
+	{
+		// FRotator(Y축, Z축, X축)
+		GrabComponent->TryRotateFurniture(FRotator(45.0f, 0.0f, 0.0f));
+	}
 }
 
 // 애니메이션 전체 클라이언트 동기화

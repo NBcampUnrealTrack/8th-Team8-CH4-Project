@@ -70,6 +70,16 @@ void UGrabComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLi
 	DOREPLIFETIME(UGrabComponent, GrabbedActor);
 }
 
+// 클라이언트 - 회전 요청 전달
+void UGrabComponent::TryRotateFurniture(FRotator RotationDelta)
+{
+	// 가구를 들고 있을 때만 서버에 회전 요청
+	if (GrabbedActor)
+	{
+		ServerRotateFurniture(RotationDelta);
+	}
+}
+
 // 멀티 박스 트레이스 발사해서 최적 대상 판별
 void UGrabComponent::ScanBestTarget()
 {
@@ -149,6 +159,18 @@ void UGrabComponent::ScanBestTarget()
 		}
 
 		CurrentBestTarget = NewBestTarget;
+	}
+}
+
+// Server - 실제 가구 회전 적용
+void UGrabComponent::ServerRotateFurniture_Implementation(FRotator RotationDelta)
+{
+	if (GrabbedActor)
+	{
+		// 전달받은 회전축과 각도(RotationDelta)만큼 가구 회전 적용
+		GrabbedActor->AddActorWorldRotation(RotationDelta);
+
+		UE_LOG(LogTemp, Warning, TEXT("[Server] 가구 회전 적용: %s"), *RotationDelta.ToString());
 	}
 }
 
