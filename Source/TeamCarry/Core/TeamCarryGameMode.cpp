@@ -190,16 +190,17 @@ void ATeamCarryGameMode::OnFurnitureExitTruck(FName RowName)
     
     if (GS->bIsGameFinished) return;
 
-    // 트럭 안 가구 목록에서 제거
-    FurnitureInTruck.RemoveAll([&RowName](const FTruckFurnitureInfo& Info)
+    // 같은 RowName 중 첫 번째 하나만 제거
+    for (int32 i = 0; i < FurnitureInTruck.Num(); i++)
     {
-        return Info.RowName == RowName;
-    });
+        if (FurnitureInTruck[i].RowName == RowName)
+        {
+            FurnitureInTruck.RemoveAt(i);
+            break;
+        }
+    }
 
-    // 남은 가구 복구
     GS->RemainingFurniture++;
-
-    // 예상 점수 재계산
     GS->TotalScore = CalculateFinalScore();
 
     UE_LOG(LogTemp, Warning, TEXT("가구 트럭 이탈: %s | 예상 점수: %d | 남은 가구: %d"),
