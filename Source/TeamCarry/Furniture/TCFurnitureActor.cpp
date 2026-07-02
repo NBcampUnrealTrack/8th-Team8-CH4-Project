@@ -92,7 +92,7 @@ void ATCFurnitureActor::DestroyFurniture()
 
         // GC 컴포넌트가 없거나, 있어도 파괴 메쉬(RestCollection)가 등록되지 않았다면
         // 조각날 것이 없으므로 액터를 즉시 삭제 예약 (다른작업의 처리 시간 확보를 위해 0.1초 지연)
-        if (!GeometryCollectionComp || !GeometryCollectionComp->GetRestCollection())
+        if (GeometryCollectionComp && GeometryCollectionComp->GetRestCollection())
         {
             // 조각나고나서 5초후 삭제
             SetLifeSpan(5.f);
