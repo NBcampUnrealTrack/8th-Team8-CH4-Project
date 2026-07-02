@@ -5,6 +5,7 @@
 #include "TC_DataTypes.h"
 #include "TC_Interfaces.h"
 #include "TeamCarryGameState.h"
+#include "TCSaveGame.h"
 #include "StageClearProvider.h"
 #include "StageHost.h"
 #include "TeamCarryGameMode.generated.h"
@@ -44,10 +45,28 @@ public:
 	// 가구 트럭 이탈 시 호출
 	UFUNCTION(BlueprintCallable)
 	void OnFurnitureExitTruck(FName RowName);
+	
+	// 가구 파괴 시 호출
+	UFUNCTION(BlueprintCallable)
+	void OnFurnitureDestroyed();
 
 	// 스테이지 시작 시 옮겨야 할 가구 개수 설정
 	UFUNCTION(BlueprintCallable)
 	void SetTotalFurnitureCount(int32 Count);
+	
+	// 플레이어 로그아웃 시 호출
+	virtual void Logout(AController* Exiting) override;
+	
+	// 플레이어 재접속 시 호출
+	virtual void PostLogin(APlayerController* NewPlayer) override;
+	
+	// 게임 저장
+	UFUNCTION(BlueprintCallable)
+	void SaveGame(const FString& StageName);
+
+	// 게임 불러오기
+	UFUNCTION(BlueprintCallable)
+	UTCSaveGame* LoadGame();
 	
 	// 게임 단계 전환
 	UFUNCTION(BlueprintCallable)
