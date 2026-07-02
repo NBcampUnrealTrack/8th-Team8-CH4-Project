@@ -50,4 +50,7 @@ private:
 
 	UFUNCTION()
 	void HandleQuitClicked();
+
+	UFUNCTION()
+	void OnConfirmQuit();
 };
