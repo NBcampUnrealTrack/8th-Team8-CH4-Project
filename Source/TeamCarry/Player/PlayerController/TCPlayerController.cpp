@@ -24,16 +24,57 @@ void ATCPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// 서버 뒷단이 아닌, 실제 모니터 화면을 보고 있는 '로컬 플레이어'일 때만 UI를 띄웁니다.
 	if (IsLocalPlayerController())
 	{
 		if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
 		{
-			// 현재 프로젝트 구조에 따라 PushOverlay 또는 ReplaceState를 사용합니다.
-			// 로비 UI가 전체 화면 상태라면 ReplaceState(EE_UIState::CharacterSelect) 등을 활용할 수 있습니다.
-			MockController->ReplaceState(EE_UIState::CharacterSelect);
+			FString CurrentMapName = GetWorld()->GetName();
 
-			UE_LOG(LogTCNet, Log, TEXT("[PlayerController] 로컬 플레이어 로비 진입 완료. S_CharacterSelect 호출."));
+			// 1. 타이틀 맵
+			if (CurrentMapName.Contains(TEXT("L_Title")))
+			{
+				MockController->ReplaceState(EE_UIState::MainMenu);
+				UE_LOG(LogTCNet, Log, TEXT("[PlayerController] 타이틀 진입: MainMenu 출력."));
+				// 메뉴이므로 마우스 커서를 켭니다.
+				bShowMouseCursor = true;
+				return;
+			}
+			// 2. 로비 맵 (마우스 커서 필요)
+			else if (CurrentMapName.Contains(TEXT("L_Lobby")))
+			{
+				MockController->ReplaceState(EE_UIState::CharacterSelect);
+				UE_LOG(LogTCNet, Log, TEXT("[PlayerController] 로비 진입: S_CharacterSelect 출력."));
+			}
+			// 3. 튜토리얼 및 프로토타입 맵 (캐릭터 조작 필요)
+			else if (CurrentMapName.Contains(TEXT("L_Tutorial")) || CurrentMapName.Contains(TEXT("L_FurnitureProto")))
+			{
+				MockController->ReplaceState(EE_UIState::Tutorial);
+
+				// [추가] 부모 클래스의 UI 모드를 덮어쓰고 캐릭터 조작 권한을 부여합니다.
+				bShowMouseCursor = false;
+				FInputModeGameOnly GameOnlyMode;
+				SetInputMode(GameOnlyMode);
+
+				UE_LOG(LogTCNet, Log, TEXT("[PlayerController] 튜토리얼/프로토타입 진입: 조작 모드 활성화."));
+			}
+			// 4. 스테이지 선택 맵 (마우스 커서 필요)
+			else if (CurrentMapName.Contains(TEXT("L_StageSelect")))
+			{
+				MockController->ReplaceState(EE_UIState::StageSelect);
+				UE_LOG(LogTCNet, Log, TEXT("[PlayerController] 스테이지 선택 진입: StageSelect HUD 출력."));
+			}
+			// 5. 그 외 실제 인게임 맵 폴백 (캐릭터 조작 필요)
+			else
+			{
+				MockController->ReplaceState(EE_UIState::InGame);
+
+				// [추가] 인게임 역시 캐릭터 조작이 필요하므로 입력 모드를 덮어씁니다.
+				bShowMouseCursor = false;
+				FInputModeGameOnly GameOnlyMode;
+				SetInputMode(GameOnlyMode);
+
+				UE_LOG(LogTCNet, Log, TEXT("[PlayerController] 인게임 맵 진입: 조작 모드 활성화."));
+			}
 		}
 	}
 }

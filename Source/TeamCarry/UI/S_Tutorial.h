@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "CommonActivatableWidget.h"
+#include "CommonInputModeTypes.h"
 #include "S_Tutorial.generated.h"
 
 class UButton;
@@ -39,6 +40,9 @@ protected:
 	// 튜토리얼 건너뛰기(마지막 Step 완료와 동일하게 S_StageSelect 직행).
 	UPROPERTY(meta = (BindWidget), BlueprintReadOnly, Category = "UI|Widget")
 	TObjectPtr<UButton> Btn_Skip;
+
+	// CommonUI가 이 위젯을 화면에 띄울 때 요구할 입력 설정을 C++ 단에서 오버라이드합니다.
+	virtual TOptional<FUIInputConfig> GetDesiredInputConfig() const override;
 
 private:
 	UFUNCTION()
