@@ -85,7 +85,7 @@ void UFurnitureGrabSystem::TickComponent(float DeltaTime, ELevelTick TickType, F
 		if (LocalChar && GrabbedPlayers.Contains(LocalChar) && LocalChar->IsLocallyControlled()
 		    && Anchors.Contains(LocalChar))
 		{
-			const float DesiredYaw = GetDesiredYaw(LocalChar, Owner->GetActorRotation().Yaw);
+			const float DesiredYaw = GetDesiredYaw(LocalChar, LocalSyncTargetYaw);
 			if (FMath::Abs(FMath::FindDeltaAngleDegrees(LocalChar->GetActorRotation().Yaw, DesiredYaw)) > YawCorrectionDeadzone)
 			{
 				FRotator NewRot = LocalChar->GetActorRotation();
@@ -212,6 +212,54 @@ void UFurnitureGrabSystem::AllRelease()
 	{
 		Release(Player);
 	}
+}
+
+// =====================================================================
+// 가구 단독 이동 (오프셋 적용)
+// =====================================================================
+
+void UFurnitureGrabSystem::AddFurnitureOffset(FVector LocationOffset, float YawOffset)
+{
+	AActor* Owner = GetOwner();
+	if (!Owner || !Owner->HasAuthority())
+		return;
+
+	// 이동/회전 적용 전의 트랜스폼 기록
+	FVector OldLoc = Owner->GetActorLocation();
+	float OldYaw = Owner->GetActorRotation().Yaw;
+
+	// 가구 단독 이동 및 회전 적용
+	FVector NewLoc = OldLoc + LocationOffset;
+	FRotator NewRot = Owner->GetActorRotation();
+	NewRot.Yaw += YawOffset;
+	Owner->SetActorLocationAndRotation(NewLoc, NewRot, true);
+
+	FVector ActualLoc = Owner->GetActorLocation();
+	float ActualYaw = Owner->GetActorRotation().Yaw;
+
+	FVector ActualLocDelta = ActualLoc - OldLoc;
+	float ActualYawDelta = FMath::FindDeltaAngleDegrees(OldYaw, ActualYaw);
+
+	// 서버 내부 변수 갱신
+	ServerLocation = ActualLoc;
+	ServerRotation = Owner->GetActorRotation();
+
+	for (ACharacter* P : GrabbedPlayers)
+	{
+		if (P && Anchors.Contains(P))
+		{
+			Anchors[P].InitialOffset += ActualLocDelta;
+			Anchors[P].InitialFurnitureYaw += ActualYawDelta;
+		}
+	}
+
+	DraggedLastTick.Empty();
+	StoppedDraggingLastTick.Empty();
+
+	SystemOffsetSequence++;
+
+	// 트랜스폼 갱신과 앵커 갱신을 패킷으로 묶어 클라이언트에 전송
+	Multicast_ApplySystemOffset(ActualLocDelta, ActualYawDelta, ServerLocation, ServerRotation, SystemOffsetSequence);
 }
 
 // =====================================================================
@@ -522,7 +570,7 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 	// ---- 7. 클라 보간용 트랜스폼 갱신 ----
 	ServerLocation = Owner->GetActorLocation();
 	ServerRotation = Owner->GetActorRotation();
-	Multicast_UpdateFurnitureTransform(ServerLocation, ServerRotation);
+	Multicast_UpdateFurnitureTransform(ServerLocation, ServerRotation, SystemOffsetSequence);
 
 #if !UE_BUILD_SHIPPING
 	{
@@ -562,15 +610,29 @@ void UFurnitureGrabSystem::Multicast_SetPlayerAnchor_Implementation(
 	A.InitialPlayerYaw    = InitPlayerYaw;
 	A.InitialAimYaw       = InitAimYaw;
 	A.InitialOffset       = InitOffset;
+
+	if (Player->IsLocallyControlled())
+	{
+		LocalSyncTargetYaw = InitFurnYaw;
+	}
 }
 
-void UFurnitureGrabSystem::Multicast_UpdateFurnitureTransform_Implementation(FVector NewLocation, FRotator NewRotation)
+void UFurnitureGrabSystem::Multicast_UpdateFurnitureTransform_Implementation(FVector NewLocation, FRotator NewRotation, uint8 SeqID)
 {
 	if (GetOwner() && GetOwner()->HasAuthority())
 		return;
 
+	if (SeqID != LocalSystemOffsetSequence)
+	{
+		return; 
+	}
+
 	ServerLocation = NewLocation;
 	ServerRotation = NewRotation;
+
+	LocalSyncTargetYaw = NewRotation.Yaw;
+
+	LocalSystemOffsetSequence = SeqID;
 }
 
 void UFurnitureGrabSystem::Multicast_ShowDebugSpeeds_Implementation(
@@ -614,6 +676,34 @@ void UFurnitureGrabSystem::Multicast_ApplyPlayerCorrection_Implementation(
 // =====================================================================
 // 클라 가구 보간
 // =====================================================================
+
+void UFurnitureGrabSystem::Multicast_ApplySystemOffset_Implementation(FVector ActualLocDelta, float ActualYawDelta, FVector NewServerLoc, FRotator NewServerRot, uint8 SeqID)
+{
+	// 서버 기준으로는 이미처리됨
+	if (GetOwner() && GetOwner()->HasAuthority())
+		return;
+
+	// 클라이언트 보간용 목표 트랜스폼 갱신
+	ServerLocation = NewServerLoc;
+	ServerRotation = NewServerRot;
+
+	// 트랜스폼과 동일한 프레임에 앵커를 갱신하여 GetDesiredYaw 연산 시 오차가 발생하는 것을 원천 차단
+	for (ACharacter* P : GrabbedPlayers)
+	{
+		if (P && Anchors.Contains(P))
+		{
+			Anchors[P].InitialOffset += ActualLocDelta;
+			Anchors[P].InitialFurnitureYaw += ActualYawDelta;
+		}
+	}
+
+	DraggedLastTick.Empty();
+	StoppedDraggingLastTick.Empty();
+
+	LocalSyncTargetYaw = NewServerRot.Yaw;
+
+	LocalSystemOffsetSequence = SeqID;
+}
 
 void UFurnitureGrabSystem::UpdateClientInterpolation(float DeltaTime)
 {
@@ -699,6 +789,8 @@ void UFurnitureGrabSystem::OnRep_GrabbedPlayers()
 				LocalAnchor.InitialPlayerYaw    = P->GetActorRotation().Yaw;       // 몸통 방향 (스냅 방지)
 				LocalAnchor.InitialAimYaw       = P->GetBaseAimRotation().Yaw;     // 카메라 방향 (Multicast로 서버값으로 덮어씌워짐)
 				Anchors.Add(P, LocalAnchor);
+
+				LocalSyncTargetYaw = LocalAnchor.InitialFurnitureYaw;
 			}
 
 			// 로컬 플레이어의 CMC를 서버 Grab()과 동일한 상태로 전환

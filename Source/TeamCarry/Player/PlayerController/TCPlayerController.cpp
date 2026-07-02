@@ -24,6 +24,7 @@ void ATCPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
 
+	// 서버 뒷단이 아닌, 실제 모니터 화면을 보고 있는 '로컬 플레이어'일 때만 UI를 띄웁니다.
 	if (IsLocalPlayerController())
 	{
 		if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())

@@ -104,6 +104,14 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TCPlayerCharacter|Input")
 	TObjectPtr<UInputAction> ToggleViewAction;
 
+	// 가구 회전(Z축) 액션
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TCPlayerCharacter|Input")
+	TObjectPtr<UInputAction> RotateZAction;
+
+	// 가구 회전(Y축) 액션
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TCPlayerCharacter|Input")
+	TObjectPtr<UInputAction> RotateYAction;
+
 private:
 	// 달리기 시작/종료 처리
 	void StartRun(const FInputActionValue& InValue);
@@ -131,6 +139,10 @@ private:
 
 	// 점프 입력 처리
 	void TryJump();
+
+	// 가구 회전 입력 처리
+	void RotateZ(const FInputActionValue& InValue);
+	void RotateY(const FInputActionValue& InValue);
 
 #pragma endregion
 
