@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 #pragma once
 
@@ -32,25 +32,26 @@ protected:
 
 	// --- 정산 통계 텍스트 (명세 3-7) ---
 	// 최종 점수(등급 포함) 표시.
-	UPROPERTY(meta = (BindWidget), BlueprintReadOnly, Category = "UI|Widget")
+	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
 	TObjectPtr<UTextBlock> Txt_Score;
-
-	// 팀 보유 금액/세부 통계 표시.
-	UPROPERTY(meta = (BindWidget), BlueprintReadOnly, Category = "UI|Widget")
-	TObjectPtr<UTextBlock> Txt_Stats;
 
 	// 획득한 별 개수 표시.
 	// WBP에 아직 위젯이 추가되지 않은 상태에서도 크래시가 나지 않도록 Optional로 선언한다.
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
 	TObjectPtr<UTextBlock> Txt_StarCount;
 
+	// 흐른 게임 시간 표시.
+	// WBP에 아직 위젯이 추가되지 않은 상태에서도 크래시가 나지 않도록 Optional로 선언한다.
+	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
+	TObjectPtr<UTextBlock> Txt_ElapsedTime;
+
 	// --- 네비게이션 ---
 	// 확인: 스테이지 선택 화면으로 복귀.
-	UPROPERTY(meta = (BindWidget), BlueprintReadOnly, Category = "UI|Widget")
+	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
 	TObjectPtr<UButton> Btn_Confirm;
 
 	// 타이틀로 복귀(보조 경로).
-	UPROPERTY(meta = (BindWidget), BlueprintReadOnly, Category = "UI|Widget")
+	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
 	TObjectPtr<UButton> Btn_ToTitle;
 
 private:

@@ -61,7 +61,7 @@ void ATeamCarryGameState::OnRep_bIsGameFinished()
 			if (UMockUIController* MockController = World->GetGameInstance()->GetSubsystem<UMockUIController>())
 			{
 				UE_LOG(LogTemp, Log, TEXT("[GameState] 게임 종료 확인. Result 화면 호출 (Score: %d, Star: %d)"), TotalScore, StarCount);
-				MockController->TriggerGameResult(TotalScore, StarCount);
+				MockController->TriggerGameResult(TotalScore, StarCount, ElapsedTime);
 			}
 		}
 	}
@@ -69,7 +69,7 @@ void ATeamCarryGameState::OnRep_bIsGameFinished()
 
 void ATeamCarryGameState::OnRep_StarCount()
 {
-	// 별 개수 UI 갱신 (보류)
+
 }
 
 void ATeamCarryGameState::OnRep_CurrentPhase()

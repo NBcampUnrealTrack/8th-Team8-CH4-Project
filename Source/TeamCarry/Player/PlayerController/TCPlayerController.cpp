@@ -9,6 +9,10 @@
 #include "TeamCarry/UI/MockUIController.h"
 #include "Engine/GameInstance.h"
 
+// --- 글로벌 UI 단축키(Enhanced Input) ---
+#include "EnhancedInputComponent.h"
+#include "EnhancedInputSubsystems.h"
+
 void ATCPlayerController::RequestSetReady(bool bInReady)
 {
 	ServerSetReady(bInReady);
@@ -27,6 +31,16 @@ void ATCPlayerController::BeginPlay()
 	// 서버 뒷단이 아닌, 실제 모니터 화면을 보고 있는 '로컬 플레이어'일 때만 UI를 띄웁니다.
 	if (IsLocalPlayerController())
 	{
+		// 글로벌 UI 단축키는 폰 스폰 여부·HUD 포커스 상태와 무관하게 항상 동작해야 하므로,
+		// 캐릭터 이동 IMC(우선순위 0, ATCPlayerCharacter::BeginPlay)보다 높은 우선순위로 추가한다.
+		if (UEnhancedInputLocalPlayerSubsystem* EILPS = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer()))
+		{
+			if (IMC_GlobalUI)
+			{
+				EILPS->AddMappingContext(IMC_GlobalUI, 1);
+			}
+		}
+
 		if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
 		{
 			FString CurrentMapName = GetWorld()->GetName();
@@ -52,14 +66,14 @@ void ATCPlayerController::BeginPlay()
 				MockController->ReplaceState(EE_UIState::Tutorial);
 
 				// [추가] 부모 클래스의 UI 모드를 덮어쓰고 캐릭터 조작 권한을 부여합니다.
-				bShowMouseCursor = false;
-				FInputModeGameOnly GameOnlyMode;
-				SetInputMode(GameOnlyMode);
+				bShowMouseCursor = true;
+				FInputModeGameAndUI GameAndUIMode;
+				SetInputMode(GameAndUIMode);
 
 				UE_LOG(LogTCNet, Log, TEXT("[PlayerController] 튜토리얼/프로토타입 진입: 조작 모드 활성화."));
 			}
 			// 4. 스테이지 선택 맵 (마우스 커서 필요)
-			else if (CurrentMapName.Contains(TEXT("L_StageSelect")))
+			else if (CurrentMapName.Contains(TEXT("L_StageSelect")))	
 			{
 				MockController->ReplaceState(EE_UIState::StageSelect);
 				UE_LOG(LogTCNet, Log, TEXT("[PlayerController] 스테이지 선택 진입: StageSelect HUD 출력."));
@@ -70,13 +84,56 @@ void ATCPlayerController::BeginPlay()
 				MockController->ReplaceState(EE_UIState::InGame);
 
 				// [추가] 인게임 역시 캐릭터 조작이 필요하므로 입력 모드를 덮어씁니다.
-				bShowMouseCursor = false;
-				FInputModeGameOnly GameOnlyMode;
-				SetInputMode(GameOnlyMode);
+				bShowMouseCursor = true;
+				FInputModeGameAndUI GameAndUIMode;
+				SetInputMode(GameAndUIMode);
 
 				UE_LOG(LogTCNet, Log, TEXT("[PlayerController] 인게임 맵 진입: 조작 모드 활성화."));
 			}
 		}
+	}
+}
+
+void ATCPlayerController::SetupInputComponent()
+{
+	Super::SetupInputComponent();
+
+	if (UEnhancedInputComponent* EIC = Cast<UEnhancedInputComponent>(InputComponent))
+	{
+		EIC->BindAction(IA_ToggleESCUI, ETriggerEvent::Started, this, &ThisClass::Input_ToggleESCUI);
+		EIC->BindAction(IA_SkipTutorial, ETriggerEvent::Started, this, &ThisClass::Input_SkipTutorial);
+	}
+}
+
+void ATCPlayerController::Input_ToggleESCUI()
+{
+	UMockUIController* MockController = GetGameInstance() ? GetGameInstance()->GetSubsystem<UMockUIController>() : nullptr;
+	if (!MockController)
+	{
+		return;
+	}
+
+	// InGame/Tutorial 화면일 때만 일시정지 오버레이를 연다.
+	// 닫기(뒤로가기)는 O_PauseMenu 위젯의 NativeOnHandleBackAction(CommonUI 표준)이 자체 처리한다.
+	const EE_UIState CurrentState = MockController->GetCurrentState();
+	if (CurrentState == EE_UIState::InGame || CurrentState == EE_UIState::Tutorial)
+	{
+		MockController->PushOverlay(TEXT("O_PauseMenu"));
+	}
+}
+
+void ATCPlayerController::Input_SkipTutorial()
+{
+	UMockUIController* MockController = GetGameInstance() ? GetGameInstance()->GetSubsystem<UMockUIController>() : nullptr;
+	if (!MockController)
+	{
+		return;
+	}
+
+	// Tutorial 상태일 때만 스킵이 유효하다(다른 화면에서 실수로 눌려도 무시).
+	if (MockController->GetCurrentState() == EE_UIState::Tutorial)
+	{
+		MockController->ReplaceState(EE_UIState::StageSelect);
 	}
 }
 

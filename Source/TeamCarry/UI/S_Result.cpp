@@ -26,7 +26,7 @@ void US_Result::NativeConstruct()
 
 	// 점수/통계/별 개수 텍스트는 정산 결과 연동 시 채워진다.
 	// WBP에서 아직 바인딩되지 않은 위젯이 있어도(Optional) 크래시 없이 로깅만 하고 넘어간다.
-	if (!Txt_Score || !Txt_Stats || !Txt_StarCount)
+	if (!Txt_Score || !Txt_ElapsedTime || !Txt_StarCount)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[UI Result] Score/Stats/StarCount TextBlock is not bound. Check the WBP hierarchy."));
 	}
@@ -37,6 +37,7 @@ void US_Result::NativeConstruct()
 	{
 		const int32 FinalScore = MockController->GetLastFinalScore();
 		const int32 StarCount = MockController->GetLastStarCount();
+		const float ElapsedTime = MockController->GetLastElapsedTime();
 
 		if (Txt_Score)
 		{
@@ -48,7 +49,17 @@ void US_Result::NativeConstruct()
 			Txt_StarCount->SetText(FText::AsNumber(StarCount));
 		}
 
-		UE_LOG(LogTemp, Log, TEXT("[UI Result] Result Display Updated: Score=%d, Star=%d"), FinalScore, StarCount);
+		if (Txt_ElapsedTime)
+		{
+			const int32 TotalSeconds = FMath::Max(0, FMath::FloorToInt(ElapsedTime));
+			const int32 Minutes = TotalSeconds / 60;
+			const int32 Seconds = TotalSeconds % 60;
+
+			FString TimeString = FString::Printf(TEXT("클리어 시간: %02d 분 %02d 초"), Minutes, Seconds);
+			Txt_ElapsedTime->SetText(FText::FromString(TimeString));
+		}
+
+		UE_LOG(LogTemp, Log, TEXT("[UI Result] Result Display Updated: Score=%d, Star=%d, Time=%.1fs"), FinalScore, StarCount, ElapsedTime);
 	}
 	else
 	{
