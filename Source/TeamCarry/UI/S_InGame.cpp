@@ -52,9 +52,14 @@ void US_InGame::NativeConstruct()
 
 
 	// Setup initial placeholder value
-	if (Txt_RemainingFurniture)
+	if (UWorld* World = GetWorld())
 	{
-		Txt_RemainingFurniture->SetText(FText::AsNumber(0));
+		if (ATeamCarryGameState* GS = World->GetGameState<ATeamCarryGameState>())
+		{
+			// 게임이 시작될 때 GameState에 이미 들어있는 돈과 가구 수를 HUD에 즉시 반영합니다.
+			HandleTeamMoneyUpdated(GS->TotalScore);
+			HandleRemainingFurnitureUpdated(GS->RemainingFurniture);
+		}
 	}
 
 	// Subscribe to MockUIController delegates
@@ -98,21 +103,6 @@ void US_InGame::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 			UpdateTimerDisplay(GS->ElapsedTime);
 		}
 	}
-}
-
-FReply US_InGame::NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)
-{
-	if (InKeyEvent.GetKey() == EKeys::Escape)
-	{
-		if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
-		{
-			UE_LOG(LogTemp, Warning, TEXT("[UI InGameHUD] Escape pressed! Triggering Pause Menu overlay."));
-			MockController->PushOverlay(TEXT("O_PauseMenu"));
-			return FReply::Handled();
-		}
-	}
-
-	return Super::NativeOnKeyDown(InGeometry, InKeyEvent);
 }
 
 TOptional<FUIInputConfig> US_InGame::GetDesiredInputConfig() const

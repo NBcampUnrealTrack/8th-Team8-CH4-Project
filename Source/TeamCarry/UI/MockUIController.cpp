@@ -56,6 +56,17 @@ void UMockUIController::ReplaceState(EE_UIState NewState)
 
 UCommonActivatableWidget* UMockUIController::PushOverlay(const FString& OverlayName)
 {
+	if (UWorld* World = GetWorld())
+	{
+		float CurrentTime = World->GetRealTimeSeconds(); // 일시정지에 영향받지 않는 현실 시간
+		if (CurrentTime - LastMenuToggleTime < MenuToggleCooldown)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[UI Stack] 연타 방지: 쿨타임 중 Push 무시 (%s)"), *OverlayName);
+			return nullptr;
+		}
+		LastMenuToggleTime = CurrentTime; // 마지막 실행 시간 갱신
+	}
+
 	IUIHost* Host = GetUIHost();
 	if (!Host)
 	{
@@ -86,6 +97,17 @@ UCommonActivatableWidget* UMockUIController::PushOverlay(const FString& OverlayN
 
 void UMockUIController::PopCurrentOverlay()
 {
+	if (UWorld* World = GetWorld())
+	{
+		float CurrentTime = World->GetRealTimeSeconds(); // 일시정지에 영향받지 않는 현실 시간
+		if (CurrentTime - LastMenuToggleTime < MenuToggleCooldown)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[UI Stack] 연타 방지: 쿨타임 중 Pop 무시"));
+			return;
+		}
+		LastMenuToggleTime = CurrentTime; // 마지막 실행 시간 갱신
+	}
+
 	if (MockOverlayStack.Num() == 0)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[UI Stack] Attempted to Pop but the Overlay Stack is EMPTY!"));
@@ -148,15 +170,17 @@ void UMockUIController::UpdateRemainingFurniture(int32 NewCount)
 	OnRemainingFurnitureUpdated.Broadcast(NewCount);
 }
 
-void UMockUIController::TriggerGameResult(int32 FinalScore, int32 StarCount)
+void UMockUIController::TriggerGameResult(int32 FinalScore, int32 StarCount, float ElapsedTime)
 {
 	// S_Result가 생성되기 전에 값을 먼저 캐시해 둔다.
 	// ReplaceState()는 위젯을 동기적으로 생성하므로, 이 값들은 S_Result::NativeConstruct에서 바로 읽을 수 있다.
 	LastFinalScore = FinalScore;
 	LastStarCount = StarCount;
+	LastElapsedTime = ElapsedTime;
 
-	UE_LOG(LogTemp, Log, TEXT("[UI GameData] Game Result Ready: Score=%d, Star=%d"), FinalScore, StarCount);
-	OnGameResultReady.Broadcast(FinalScore, StarCount);
+	// 로그와 방송에 시간 포함
+	UE_LOG(LogTemp, Log, TEXT("[UI GameData] Game Result Ready: Score=%d, Star=%d, Time=%.1fs"), FinalScore, StarCount, ElapsedTime);
+	OnGameResultReady.Broadcast(FinalScore, StarCount, ElapsedTime); // [수정됨]
 
 	ReplaceState(EE_UIState::Result);
 }

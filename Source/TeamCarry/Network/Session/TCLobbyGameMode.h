@@ -27,8 +27,15 @@ public:
 	void StartGameFromLobby(ATCPlayerController* RequestingPC);
 
 protected:
+	// GameState 생성 직후 호스트의 방 코드를 복제 변수로 주입(클라 UI 표시용).
+	virtual void InitGameState() override;
+
 	virtual void OnPostLogin(AController* NewPlayer) override;
 	virtual void Logout(AController* Exiting) override;
+
+	// Seamless travel 로 도착한 플레이어는 OnPostLogin 을 타지 않으므로
+	// 여기서 로비 슬롯을 배정한다(게임→로비 복귀 등).
+	virtual void HandleSeamlessTravelPlayer(AController*& C) override;
 
 private:
 	// 다음에 배정할 로비 슬롯 인덱스(0부터 증가).
