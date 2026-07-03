@@ -27,6 +27,9 @@ public:
 	void StartGameFromLobby(ATCPlayerController* RequestingPC);
 
 protected:
+	// GameState 생성 직후 호스트의 방 코드를 복제 변수로 주입(클라 UI 표시용).
+	virtual void InitGameState() override;
+
 	virtual void OnPostLogin(AController* NewPlayer) override;
 	virtual void Logout(AController* Exiting) override;
 
