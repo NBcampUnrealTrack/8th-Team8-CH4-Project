@@ -38,23 +38,16 @@ void US_CharacterSelect::NativeConstruct()
 	bLocalPlayerReady = false;
 	SetIsFocusable(true);
 
-	// ── [수정] 조기 종료(return)를 만나기 전에 방 코드를 가장 먼저 출력하도록 위로 끌어올림 ──
+	// ── 조기 종료(return)를 만나기 전에 방 코드를 가장 먼저 출력하도록 위로 끌어올림 ──
 	if (Txt_Session_Code)
 	{
 		if (UTCSessionFlow* Flow = GetGameInstance()->GetSubsystem<UTCSessionFlow>())
 		{
 			FString RoomCodeString = Flow->GetRoomCode();
-
-			// 방 코드가 정상적으로 발급된 경우에만 출력
 			if (!RoomCodeString.IsEmpty())
 			{
 				FString FormattedCode = FString::Printf(TEXT("방 코드: %s"), *RoomCodeString);
 				Txt_Session_Code->SetText(FText::FromString(FormattedCode));
-			}
-			else
-			{
-				// 싱글 플레이 및 로컬 테스트 환경
-				Txt_Session_Code->SetText(FText::FromString(TEXT("방 코드: 오프라인")));
 			}
 		}
 	}
@@ -71,7 +64,7 @@ void US_CharacterSelect::NativeConstruct()
 		}
 		RefreshLobbyFromGameState();
 
-		// [원인 발견] 바로 이 return 때문에 밑에 있던 코드들이 씹혔습니다.
+		// 바로 이 return 때문에 밑에 있던 코드들이 씹혔습니다.
 		return;
 	}
 
