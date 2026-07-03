@@ -5,9 +5,11 @@
 #include "Components/TextBlock.h"
 #include "Components/ProgressBar.h"
 #include "TeamCarry/UI/MockUIController.h"
+#include "TeamCarry/Core/TeamCarryGameState.h"
 #include "Engine/Texture2D.h"
 #include "Components/Image.h"
 #include "Components/Button.h"
+#include "Engine/World.h"
 
 void US_InGame::NativeConstruct()
 {
@@ -49,6 +51,12 @@ void US_InGame::NativeConstruct()
 	}
 
 
+	// Setup initial placeholder value
+	if (Txt_RemainingFurniture)
+	{
+		Txt_RemainingFurniture->SetText(FText::AsNumber(0));
+	}
+
 	// Subscribe to MockUIController delegates
 	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
 	{
@@ -56,6 +64,7 @@ void US_InGame::NativeConstruct()
 		//MockController->OnFurnitureSettled.AddUniqueDynamic(this, &US_InGame::HandleFurnitureSettled);
 		MockController->OnInteractTargetChanged.AddUniqueDynamic(this, &US_InGame::HandleInteractTargetChanged);
 		//MockController->OnDurabilityChanged.AddUniqueDynamic(this, &US_InGame::HandleDurabilityChanged);
+		MockController->OnRemainingFurnitureUpdated.AddUniqueDynamic(this, &US_InGame::HandleRemainingFurnitureUpdated);
 
 		UE_LOG(LogTemp, Log, TEXT("[UI InGameHUD] Successfully bound to MockUIController delegates."));
 	}
@@ -70,9 +79,25 @@ void US_InGame::NativeDestruct()
 		//MockController->OnFurnitureSettled.RemoveAll(this);
 		MockController->OnInteractTargetChanged.RemoveAll(this);
 		//MockController->OnDurabilityChanged.RemoveAll(this);
+		MockController->OnRemainingFurnitureUpdated.RemoveAll(this);
 	}
 
 	Super::NativeDestruct();
+}
+
+void US_InGame::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
+{
+	Super::NativeTick(MyGeometry, InDeltaTime);
+
+	// ElapsedTime은 매 프레임 서버에서 갱신되는 값이라 델리게이트가 아닌 Tick 폴링으로 동기화한다.
+	// (리슨 서버 호스트는 같은 GameState 인스턴스를 즉시 읽고, 클라이언트는 복제된 최신값을 읽는다.)
+	if (UWorld* World = GetWorld())
+	{
+		if (ATeamCarryGameState* GS = World->GetGameState<ATeamCarryGameState>())
+		{
+			UpdateTimerDisplay(GS->ElapsedTime);
+		}
+	}
 }
 
 FReply US_InGame::NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)
@@ -102,6 +127,33 @@ void US_InGame::HandleTeamMoneyUpdated(int32 NewTotalMoney)
 	if (TextBlock_Score)
 	{
 		TextBlock_Score->SetText(FText::Format(NSLOCTEXT("InGameUI", "MoneyFormat", "${0}"), FText::AsNumber(NewTotalMoney)));
+	}
+}
+
+void US_InGame::UpdateTimerDisplay(float ElapsedTime)
+{
+	const int32 TotalSeconds = FMath::Max(0, FMath::FloorToInt(ElapsedTime));
+	if (TotalSeconds == LastDisplayedSeconds)
+	{
+		return;
+	}
+	LastDisplayedSeconds = TotalSeconds;
+
+	const int32 Minutes = TotalSeconds / 60;
+	const int32 Seconds = TotalSeconds % 60;
+
+	if (TextBlock_Timer)
+	{
+		TextBlock_Timer->SetText(FText::FromString(FString::Printf(TEXT("%02d : %02d"), Minutes, Seconds)));
+	}
+}
+
+void US_InGame::HandleRemainingFurnitureUpdated(int32 NewCount)
+{
+	UE_LOG(LogTemp, Log, TEXT("[UI InGameHUD] HUD Received Remaining Furniture Update: %d"), NewCount);
+	if (Txt_RemainingFurniture)
+	{
+		Txt_RemainingFurniture->SetText(FText::AsNumber(NewCount));
 	}
 }
 

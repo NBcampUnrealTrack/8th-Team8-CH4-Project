@@ -57,6 +57,12 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnLobbySlotUpdated, int32, SlotInd
 // 6. UI 상태(화면) 전환 이벤트
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnStateChanged, EE_UIState, NewState);
 
+// 7. 남은 가구 개수 변경
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnRemainingFurnitureUpdated, int32, NewCount);
+
+// 8. 게임 결과(최종 점수/별 개수) 확정
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnGameResultReady, int32, FinalScore, int32, StarCount);
+
 // 명세 ③ 수정: 전원 준비완료 시 호스트가 시작을 누르면 카운트다운 없이 즉시 전환된다.
 //             따라서 로비 카운트다운 델리게이트(FOnLobbyCountdownUpdated)는 제거되었다.
 
@@ -94,6 +100,12 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "UI|Delegates")
 	FOnStateChanged OnStateChanged;
 
+	UPROPERTY(BlueprintAssignable, Category = "UI|Delegates")
+	FOnRemainingFurnitureUpdated OnRemainingFurnitureUpdated;
+
+	UPROPERTY(BlueprintAssignable, Category = "UI|Delegates")
+	FOnGameResultReady OnGameResultReady;
+
 
 	// --- Routing & Stack Management ---
 	UFUNCTION(BlueprintCallable, Category = "UI|Controller")
@@ -108,11 +120,36 @@ public:
 	UFUNCTION(BlueprintPure, Category = "UI|Controller")
 	EE_UIState GetCurrentState() const { return CurrentState; }
 
+	// ReplaceState() 직전까지의 화면. 화면이 어디서 진입했는지에 따라 뒤로가기 목적지를
+	// 분기해야 하는 화면(예: S_StageSelect)에서 사용한다.
+	UFUNCTION(BlueprintPure, Category = "UI|Controller")
+	EE_UIState GetPreviousState() const { return PreviousState; }
 
-	// --- Lobby & Simulation Helpers ---
+
+	// --- Lobby Helpers ---
 	// S_CharacterSelect에서 Btn_Ready 클릭 시 호출할 더미 준비처리 함수
 	UFUNCTION(BlueprintCallable, Category = "UI|Controller")
 	void SetLobbySlotReady(int32 SlotIndex, bool bIsReady);
+
+
+	// --- Real Game Data Injection ---
+	// GameState 등 실제 데이터 소스에서 호출하여 UI를 갱신시키는 징검다리 함수들.
+	UFUNCTION(BlueprintCallable, Category = "UI|GameData")
+	void UpdateTeamMoney(int32 NewMoney);
+
+	UFUNCTION(BlueprintCallable, Category = "UI|GameData")
+	void UpdateRemainingFurniture(int32 NewCount);
+
+	// 게임 종료 시 최종 점수/별 개수를 확정하고 S_Result 화면으로 전환한다.
+	// (S_Result는 위젯 생성 시점에 GetLastFinalScore()/GetLastStarCount()로 캐시된 값을 읽어간다.)
+	UFUNCTION(BlueprintCallable, Category = "UI|GameData")
+	void TriggerGameResult(int32 FinalScore, int32 StarCount);
+
+	UFUNCTION(BlueprintPure, Category = "UI|GameData")
+	int32 GetLastFinalScore() const { return LastFinalScore; }
+
+	UFUNCTION(BlueprintPure, Category = "UI|GameData")
+	int32 GetLastStarCount() const { return LastStarCount; }
 
 
 	// --- UI Host (PlayerController) 등록 ---
@@ -127,17 +164,22 @@ private:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "UI|Controller", meta = (AllowPrivateAccess = "true"))
 	EE_UIState CurrentState;
 
-	// In-game Simulation Timer variables
-	FTimerHandle SimulationTimerHandle;
-	int32 SimulationTicks;
-	int32 SimulatedMoney;
-	float SimulatedDurability;
-
-	// Core simulation update tick
-	void UpdateInGameMockSimulation();
+	// ReplaceState() 로 갱신되기 직전의 CurrentState. GameInstance 서브시스템이라
+	// 같은 레벨 내 화면 교체는 물론 ServerTravel(레벨 이동)을 넘어서도 유지된다.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "UI|Controller", meta = (AllowPrivateAccess = "true"))
+	EE_UIState PreviousState = EE_UIState::None;
 
 	// Active overlay list (mock representation of UI stack)
 	TArray<FString> MockOverlayStack;
+
+	// TriggerGameResult()로 캐시되는 최종 결과 데이터.
+	// S_Result 위젯은 ReplaceState()에 의해 TriggerGameResult() 내부에서 동기적으로 생성되므로,
+	// NativeConstruct 시점에 이 값들을 즉시 읽어갈 수 있다.
+	UPROPERTY()
+	int32 LastFinalScore = 0;
+
+	UPROPERTY()
+	int32 LastStarCount = 0;
 
 	// 실제 위젯 생성/제거를 위임할 호스트(PC). 약참조로 보관하여 PC 파괴 시 dangling 을 방지한다.
 	UPROPERTY()

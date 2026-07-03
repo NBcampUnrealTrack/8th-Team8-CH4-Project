@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 #pragma once
 
@@ -36,10 +36,10 @@ protected:
 
 	// --- Pause Menu Buttons ---
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
-	TObjectPtr<UButton> Btn_Resume;
+	TObjectPtr<UCommonButtonBase> Btn_Resume;
 
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
-	TObjectPtr<UButton> Btn_Settings;
+	TObjectPtr<UCommonButtonBase> Btn_Settings;
 
 	// 조작법 가이드 버튼: 클릭 시 O_KeyGuide 오버레이를 스택에 Push (명세 3-10).
 	// 명세 5-5: 버튼 클래스는 UCommonButtonBase 로 통일.
@@ -48,10 +48,10 @@ protected:
 
 	// 수동 저장 버튼: 호스트 전용 (명세 3-1). 프로토타입에서는 권한 로직 위치만 표시한다.
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
-	TObjectPtr<UButton> Btn_Save;
+	TObjectPtr<UCommonButtonBase> Btn_Save;
 
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
-	TObjectPtr<UButton> Btn_ToTitle;
+	TObjectPtr<UCommonButtonBase> Btn_ToTitle;
 
 private:
 	// Btn_Resume: 메뉴 닫기 → MockController->PopCurrentOverlay()
@@ -72,4 +72,8 @@ private:
 	// Btn_ToTitle: 타이틀 복귀 (파괴적 액션 → O_Confirm 경유)
 	UFUNCTION()
 	void HandleToTitleClicked();
+
+	// O_Confirm 팝업에서 '확인'을 눌렀을 때 실행될 브릿지 함수(세션 파기 + 타이틀 복귀).
+	UFUNCTION()
+	void OnConfirmToTitle();
 };

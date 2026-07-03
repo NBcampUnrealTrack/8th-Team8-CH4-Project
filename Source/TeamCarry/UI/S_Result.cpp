@@ -24,11 +24,35 @@ void US_Result::NativeConstruct()
 		Btn_ToTitle->OnClicked.AddUniqueDynamic(this, &US_Result::HandleToTitleClicked);
 	}
 
-	// 점수/통계 텍스트는 정산 결과 연동 시 채워진다.
-	// (프로토타입에서는 바인딩 유효성만 로깅한다.)
-	if (!Txt_Score || !Txt_Stats)
+	// 점수/통계/별 개수 텍스트는 정산 결과 연동 시 채워진다.
+	// WBP에서 아직 바인딩되지 않은 위젯이 있어도(Optional) 크래시 없이 로깅만 하고 넘어간다.
+	if (!Txt_Score || !Txt_Stats || !Txt_StarCount)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[UI Result] Score/Stats TextBlock is not bound. Check the WBP hierarchy."));
+		UE_LOG(LogTemp, Warning, TEXT("[UI Result] Score/Stats/StarCount TextBlock is not bound. Check the WBP hierarchy."));
+	}
+
+	// S_Result는 UMockUIController::TriggerGameResult()에 의해 ReplaceState()로 생성되며,
+	// 이 시점에는 이미 최종 점수/별 개수가 컨트롤러에 캐시되어 있으므로 즉시 읽어서 채운다.
+	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
+	{
+		const int32 FinalScore = MockController->GetLastFinalScore();
+		const int32 StarCount = MockController->GetLastStarCount();
+
+		if (Txt_Score)
+		{
+			Txt_Score->SetText(FText::Format(NSLOCTEXT("ResultUI", "ScoreFormat", "${0}"), FText::AsNumber(FinalScore)));
+		}
+
+		if (Txt_StarCount)
+		{
+			Txt_StarCount->SetText(FText::AsNumber(StarCount));
+		}
+
+		UE_LOG(LogTemp, Log, TEXT("[UI Result] Result Display Updated: Score=%d, Star=%d"), FinalScore, StarCount);
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[UI Result] MockUIController subsystem not found. Score/StarCount display left unset."));
 	}
 }
 

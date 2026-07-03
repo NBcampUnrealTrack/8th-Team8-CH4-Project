@@ -5,6 +5,8 @@
 #include "Components/Button.h"
 #include "Components/ListView.h"
 #include "TeamCarry/UI/MockUIController.h"
+#include "TeamCarry/UI/O_Confirm.h"
+#include "Network/Session/TCSessionFlow.h"
 
 void US_StageSelect::NativeConstruct()
 {
@@ -101,10 +103,49 @@ void US_StageSelect::EnterSelectedStage()
 
 void US_StageSelect::HandleBackClicked()
 {
+	// 명세 1 흐름: 뒤로 → O_Confirm 모달 호출. 확정 시 메인 메뉴 복귀는 콜백이 처리한다.
 	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
 	{
-		// 명세 1 흐름: 뒤로 → O_Confirm 모달 호출. 확정 시 메인 메뉴 복귀는 모달이 처리한다.
 		UE_LOG(LogTemp, Log, TEXT("[UI StageSelect] Back clicked. Pushing O_Confirm overlay."));
-		MockController->PushOverlay(TEXT("O_Confirm"));
+
+		UCommonActivatableWidget* OverlayWidget = MockController->PushOverlay(TEXT("O_Confirm"));
+
+		if (UO_Confirm* ConfirmUI = Cast<UO_Confirm>(OverlayWidget))
+		{
+			FOnConfirmYesAction YesAction;
+			YesAction.BindDynamic(this, &US_StageSelect::OnConfirmCancelStageSelect);
+
+			ConfirmUI->SetupConfirm(
+				FText::FromString(TEXT("스테이지 선택 취소")),
+				FText::FromString(TEXT("스테이지 선택을 취소하시겠습니까?")),
+				YesAction
+			);
+		}
+	}
+}
+
+void US_StageSelect::OnConfirmCancelStageSelect()
+{
+	UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>();
+	if (!MockController)
+	{
+		return;
+	}
+
+	// 튜토리얼(새 게임 흐름)에서 진입했다면 튜토리얼로 복귀. 같은 세션/레벨 내 화면 교체이므로
+	// ReplaceState 로 충분하다(ServerTravel 불필요).
+	if (MockController->GetPreviousState() == EE_UIState::Tutorial)
+	{
+		UE_LOG(LogTemp, Log, TEXT("[UI StageSelect] Cancel confirmed. Returning to Tutorial."));
+		MockController->ReplaceState(EE_UIState::Tutorial);
+		return;
+	}
+
+	// 그 외(이어하기 방으로 곧장 진입했거나, S_Result 이후 재진입한 경우)는 로비(S_CharacterSelect)로
+	// 복귀한다. 로비는 별도 레벨(L_Lobby)이므로 세션을 유지한 채 ServerTravel 로 이동해야 한다.
+	if (UTCSessionFlow* Flow = GetGameInstance()->GetSubsystem<UTCSessionFlow>())
+	{
+		UE_LOG(LogTemp, Log, TEXT("[UI StageSelect] Cancel confirmed. Requesting Return To Lobby."));
+		Flow->HostReturnToLobby();
 	}
 }
