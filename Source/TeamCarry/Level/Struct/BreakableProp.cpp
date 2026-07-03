@@ -5,6 +5,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Core/MovableFurniture.h"
 #include "Core/TCIDamageable.h"
+#include "Furniture/TCFurnitureActor.h"
 #include "Level/StageManager.h"
 #include "Kismet/GameplayStatics.h"
 #include "Net/UnrealNetwork.h"
@@ -37,7 +38,7 @@ void ABreakableProp::BeginPlay()
 
 bool ABreakableProp::IsFurniture(AActor* OtherActor) const
 {
-	return OtherActor && OtherActor->Implements<UMovableFurniture>();
+	return OtherActor && OtherActor->IsA(ATCFurnitureActor::StaticClass());
 }
 
 void ABreakableProp::OnMeshHit(UPrimitiveComponent*, AActor* OtherActor, UPrimitiveComponent*, FVector NormalImpulse, const FHitResult&)

@@ -2,6 +2,7 @@
 
 #include "Network/Session/TCSessionFlow.h"
 #include "Network/Session/TCGameInstance.h"
+#include "Network/Session/TCLobbyGameState.h"
 #include "Network/Net/TCNetStatics.h"
 #include "Engine/World.h"
 #include "Kismet/GameplayStatics.h"
@@ -156,8 +157,23 @@ void UTCSessionFlow::JoinRoomByCode(const FString& RoomCode)
 
 FString UTCSessionFlow::GetRoomCode() const
 {
+	// 1) 호스트: GameInstance 가 직접 코드를 보유.
 	const UTCGameInstance* GI = GetTCGameInstance();
-	return GI ? GI->GetHostRoomCode() : FString();
+	if (GI && !GI->GetHostRoomCode().IsEmpty())
+	{
+		return GI->GetHostRoomCode();
+	}
+
+	// 2) 클라이언트: 호스트가 GameState 에 복제해준 코드로 폴백.
+	//    (HostRoomCode 는 호스트 프로세스에만 있어 클라 UI 가 "오프라인"으로 뜨던 문제 해결)
+	if (const UWorld* World = GetWorld())
+	{
+		if (const ATCLobbyGameState* LobbyGS = World->GetGameState<ATCLobbyGameState>())
+		{
+			return LobbyGS->GetRoomCode();
+		}
+	}
+	return FString();
 }
 
 // --- UI 테스트용 ---
