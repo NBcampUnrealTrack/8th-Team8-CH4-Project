@@ -266,6 +266,21 @@ void US_CharacterSelect::RefreshLobbyFromGameState()
 		return;
 	}
 
+	// 방 코드 갱신: 클라이언트는 복제(RoomCode)가 위젯 생성 이후에 도착할 수 있어
+	// NativeConstruct 1회 표시만으론 "오프라인"에 머문다 → 로비 변경 통지마다 재확인.
+	// (빈 값이면 덮어쓰지 않아 진짜 오프라인 표기는 유지)
+	if (Txt_Session_Code)
+	{
+		if (UTCSessionFlow* Flow = GetGameInstance()->GetSubsystem<UTCSessionFlow>())
+		{
+			const FString RoomCodeString = Flow->GetRoomCode();
+			if (!RoomCodeString.IsEmpty())
+			{
+				Txt_Session_Code->SetText(FText::FromString(FString::Printf(TEXT("방 코드: %s"), *RoomCodeString)));
+			}
+		}
+	}
+
 	// 먼저 모든 슬롯을 빈 상태로.
 	for (int32 i = 0; i < 4; ++i)
 	{
