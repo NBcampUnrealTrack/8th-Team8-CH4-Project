@@ -39,6 +39,11 @@ protected:
 	UPROPERTY(meta = (BindWidget), BlueprintReadOnly, Category = "UI|Widget")
 	TObjectPtr<UTextBlock> Txt_Stats;
 
+	// 획득한 별 개수 표시.
+	// WBP에 아직 위젯이 추가되지 않은 상태에서도 크래시가 나지 않도록 Optional로 선언한다.
+	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
+	TObjectPtr<UTextBlock> Txt_StarCount;
+
 	// --- 네비게이션 ---
 	// 확인: 스테이지 선택 화면으로 복귀.
 	UPROPERTY(meta = (BindWidget), BlueprintReadOnly, Category = "UI|Widget")
