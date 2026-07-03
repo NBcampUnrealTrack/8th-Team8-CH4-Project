@@ -666,17 +666,17 @@ void UFurnitureGrabSystem::Multicast_ShowDebugSpeeds_Implementation(
 	float FurnActualSpeed, float FurnMaxSpeed,
 	const TArray<float>& MaxWalkSpeeds, const TArray<float>& ActualSpeeds)
 {
-#if !UE_BUILD_SHIPPING
-	if (!GEngine) return;
-	GEngine->AddOnScreenDebugMessage(9000, 0.1f, FColor::Yellow,
-		FString::Printf(TEXT("[가구] 실속도: %.0f  /  설정최대속도: %.0f"), FurnActualSpeed, FurnMaxSpeed));
-	for (int32 i = 0; i < MaxWalkSpeeds.Num(); ++i)
-	{
-		GEngine->AddOnScreenDebugMessage(9001 + i, 0.1f, FColor::Cyan,
-			FString::Printf(TEXT("  [P%d] MaxWalkSpeed: %.0f  /  현재속도: %.0f"),
-				i + 1, MaxWalkSpeeds[i], ActualSpeeds[i]));
-	}
-#endif
+//#if !UE_BUILD_SHIPPING
+//	if (!GEngine) return;
+//	GEngine->AddOnScreenDebugMessage(9000, 0.1f, FColor::Yellow,
+//		FString::Printf(TEXT("[가구] 실속도: %.0f  /  설정최대속도: %.0f"), FurnActualSpeed, FurnMaxSpeed));
+//	for (int32 i = 0; i < MaxWalkSpeeds.Num(); ++i)
+//	{
+//		GEngine->AddOnScreenDebugMessage(9001 + i, 0.1f, FColor::Cyan,
+//			FString::Printf(TEXT("  [P%d] MaxWalkSpeed: %.0f  /  현재속도: %.0f"),
+//				i + 1, MaxWalkSpeeds[i], ActualSpeeds[i]));
+//	}
+//#endif
 }
 
 void UFurnitureGrabSystem::Multicast_ApplyPlayerCorrection_Implementation(
