@@ -55,6 +55,25 @@ void ATCLobbyGameMode::OnPostLogin(AController* NewPlayer)
 	}
 }
 
+void ATCLobbyGameMode::HandleSeamlessTravelPlayer(AController*& C)
+{
+	Super::HandleSeamlessTravelPlayer(C);
+
+	// Seamless 도착 플레이어는 OnPostLogin 미호출 + PlayerState 재생성 과정에서
+	// 커스텀 복제값(LobbySlotIndex)이 유실될 수 있다 → 미배정이면 여기서 배정.
+	if (APlayerController* PC = Cast<APlayerController>(C))
+	{
+		if (ATCPlayerState* PS = PC->GetPlayerState<ATCPlayerState>())
+		{
+			if (PS->GetLobbySlotIndex() < 0)
+			{
+				PS->SetLobbySlotIndexAuthoritative(NextSlotIndex++);
+				UE_LOG(LogTCNet, Log, TEXT("[Lobby] (Seamless) Slot %d 배정: %s"), PS->GetLobbySlotIndex(), *PS->GetPlayerName());
+			}
+		}
+	}
+}
+
 void ATCLobbyGameMode::Logout(AController* Exiting)
 {
 	// 슬롯 인덱스는 회수하지 않는다(중간 퇴장 시 빈 슬롯 허용). UI 는 GameState 변경으로 갱신.
