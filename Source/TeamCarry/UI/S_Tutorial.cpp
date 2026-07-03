@@ -26,11 +26,6 @@ void US_Tutorial::NativeConstruct()
 
 UWidget* US_Tutorial::NativeGetDesiredFocusTarget() const
 {
-	if (Btn_Skip)
-	{
-		return Btn_Skip;
-	}
-
 	return Super::NativeGetDesiredFocusTarget();
 }
 
@@ -38,30 +33,6 @@ TOptional<FUIInputConfig> US_Tutorial::GetDesiredInputConfig() const
 {
 	// TOptional 객체로 감싸서 반환합니다.
 	return TOptional<FUIInputConfig>(FUIInputConfig(ECommonInputMode::Game, EMouseCaptureMode::CapturePermanently, true));
-}
-
-FReply US_Tutorial::NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)
-{
-	if (InKeyEvent.GetKey() == EKeys::Escape)
-	{
-		if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
-		{
-			UE_LOG(LogTemp, Warning, TEXT("[UI Tutorial] Escape pressed! Triggering Pause Menu overlay."));
-			MockController->PushOverlay(TEXT("O_PauseMenu"));
-			return FReply::Handled();
-		}
-	}
-
-	// [임시] P = 건너뛰기 버튼과 동일 동작(스테이지 선택 직행). 테스트 편의용 임시 바인딩이며
-	// 정식 스킵 트리거(예: 전원 스킵 투표)가 붙으면 제거한다.
-	if (InKeyEvent.GetKey() == EKeys::P)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("[UI Tutorial] (Temp) P pressed! Same as Skip button."));
-		HandleSkipClicked();
-		return FReply::Handled();
-	}
-
-	return Super::NativeOnKeyDown(InGeometry, InKeyEvent);
 }
 
 void US_Tutorial::HandleSkipClicked()

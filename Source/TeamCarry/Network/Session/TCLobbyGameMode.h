@@ -33,6 +33,10 @@ protected:
 	virtual void OnPostLogin(AController* NewPlayer) override;
 	virtual void Logout(AController* Exiting) override;
 
+	// Seamless travel 로 도착한 플레이어는 OnPostLogin 을 타지 않으므로
+	// 여기서 로비 슬롯을 배정한다(게임→로비 복귀 등).
+	virtual void HandleSeamlessTravelPlayer(AController*& C) override;
+
 private:
 	// 다음에 배정할 로비 슬롯 인덱스(0부터 증가).
 	int32 NextSlotIndex = 0;

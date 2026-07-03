@@ -4,6 +4,7 @@
 #include "Network/Net/TCNetStatics.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
+#include "GameFramework/GameModeBase.h"
 #include "OnlineSubsystem.h"
 #include "OnlineSubsystemUtils.h"
 #include "Online/OnlineSessionNames.h"   // UE5: SETTING_MAPNAME / SEARCH_PRESENCE 등 표준 키
@@ -30,6 +31,12 @@ void UTCGameInstance::HostListenServer(const FString& MapName)
 	{
 		UE_LOG(LogTCNet, Warning, TEXT("HostListenServer: World 없음"));
 		return;
+	}
+
+	// 리슨 시작은 hard travel 필수 (seamless 는 ?listen 무시 — HandleCreateSessionComplete 주석 참고)
+	if (AGameModeBase* GM = World->GetAuthGameMode())
+	{
+		GM->bUseSeamlessTravel = false;
 	}
 
 	// 맵 경로 뒤에 ?listen 을 붙여 리슨 서버로 오픈
@@ -146,8 +153,19 @@ void UTCGameInstance::HandleCreateSessionComplete(FName SessionName, bool bWasSu
 		UWorld* World = GetWorld();
 		if (World && !PendingTravelMap.IsEmpty())
 		{
+			// 리슨 시작(?listen)은 반드시 hard travel 이어야 한다.
+			// Seamless travel 은 기존 넷드라이버를 유지하는 방식이라 ?listen 옵션을
+			// 무시하며, 비리슨(타이틀) 상태에서 seamless 로 가면 서버가 열리지 않는다.
+			// 현재 맵의 GameMode(예: 타이틀에 로비 GM 지정된 경우 seamless=true)를
+			// 이 한 번의 트래블에 한해 hard 로 강제한다. (이후 로비→게임 트래블은
+			// 새 GameMode 의 seamless=true 로 진행되어 SteamSockets vport 재바인딩 회피)
+			if (AGameModeBase* GM = World->GetAuthGameMode())
+			{
+				GM->bUseSeamlessTravel = false;
+			}
+
 			const FString TravelURL = FString::Printf(TEXT("%s?listen"), *PendingTravelMap);
-			UE_LOG(LogTCNet, Log, TEXT("CreateSession → ServerTravel: %s"), *TravelURL);
+			UE_LOG(LogTCNet, Log, TEXT("CreateSession → ServerTravel(hard): %s"), *TravelURL);
 			World->ServerTravel(TravelURL);
 		}
 	}

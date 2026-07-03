@@ -60,8 +60,8 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnStateChanged, EE_UIState, NewStat
 // 7. 남은 가구 개수 변경
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnRemainingFurnitureUpdated, int32, NewCount);
 
-// 8. 게임 결과(최종 점수/별 개수) 확정
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnGameResultReady, int32, FinalScore, int32, StarCount);
+// 8. 게임 결과(최종 점수/별 개수/소요 시간) 확정 델리게이트 수정
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnGameResultReady, int32, FinalScore, int32, StarCount, float, ElapsedTime);
 
 // 명세 ③ 수정: 전원 준비완료 시 호스트가 시작을 누르면 카운트다운 없이 즉시 전환된다.
 //             따라서 로비 카운트다운 델리게이트(FOnLobbyCountdownUpdated)는 제거되었다.
@@ -140,10 +140,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "UI|GameData")
 	void UpdateRemainingFurniture(int32 NewCount);
 
-	// 게임 종료 시 최종 점수/별 개수를 확정하고 S_Result 화면으로 전환한다.
+	// 게임 종료 시 최종 점수/별 개수를 확정하고, 지난 시간도 체크하며 S_Result 화면으로 전환한다.
 	// (S_Result는 위젯 생성 시점에 GetLastFinalScore()/GetLastStarCount()로 캐시된 값을 읽어간다.)
 	UFUNCTION(BlueprintCallable, Category = "UI|GameData")
-	void TriggerGameResult(int32 FinalScore, int32 StarCount);
+	void TriggerGameResult(int32 FinalScore, int32 StarCount, float ElapsedTime);
 
 	UFUNCTION(BlueprintPure, Category = "UI|GameData")
 	int32 GetLastFinalScore() const { return LastFinalScore; }
@@ -151,6 +151,8 @@ public:
 	UFUNCTION(BlueprintPure, Category = "UI|GameData")
 	int32 GetLastStarCount() const { return LastStarCount; }
 
+	UFUNCTION(BlueprintPure, Category = "UI|GameData")
+	float GetLastElapsedTime() const { return LastElapsedTime; }
 
 	// --- UI Host (PlayerController) 등록 ---
 	// PC 가 BeginPlay/EndPlay 에서 자신을 호스트로 등록/해제한다.
@@ -180,6 +182,13 @@ private:
 
 	UPROPERTY()
 	int32 LastStarCount = 0;
+
+	UPROPERTY()
+	float LastElapsedTime = 0.0f;
+
+	// 연속 버튼 클릭으로 입력 누락 방지를 위한 타이머.
+	float LastMenuToggleTime = 0.0f;
+	const float MenuToggleCooldown = 0.2f;
 
 	// 실제 위젯 생성/제거를 위임할 호스트(PC). 약참조로 보관하여 PC 파괴 시 dangling 을 방지한다.
 	UPROPERTY()
