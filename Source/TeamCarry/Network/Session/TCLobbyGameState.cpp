@@ -3,6 +3,35 @@
 #include "Network/Session/TCLobbyGameState.h"
 #include "Player/PlayerState/TCPlayerState.h"
 #include "Network/Net/TCNetStatics.h"
+#include "Net/UnrealNetwork.h"
+
+void ATCLobbyGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(ATCLobbyGameState, RoomCode);
+}
+
+void ATCLobbyGameState::SetRoomCodeAuthoritative(const FString& InCode)
+{
+	if (!HasAuthority())
+	{
+		UE_LOG(LogTCNet, Warning, TEXT("SetRoomCodeAuthoritative: 비권위 호출 무시"));
+		return;
+	}
+	if (RoomCode == InCode)
+	{
+		return;
+	}
+	RoomCode = InCode;
+	// 서버(호스트) 자신은 OnRep 이 안 불리므로 직접 UI 갱신 통지.
+	NotifyLobbyChanged();
+}
+
+void ATCLobbyGameState::OnRep_RoomCode()
+{
+	// 클라: 코드 도착 → 위젯 갱신 트리거.
+	NotifyLobbyChanged();
+}
 
 bool ATCLobbyGameState::AreAllPlayersReady() const
 {
