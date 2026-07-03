@@ -10,13 +10,25 @@
 #include "Engine/StaticMeshActor.h"
 #include "GeometryCollection/GeometryCollectionComponent.h"
 #include "Player/Component/GrabComponent.h"
+#include "PhysicalMaterials/PhysicalMaterial.h"
 #include "EngineUtils.h"
+#include "Core/TeamCarryGameMode.h"
 
 ATCFurnitureActor::ATCFurnitureActor()
 {
     // 파괴 후 콜리전 꺼짐을 감시하는 용도로만 틱 사용 (평소엔 꺼둠, 파괴 시 활성화)
     PrimaryActorTick.bCanEverTick = true;
     PrimaryActorTick.bStartWithTickEnabled = false;
+
+    // 물리 시뮬레이션중의 충돌도 OnComponentHit으로 전달.
+    if (FurnitureMesh)
+    {
+        FurnitureMesh->SetNotifyRigidBodyCollision(true);
+
+        // 물리 낙하/던짐 시 무게감: 미끄러짐·구름 억제
+        FurnitureMesh->SetLinearDamping(0.8f);
+        FurnitureMesh->SetAngularDamping(4.0f);
+    }
 
     // 지오메트리 컬렉션 컴포넌트 생성
     GeometryCollectionComp = CreateDefaultSubobject<UGeometryCollectionComponent>(TEXT("GeometryCollectionComp"));
@@ -30,6 +42,10 @@ ATCFurnitureActor::ATCFurnitureActor()
     GeometryCollectionComp->SetVisibility(false);
     GeometryCollectionComp->SetSimulatePhysics(false);
     GeometryCollectionComp->SetCollisionProfileName(TEXT("NoCollision"));
+
+    // 클러스터 레벨별 파괴 임계값
+    GeometryCollectionComp->bUseSizeSpecificDamageThreshold = false;
+    GeometryCollectionComp->DamageThreshold = { 100.0f, 10.0f, 10.0f };
 
     // 조각의 위치까지 동기화x 어차피 플레이어랑 상호작용안될거.
     GeometryCollectionComp->SetIsReplicated(false);
@@ -89,6 +105,12 @@ void ATCFurnitureActor::DestroyFurniture()
 
         // 파괴 효과
         Multicast_DestroyFurniture();
+
+        // GM에 가구 파괴를 알림
+        if (ATeamCarryGameMode* GM = Cast<ATeamCarryGameMode>(GetWorld()->GetAuthGameMode()))
+        {
+            GM->OnFurnitureDestroyed();
+        }
 
         // GC 컴포넌트가 없거나, 있어도 파괴 메쉬(RestCollection)가 등록되지 않았다면
         // 조각날 것이 없으므로 액터를 즉시 삭제 예약 (다른작업의 처리 시간 확보를 위해 0.1초 지연)

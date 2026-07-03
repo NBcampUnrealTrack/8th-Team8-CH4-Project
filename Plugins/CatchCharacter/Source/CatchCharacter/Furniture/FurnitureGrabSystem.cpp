@@ -130,6 +130,13 @@ void UFurnitureGrabSystem::Grab(ACharacter* Grabber, FVector height, UPrimitiveC
 		Anchor.InitialAimYaw       = Grabber->GetBaseAimRotation().Yaw;     // 카메라 방향: 가구 회전 기준
 		Anchors.Add(Grabber, Anchor);
 		Multicast_SetPlayerAnchor(Grabber, Anchor.InitialFurnitureYaw, Anchor.InitialPlayerYaw, Anchor.InitialAimYaw, Anchor.InitialOffset);
+
+		// 리슨서버 호스트가 그랩한 경우: Multicast 수신부는 서버에서 조기 return되므로
+		// 호스트의 로컬 Yaw 동기화 기준값을 여기서 직접 초기화 (클라와 동일한 시점·값)
+		if (Grabber->IsLocallyControlled())
+		{
+			LocalSyncTargetYaw = Anchor.InitialFurnitureYaw;
+		}
 	}
 
 	SetGrabCollisionState(Grabber, true);
@@ -140,6 +147,10 @@ void UFurnitureGrabSystem::Grab(ACharacter* Grabber, FVector height, UPrimitiveC
 			OriginalMaxWalkSpeeds.Add(Grabber, CMC->MaxWalkSpeed);
 		CMC->bOrientRotationToMovement = false;
 	}
+
+	// 그랩 순간 1초 무적: 잡는 과정의 스윕/물리 접촉으로 즉시 데미지 입는 것 방지
+	if (FurnitureStat)
+		FurnitureStat->SetInvincible(1.0f);
 
 	// 모든 현재 그랩 플레이어 이동속도 = BaseSpeed * (현재인원 / 필요인원)
 	if (FurnitureStat)
@@ -202,6 +213,11 @@ void UFurnitureGrabSystem::Release(ACharacter* Grabber)
 		Owner->SetReplicateMovement(true);
 	}
 
+	// 놓는 순간 1초 무적: 물리 복원 직후 바닥 낙하 접촉(Hit 이벤트)으로
+	// 놓자마자 데미지 입는 것 방지
+	if (FurnitureStat)
+		FurnitureStat->SetInvincible(1.0f);
+
 	if (FurnitureStat)
 		FurnitureStat->UpdateGrabbedPlayers(GrabbedPlayers.Num());
 }
@@ -243,6 +259,11 @@ void UFurnitureGrabSystem::AddFurnitureOffset(FVector LocationOffset, float YawO
 	// 서버 내부 변수 갱신
 	ServerLocation = ActualLoc;
 	ServerRotation = Owner->GetActorRotation();
+
+	// 리슨서버 호스트도 클라(ApplySystemOffset 수신부)와 동일하게 목표 Yaw 갱신.
+	// 앵커의 InitialFurnitureYaw도 같은 델타만큼 밀리므로 GetDesiredYaw 결과는 불변
+	// → 가구만 회전하고 호스트 캐릭터는 돌지 않음 (의도된 동작 유지).
+	LocalSyncTargetYaw = ServerRotation.Yaw;
 
 	for (ACharacter* P : GrabbedPlayers)
 	{
@@ -571,6 +592,12 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 	ServerLocation = Owner->GetActorLocation();
 	ServerRotation = Owner->GetActorRotation();
 	Multicast_UpdateFurnitureTransform(ServerLocation, ServerRotation, SystemOffsetSequence);
+
+	// 리슨서버 호스트 보정: LocalSyncTargetYaw 갱신은 Multicast 수신부에만 있는데
+	// 서버에서는 전부 조기 return되어 호스트의 로컬 Yaw 동기화 블록(TickComponent)이
+	// 갱신 안 된 값으로 매 틱 스냅 → 호스트 캐릭터가 회전을 따라가지 못함.
+	// 서버에서도 클라와 동일하게 최신 가구 Yaw로 갱신.
+	LocalSyncTargetYaw = ServerRotation.Yaw;
 
 #if !UE_BUILD_SHIPPING
 	{
