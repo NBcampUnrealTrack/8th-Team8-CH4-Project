@@ -24,6 +24,7 @@ class TEAMCARRY_API US_InGame : public UCommonActivatableWidget
 protected:
 	virtual void NativeConstruct() override;
 	virtual void NativeDestruct() override;
+	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 	virtual FReply NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
 
 	// CommonUI가 이 위젯을 화면에 띄울 때 요구할 입력 설정을 C++ 단에서 오버라이드합니다.
@@ -48,6 +49,11 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
 	TObjectPtr<UButton> Btn_Menu;
 
+	// 남은 가구 개수 표시
+	// WBP에 아직 위젯이 추가되지 않은 상태에서도 크래시가 나지 않도록 Optional로 선언한다.
+	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
+	TObjectPtr<UTextBlock> Txt_RemainingFurniture;
+
 	//부서진 정도 알려줌
 	//UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
 	//TObjectPtr<UTextBlock> TextBlock_WarnPlayers
@@ -67,5 +73,15 @@ private:
 	//void HandleDurabilityChanged(float Current, float Max);
 
 	UFUNCTION()
+	void HandleRemainingFurnitureUpdated(int32 NewCount);
+
+	UFUNCTION()
 	void HandleMenuClicked();
+
+	// GameState의 ElapsedTime(복제됨)을 읽어 TextBlock_Timer 표시를 갱신한다.
+	// ElapsedTime은 매 프레임 변하는 값이라 델리게이트/RepNotify 대신 Tick에서 직접 폴링한다.
+	void UpdateTimerDisplay(float ElapsedTime);
+
+	// 불필요한 문자열 재생성을 막기 위해 마지막으로 표시한 '초' 단위 값을 캐시한다.
+	int32 LastDisplayedSeconds = -1;
 };

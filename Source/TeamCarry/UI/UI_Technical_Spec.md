@@ -100,15 +100,20 @@
 
 ### 6) S_InGame (인게임 HUD)
 * **역할:** 가구 운반 코어 루프 진행 및 실시간 정보 제공.
-* **구성:** 점수판(HUD_Score).
+* **구성:** 점수판(HUD_Score), 남은 가구 개수 표시(Txt_RemainingFurniture).
 * **하위 컴포넌트 (Sub-Widgets):**
   * **W_FurnitureStatus (가구 상태창 UI):** 화면 중앙의 크로스헤어 또는 커서가 가구에 올라갔을 때(Hover) 나타나는 툴팁 위젯. 가구 이름, 내구도 게이지를 표시.
 * **연동 로직 (이벤트 주도):**
   * 가구 액터에 마우스를 올리거나 벗어날 때, UMockUIController의 `OnFurnitureHovered` 델리게이트를 Broadcast하여 W_FurnitureStatus 갱신.
+  * (신규) 가구가 트럭에 실리거나/내려지거나/파괴될 때 GameMode → GameState(RemainingFurniture, RepNotify) → UMockUIController의 `OnRemainingFurnitureUpdated` 델리게이트를 거쳐 `Txt_RemainingFurniture`를 갱신.
 * **저장:** 게임 중 ESC를 눌러 호스트 권한으로 수동 저장 (O_PauseMenu 호출).
 
 ### 7) S_Result (최종 결과)
 * **정산:** 남은 내구도에 따라 0~5 등급. 점수 산정 후 Team_Money 표기. 확인 누르면 화면 이탈.
+* **구성:** 최종 점수(Txt_Score), 세부 통계(Txt_Stats), (신규) 획득한 별 개수(Txt_StarCount, 0~3개).
+* **연동 로직 (이벤트 주도):**
+  * GameMode가 게임 종료를 확정하면(FinishGame) GameState의 `TotalScore`, `StarCount`, `bIsGameFinished`가 함께 갱신되고, `OnRep_bIsGameFinished`가 UMockUIController의 `TriggerGameResult(FinalScore, StarCount)`를 호출한다.
+  * `TriggerGameResult`는 값을 컨트롤러 내부에 캐시한 뒤 `ReplaceState(EE_UIState::Result)`로 화면을 전환한다. S_Result는 `NativeConstruct` 시점에 `GetLastFinalScore()`/`GetLastStarCount()`로 캐시된 값을 즉시 읽어 `Txt_Score`/`Txt_StarCount`에 반영한다(위젯 생성이 델리게이트 브로드캐스트보다 먼저 동기적으로 일어나기 때문).
 
 ### 8) O_JoinRoom (통합 접속 팝업)
 * **역할:** 호스트의 방 생성과 클라이언트의 방 참가를 분기하는 모달 창.
@@ -157,6 +162,7 @@
 | **멀티 로비 (메모리)** | 세션 내 유지 | SlotIndex, PlayerName, SelectedCharacterID, bIsReady, RoomCode |
 | **가구/운반 (액터)** | 스테이지 내 유지 | MaxHealth, CurrentHealth, RequiredPlayer, CurrentGrabbedPlayer, BaseScore |
 | **전역 설정 (로컬)** | 클라이언트별 | MasterVolume, GraphicsQuality, InputBindings |
+| **게임 진행 (GameState, 복제)** | 스테이지 내 유지 | TotalScore, `RemainingFurniture`(신규), ElapsedTime, bIsGameFinished, CurrentPhase, `StarCount`(신규) |
 
 ---
 
@@ -204,6 +210,9 @@ USTRUCT(BlueprintType)으로 선언하며, 내부의 모든 멤버 변수는 반
 
 ### 3) 다이내믹 멀티캐스트 델리게이트 (Dynamic Multicast Delegate) 규칙
 UI 위젯의 NativeConstruct에서 `AddDynamic`을 통해 이벤트를 수신할 수 있도록, UMockUIController에 선언되는 모든 델리게이트(OnTeamMoneyUpdated, OnDurabilityChanged 등)는 반드시 `DECLARE_DYNAMIC_MULTICAST_DELEGATE` 계열의 매크로를 사용하여 선언해야 합니다.
+
+* (신규) `OnRemainingFurnitureUpdated(int32 NewCount)`: GameState의 RemainingFurniture가 갱신될 때 Broadcast. S_InGame의 `Txt_RemainingFurniture` 갱신에 사용.
+* (신규) `OnGameResultReady(int32 FinalScore, int32 StarCount)`: `TriggerGameResult()` 호출 시 Broadcast. S_Result는 위젯 생성 시점에 이미 캐시된 값을 직접 읽어가므로(`GetLastFinalScore`/`GetLastStarCount`), 이 델리게이트는 추후 다른 상시 존재 위젯(예: 로비 통계 패널)이 결과를 참조해야 할 경우를 위한 확장 포인트다.
 
 ### 4) FFurnitureStatusData (가구 상태 정보 구조체)
 인게임에서 가구를 바라볼 때(Hover) W_FurnitureStatus UI에 전달할 데이터 묶음입니다. USTRUCT(BlueprintType)으로 선언하며, 멤버 변수에 `UPROPERTY(EditAnywhere, BlueprintReadWrite)`를 적용합니다.

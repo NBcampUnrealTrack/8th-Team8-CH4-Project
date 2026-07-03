@@ -1,4 +1,4 @@
-#include "TeamCarryGameMode.h"
+﻿#include "TeamCarryGameMode.h"
 #include "TeamCarryGameState.h"
 #include "Kismet/GameplayStatics.h"
 #include "TCSaveGame.h"
@@ -54,6 +54,9 @@ void ATeamCarryGameMode::SetTotalFurnitureCount(int32 Count)
     if (GS)
     {
         GS->RemainingFurniture = Count;
+
+        // 리슨 서버 호스트는 자기 자신에게 OnRep이 트리거되지 않으므로 수동 호출로 UI를 즉시 갱신한다.
+        GS->OnRep_RemainingFurniture();
     }
 }
 
@@ -130,6 +133,9 @@ void ATeamCarryGameMode::SetGamePhase(EGamePhase NewPhase)
 
     GS->CurrentPhase = NewPhase;
 
+    // 리슨 서버 호스트는 자기 자신에게 OnRep이 트리거되지 않으므로 수동 호출로 UI를 즉시 갱신한다.
+    GS->OnRep_CurrentPhase();
+
     UE_LOG(LogTemp, Warning, TEXT("게임 단계 전환: %d"), (int32)NewPhase);
 }
 
@@ -138,18 +144,28 @@ void ATeamCarryGameMode::StartCountdown()
     SetGamePhase(EGamePhase::Countdown);
     CountdownTime = 3.0f;
 
-    GetWorldTimerManager().SetTimer(CountdownTimerHandle, [this]()
-    {
-        CountdownTime -= 1.0f;
+    // this 원시 포인터 대신 약한 참조(Weak Pointer)를 생성합니다.
+    TWeakObjectPtr<ATeamCarryGameMode> WeakThis = this;
 
-        UE_LOG(LogTemp, Warning, TEXT("카운트다운: %.0f"), CountdownTime);
-
-        if (CountdownTime <= 0.0f)
+    GetWorldTimerManager().SetTimer(CountdownTimerHandle, [WeakThis]()
         {
-            GetWorldTimerManager().ClearTimer(CountdownTimerHandle);
-            SetGamePhase(EGamePhase::Playing);
-        }
-    }, 1.0f, true);
+            // 타이머가 실행되는 순간, 게임 모드가 이미 파괴되었다면 즉시 실행을 취소하여 크래시를 방지합니다.
+            if (!WeakThis.IsValid())
+            {
+                return;
+            }
+
+            WeakThis->CountdownTime -= 1.0f;
+
+            UE_LOG(LogTemp, Warning, TEXT("카운트다운: %.0f"), WeakThis->CountdownTime);
+
+            if (WeakThis->CountdownTime <= 0.0f)
+            {
+                // 타이머를 해제하고 게임 상태를 변경합니다.
+                WeakThis->GetWorldTimerManager().ClearTimer(WeakThis->CountdownTimerHandle);
+                WeakThis->SetGamePhase(EGamePhase::Playing);
+            }
+        }, 1.0f, true);
 }
 
 void ATeamCarryGameMode::OnFurnitureEnterTruck(FName RowName, float CurrentHealth, float MaxHealth, int32 BaseScore)
@@ -169,9 +185,11 @@ void ATeamCarryGameMode::OnFurnitureEnterTruck(FName RowName, float CurrentHealt
 
     // 남은 가구 차감
     GS->RemainingFurniture--;
+    GS->OnRep_RemainingFurniture();
 
     // 예상 점수 계산 후 GameState에 반영
     GS->TotalScore = CalculateFinalScore();
+    GS->OnRep_TotalScore();
 
     UE_LOG(LogTemp, Warning, TEXT("가구 트럭 진입: %s | 예상 점수: %d | 남은 가구: %d"),
         *RowName.ToString(), GS->TotalScore, GS->RemainingFurniture);
@@ -190,17 +208,21 @@ void ATeamCarryGameMode::OnFurnitureExitTruck(FName RowName)
     
     if (GS->bIsGameFinished) return;
 
-    // 트럭 안 가구 목록에서 제거
-    FurnitureInTruck.RemoveAll([&RowName](const FTruckFurnitureInfo& Info)
+    // 같은 RowName 중 첫 번째 하나만 제거
+    for (int32 i = 0; i < FurnitureInTruck.Num(); i++)
     {
-        return Info.RowName == RowName;
-    });
+        if (FurnitureInTruck[i].RowName == RowName)
+        {
+            FurnitureInTruck.RemoveAt(i);
+            break;
+        }
+    }
 
-    // 남은 가구 복구
     GS->RemainingFurniture++;
+    GS->OnRep_RemainingFurniture();
 
-    // 예상 점수 재계산
     GS->TotalScore = CalculateFinalScore();
+    GS->OnRep_TotalScore();
 
     UE_LOG(LogTemp, Warning, TEXT("가구 트럭 이탈: %s | 예상 점수: %d | 남은 가구: %d"),
         *RowName.ToString(), GS->TotalScore, GS->RemainingFurniture);
@@ -212,6 +234,7 @@ void ATeamCarryGameMode::OnFurnitureDestroyed()
     if (!GS || GS->bIsGameFinished) return;
 
     GS->RemainingFurniture--;
+    GS->OnRep_RemainingFurniture();
 
     UE_LOG(LogTemp, Warning, TEXT("가구 파괴 | 남은 가구: %d"), GS->RemainingFurniture);
 
@@ -262,9 +285,15 @@ void ATeamCarryGameMode::FinishGame(bool bIsClear)
 
     // 최종 점수 확정
     GS->TotalScore = CalculateFinalScore();
-    GS->bIsGameFinished = true;
+    GS->OnRep_TotalScore();
+
     GS->StarCount = CalculateStar(GS->ElapsedTime);
-    
+
+    // bIsGameFinished를 true로 만들기 전에 TotalScore/StarCount를 먼저 확정해야 한다.
+    // OnRep_bIsGameFinished()가 TriggerGameResult(TotalScore, StarCount)로 두 값을 함께 읽어가기 때문이다.
+    GS->bIsGameFinished = true;
+    GS->OnRep_bIsGameFinished();
+
     SetGamePhase(EGamePhase::Result);
     
     if (bIsClear)
