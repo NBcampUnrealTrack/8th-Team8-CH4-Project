@@ -42,6 +42,10 @@ protected:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Destruction")
     TObjectPtr<USoundBase> BreakSound;
 
+    //// 가구 전용 피지컬 머티리얼 (튕김 제거 + 미끄러짐 방지, 코드에서 생성)
+    //UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Physics")
+    //TObjectPtr<class UPhysicalMaterial> FurniturePhysMaterial;
+
     // 가구가 파괴되었는지 여부를 저장하는 플래그
     //UPROPERTY(Replicated) 서버에서만 처리하면되니 필요없을거라 판단.
     bool bIsFurnitureDestroyed = false;
