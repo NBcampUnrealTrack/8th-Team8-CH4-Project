@@ -31,6 +31,10 @@ protected:
 
 	virtual UWidget* NativeGetDesiredFocusTarget() const override;
 
+	// ESC = 일시정지 메뉴(O_PauseMenu) 오버레이(S_InGame과 동일 패턴).
+	// P = [임시] 건너뛰기 버튼과 동일하게 스테이지 선택으로 직행(테스트용 임시 바인딩).
+	virtual FReply NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
+
 	// --- 단계 안내 텍스트 (명세 3-4) ---
 	// 현재 튜토리얼 단계를 표시하는 텍스트(예: "가구를 들어보세요").
 	UPROPERTY(meta = (BindWidget), BlueprintReadOnly, Category = "UI|Widget")

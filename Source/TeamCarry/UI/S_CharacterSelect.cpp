@@ -5,12 +5,14 @@
 #include "Components/Button.h"
 #include "Components/TextBlock.h"
 #include "TeamCarry/UI/MockUIController.h"
+#include "TeamCarry/UI/O_Confirm.h"
 #include "Player/PlayerController/TCPlayerController.h"
 #include "Player/PlayerState/TCPlayerState.h"
 #include "Network/Session/TCLobbyGameState.h"
 #include "Engine/World.h"
 #include "GameFramework/GameStateBase.h"
 #include "TimerManager.h"
+#include "Network/Session/TCSessionFlow.h"
 
 void US_CharacterSelect::NativeConstruct()
 {
@@ -36,6 +38,27 @@ void US_CharacterSelect::NativeConstruct()
 	bLocalPlayerReady = false;
 	SetIsFocusable(true);
 
+	// ── [수정] 조기 종료(return)를 만나기 전에 방 코드를 가장 먼저 출력하도록 위로 끌어올림 ──
+	if (Txt_Session_Code)
+	{
+		if (UTCSessionFlow* Flow = GetGameInstance()->GetSubsystem<UTCSessionFlow>())
+		{
+			FString RoomCodeString = Flow->GetRoomCode();
+
+			// 방 코드가 정상적으로 발급된 경우에만 출력
+			if (!RoomCodeString.IsEmpty())
+			{
+				FString FormattedCode = FString::Printf(TEXT("방 코드: %s"), *RoomCodeString);
+				Txt_Session_Code->SetText(FText::FromString(FormattedCode));
+			}
+			else
+			{
+				// 싱글 플레이 및 로컬 테스트 환경
+				Txt_Session_Code->SetText(FText::FromString(TEXT("방 코드: 오프라인")));
+			}
+		}
+	}
+
 	// ── 네트워크 로비가 있으면 복제 데이터 경로, 없으면 mock 경로 ──
 	bNetworkedLobby = TryBindNetworkLobby();
 	if (bNetworkedLobby)
@@ -47,26 +70,27 @@ void US_CharacterSelect::NativeConstruct()
 			Btn_Start->SetVisibility(bIsHost ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
 		}
 		RefreshLobbyFromGameState();
+
+		// [원인 발견] 바로 이 return 때문에 밑에 있던 코드들이 씹혔습니다.
 		return;
 	}
 
 	// 클라이언트에서 로비 GameState 복제가 1틱 늦게 도착하는 경우를 위한 지연 재바인딩.
-	// (싱글/순수 mock 환경이면 다음 틱에도 GameState 가 없으므로 그대로 mock 유지)
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateWeakLambda(this, [this]()
-		{
-			if (!bNetworkedLobby && TryBindNetworkLobby())
 			{
-				bNetworkedLobby = true;
-				const bool bIsHost = GetWorld() && GetWorld()->GetNetMode() != NM_Client;
-				if (Btn_Start)
+				if (!bNetworkedLobby && TryBindNetworkLobby())
 				{
-					Btn_Start->SetVisibility(bIsHost ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+					bNetworkedLobby = true;
+					const bool bIsHost = GetWorld() && GetWorld()->GetNetMode() != NM_Client;
+					if (Btn_Start)
+					{
+						Btn_Start->SetVisibility(bIsHost ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+					}
+					RefreshLobbyFromGameState();
 				}
-				RefreshLobbyFromGameState();
-			}
-		}));
+			}));
 	}
 
 	// ── mock 폴백(프로토타입 단일레벨) ──
@@ -83,11 +107,6 @@ void US_CharacterSelect::NativeConstruct()
 	if (Txt_Slot3_Status) Txt_Slot3_Status->SetText(FText::FromString(TEXT("READY")));
 	if (Txt_Slot4_Name) Txt_Slot4_Name->SetText(FText::FromString(TEXT("Player_4 (AI)")));
 	if (Txt_Slot4_Status) Txt_Slot4_Status->SetText(FText::FromString(TEXT("READY")));
-
-	if (Txt_Session_Code)
-	{
-		Txt_Session_Code->SetText(FText::FromString(TEXT("방 코드: 000000")));
-	}
 }
 
 void US_CharacterSelect::NativeDestruct()
@@ -191,12 +210,46 @@ void US_CharacterSelect::HandleStartClicked()
 	}
 }
 
+bool US_CharacterSelect::NativeOnHandleBackAction()
+{
+	// ESC = 뒤로 가기 버튼과 동일 처리(명세 5-1). O_Confirm 모달을 거쳐 로비를 나간다.
+	HandleBackClicked();
+	return true;
+}
+
 void US_CharacterSelect::HandleBackClicked()
 {
+	// 명세: 캐릭터 선택/로비 ──뒤로──▶ (O_Confirm: 방 종료) ──▶ [S_MainMenu].
+	// 파괴적 액션(방 나가기)이므로 즉시 전환하지 않고 확인 모달을 먼저 띄운다.
 	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
 	{
-		UE_LOG(LogTemp, Log, TEXT("[UI CharacterSelect] Returning to Main Menu."));
-		MockController->ReplaceState(EE_UIState::MainMenu);
+		UE_LOG(LogTemp, Log, TEXT("[UI CharacterSelect] Back clicked. Pushing O_Confirm overlay."));
+
+		UCommonActivatableWidget* OverlayWidget = MockController->PushOverlay(TEXT("O_Confirm"));
+
+		if (UO_Confirm* ConfirmUI = Cast<UO_Confirm>(OverlayWidget))
+		{
+			FOnConfirmYesAction YesAction;
+			YesAction.BindDynamic(this, &US_CharacterSelect::OnConfirmLeaveLobby);
+
+			ConfirmUI->SetupConfirm(
+				FText::FromString(TEXT("로비 나가기")),
+				FText::FromString(TEXT("정말로 로비를 나가시겠습니까?")),
+				YesAction
+			);
+		}
+	}
+}
+
+void US_CharacterSelect::OnConfirmLeaveLobby()
+{
+	// TCSessionFlow::LeaveToTitle 이 세션 파기와 타이틀 레벨(L_Title) 이동을 함께 처리한다.
+	// ReplaceState(MainMenu)만 호출하면 로비 레벨/세션이 그대로 남아, 이후 캐릭터 선택 화면에
+	// 재입장할 때 세션·슬롯 상태가 꼬여 다시 들어갈 수 없게 된다.
+	if (UTCSessionFlow* Flow = GetGameInstance()->GetSubsystem<UTCSessionFlow>())
+	{
+		UE_LOG(LogTemp, Log, TEXT("[UI CharacterSelect] Leave confirmed. Requesting Leave To Title."));
+		Flow->LeaveToTitle();
 	}
 }
 

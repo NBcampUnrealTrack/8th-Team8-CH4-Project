@@ -21,6 +21,16 @@ AFurnitureActor::AFurnitureActor()
 	
 	DamageSystem = CreateDefaultSubobject<UFurnitureDamage>(TEXT("DamageSystem"));
 
+
+	// 데이터 테이블의 Mass를 실제 물리 바디에 반영.
+	const float StatMass = GetFurnitureStat()->GetMass();
+	if (FurnitureMesh && StatMass > 0.f)
+	{
+		FurnitureMesh->SetMassOverrideInKg(NAME_None, StatMass, true);
+	}
+
+
+
 	FurnitureMesh->OnComponentHit.AddDynamic(DamageSystem, &UFurnitureDamage::OnHit);
 }
 
