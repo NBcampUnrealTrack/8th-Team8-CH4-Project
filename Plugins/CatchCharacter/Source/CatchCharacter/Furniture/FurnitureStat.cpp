@@ -23,6 +23,7 @@ void UFurnitureStat::BeginPlay()
 	// 서버에서만 데미지를 처리하도록 바인딩
 	if (GetOwner() && GetOwner()->HasAuthority())
 	{
+		SetInvincible(1.f);
 		GetOwner()->OnTakeAnyDamage.AddDynamic(this, &UFurnitureStat::TakeDamage);
 	}
 }
