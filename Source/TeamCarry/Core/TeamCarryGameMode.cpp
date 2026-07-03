@@ -135,6 +135,12 @@ void ATeamCarryGameMode::SetGamePhase(EGamePhase NewPhase)
 
     // 리슨 서버 호스트는 자기 자신에게 OnRep이 트리거되지 않으므로 수동 호출로 UI를 즉시 갱신한다.
     GS->OnRep_CurrentPhase();
+    
+    if (NewPhase == EGamePhase::Playing)
+    {
+        GS->OnRep_RemainingFurniture();
+        GS->OnRep_TotalScore();
+    }
 
     UE_LOG(LogTemp, Warning, TEXT("게임 단계 전환: %d"), (int32)NewPhase);
 }
