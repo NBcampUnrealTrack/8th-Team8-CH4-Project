@@ -133,7 +133,7 @@ void UO_PauseMenu::HandleToTitleClicked()
 		UE_LOG(LogTemp, Log, TEXT("[UI PauseMenu] ToTitle clicked. Pushing O_Confirm overlay."));
 
 		UCommonActivatableWidget* OverlayWidget = MockController->PushOverlay(TEXT("O_Confirm"));
-
+			
 		if (UO_Confirm* ConfirmUI = Cast<UO_Confirm>(OverlayWidget))
 		{
 			FOnConfirmYesAction YesAction;
