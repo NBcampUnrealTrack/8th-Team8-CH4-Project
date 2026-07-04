@@ -234,7 +234,7 @@ void UFurnitureGrabSystem::AllRelease()
 // 가구 단독 이동 (오프셋 적용)
 // =====================================================================
 
-void UFurnitureGrabSystem::AddFurnitureOffset(FVector LocationOffset, float YawOffset)
+void UFurnitureGrabSystem::AddFurnitureOffset(FVector LocationOffset, float YawOffset, float PitchOffset)
 {
 	AActor* Owner = GetOwner();
 	if (!Owner || !Owner->HasAuthority())
@@ -245,9 +245,11 @@ void UFurnitureGrabSystem::AddFurnitureOffset(FVector LocationOffset, float YawO
 	float OldYaw = Owner->GetActorRotation().Yaw;
 
 	// 가구 단독 이동 및 회전 적용
+	// Pitch(기울이기)는 HandleMovement가 매 틱 현재값을 유지하므로 여기서 바꾸면 그대로 운반됨
 	FVector NewLoc = OldLoc + LocationOffset;
 	FRotator NewRot = Owner->GetActorRotation();
 	NewRot.Yaw += YawOffset;
+	NewRot.Pitch += PitchOffset;
 	Owner->SetActorLocationAndRotation(NewLoc, NewRot, true);
 
 	FVector ActualLoc = Owner->GetActorLocation();
@@ -326,7 +328,6 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 
 	const int32  N             = Players.Num();
 	const FVector CurFurnLoc   = Owner->GetActorLocation();
-	const float   CurFurnZ     = CurFurnLoc.Z;
 	const float   CurFurnYaw   = Owner->GetActorRotation().Yaw;
 
 	// ---- 1. 각 플레이어의 "내가 주도한다면 가구는 여기" 제안 + 활동량 가중치 계산 ----
@@ -392,15 +393,19 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 		ACharacter*        P   = Players[i];
 		const FGrabAnchor& Anc = Anchors[P];
 		const float        YC  = FMath::FindDeltaAngleDegrees(Anc.InitialFurnitureYaw, TargetYaw);
+		// Z도 그랩 시점 오프셋(InitialOffset.Z)을 유지 → 플레이어가 낙하하면 가구도 따라 내려감
+		// (UpVector 회전은 Z를 보존하므로 Prop.Z = 플레이어Z + 오프셋Z)
 		FVector Prop = P->GetActorLocation() + Anc.InitialOffset.RotateAngleAxis(YC, FVector::UpVector);
-		Prop.Z = CurFurnZ;
 		WLocSum += Weights[i] * Prop;
 	}
 	FVector TargetLoc = (WTotal > 0.0) ? (WLocSum / WTotal) : CurFurnLoc;
-	TargetLoc.Z = CurFurnZ;
 
 	// ---- 3. 가구 이동 (sweep=true, 가구 자체 충돌) ----
-	Owner->SetActorLocationAndRotation(TargetLoc, FRotator(0.0f, TargetYaw, 0.0f), true);
+	// Pitch/Roll은 현재 값 유지: 물리로 쓰러진 가구는 그 자세 그대로 운반 (억지로 세우면 바닥 파고듦)
+	// AddFurnitureOffset으로 기울인 자세도 그대로 존중됨 (좁은 곳 통과용)
+	FRotator TargetRot = Owner->GetActorRotation();
+	TargetRot.Yaw = TargetYaw;
+	Owner->SetActorLocationAndRotation(TargetLoc, TargetRot, true);
 	
 	// sweep 이동 도중 발생한 물리/데미지 이벤트(가구 파괴 등)로 인해 
 	// 플레이어가 동기적으로 Release 되었을 수 있으므로 로컬 배열(Players)의 유효성을 다시 갱신합니다.
@@ -442,6 +447,18 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 				Multicast_SetPlayerAnchor(P, ActualYaw, Anc.InitialPlayerYaw,
 				                          Anc.InitialAimYaw, Anc.InitialOffset);
 			}
+		}
+	}
+
+	// ---- 3.6. Z 이동 막힘(바닥 착지 등) → Z 오프셋 리셋 ----
+	// 가구가 바닥에 먼저 닿았는데 플레이어가 더 낮게 있으면 목표 Z가 바닥 아래로 남아
+	// 매 틱 바닥에 밀어붙이게 됨 → 실제 도달한 Z 기준으로 오프셋 재기록 (3.5와 동일 패턴)
+	if (FMath::Abs(TargetLoc.Z - ActualLoc.Z) > CorrectionDeadzone)
+	{
+		for (ACharacter* P : Players)
+		{
+			if (FGrabAnchor* Anc = Anchors.Find(P))
+				Anc->InitialOffset.Z = ActualLoc.Z - P->GetActorLocation().Z;
 		}
 	}
 
@@ -490,8 +507,9 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 		}
 		if (WorstBlock.SizeSquared() > FMath::Square(BlockStopThreshold))
 		{
+			// WorstBlock은 XY 성분만 있음(Shortfall Z=0) → Z는 Step 3 결과를 유지
+			// (CurFurnZ로 되돌리면 Z 추종(낙하 따라가기)을 매번 무효화하게 됨)
 			ActualLoc -= WorstBlock;
-			ActualLoc.Z = CurFurnZ;
 			Owner->SetActorLocation(ActualLoc, false);
 			ActualLoc = Owner->GetActorLocation();
 		}
