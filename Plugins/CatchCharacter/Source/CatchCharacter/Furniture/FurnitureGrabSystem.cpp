@@ -178,13 +178,13 @@ void UFurnitureGrabSystem::Release(ACharacter* Grabber)
 
 	SetGrabCollisionState(Grabber, false);
 
-	// CMC 원복
+	// CMC 원복 (Z 속도는 보존: 낙하 중 자동 해제 시 공중 정지 방지)
 	if (UCharacterMovementComponent* CMC = Grabber->GetCharacterMovement())
 	{
 		if (OriginalMaxWalkSpeeds.Contains(Grabber))
 			CMC->MaxWalkSpeed = OriginalMaxWalkSpeeds[Grabber];
 		CMC->bOrientRotationToMovement = true;
-		CMC->Velocity = FVector::ZeroVector;
+		CMC->Velocity = FVector(0.0f, 0.0f, CMC->Velocity.Z);
 	}
 	OriginalMaxWalkSpeeds.Remove(Grabber);
 
@@ -464,6 +464,9 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 	}
 
 	// 안전장치: 너무 멀어진 플레이어 자동 해제
+	// TODO(높이 이탈 자동해제): 낭떠러지 낙하 시 높이차 기준 해제가 필요하지만,
+	// 강제 해제 시 UGrabComponent::GrabbedActor가 정리되지 않아 원거리 재그랩 버그 유발.
+	// GrabComponent(캐릭터 담당) 수정 후 재도입 예정.
 	TArray<ACharacter*> ToRelease;
 	const float MaxSepSq = FMath::Square(MaxGrabSeparationDistance);
 	for (ACharacter* P : Players)
@@ -568,8 +571,9 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 
 		if (bAtTarget && bWasDragged)
 		{
-			// 피동 플레이어가 방금 목표에 도달 → 정지 (관성 슬라이딩 방지)
-			CMC->Velocity = FVector::ZeroVector;
+			// 피동 플레이어가 방금 목표에 도달 → XY 정지 (관성 슬라이딩 방지)
+			// Z는 보존: 낙하 중이면 중력 속도를 지워선 안 됨 (공중 정지/슬로모 방지)
+			CMC->Velocity = FVector(0.0f, 0.0f, CMC->Velocity.Z);
 			Multicast_ApplyPlayerCorrection(P, FVector::ZeroVector, DesiredYaw);
 			StoppedDraggingThisTick.Add(P);
 
@@ -595,7 +599,9 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 		const FVector NeededVelocity = (Delta / DeltaTime).GetClampedToMaxSize(MaxCorrectionSpeed);
 		const FVector CarryVelocity  = (NeededVelocity + NeededVelocity.GetSafeNormal() * CMC->BrakingDecelerationWalking * DeltaTime)
 		                               .GetClampedToMaxSize(MaxCorrectionSpeed);
-		CMC->Velocity = CarryVelocity;
+		// XY만 견인, Z는 보존: CarryVelocity.Z=0이라 통째로 대입하면 낙하 속도가 매 틱 0으로
+		// 리셋되어 공중에서 슬로모션으로 떨어지는 현상 발생
+		CMC->Velocity = FVector(CarryVelocity.X, CarryVelocity.Y, CMC->Velocity.Z);
 		Multicast_ApplyPlayerCorrection(P, CarryVelocity, DesiredYaw);
 		CurrentTickDragged.Add(P);
 	}
@@ -710,8 +716,9 @@ void UFurnitureGrabSystem::Multicast_ApplyPlayerCorrection_Implementation(
 
 	// 서버와 동일한 velocity를 클라 CMC에 설정.
 	// 서버/클라 CMC가 같은 속도로 같은 거리를 이동 → 예측 일치 → ClientAdjustPosition 없음.
+	// Z는 로컬 값 보존 (서버와 동일 규칙: 낙하 속도 리셋 방지)
 	if (UCharacterMovementComponent* CMC = Player->GetCharacterMovement())
-		CMC->Velocity = CarryVelocity;
+		CMC->Velocity = FVector(CarryVelocity.X, CarryVelocity.Y, CMC->Velocity.Z);
 
 	// Yaw 보정 (bOrientRotationToMovement=false 상태이므로 안전)
 	FRotator NewRot = Player->GetActorRotation();
@@ -808,7 +815,8 @@ void UFurnitureGrabSystem::OnRep_GrabbedPlayers()
 					if (UCharacterMovementComponent* CMC = P->GetCharacterMovement())
 					{
 						CMC->bOrientRotationToMovement = true;
-						CMC->Velocity                  = FVector::ZeroVector;
+						// Z 속도 보존: 낙하 중 해제 시 공중 정지 방지
+						CMC->Velocity                  = FVector(0.0f, 0.0f, CMC->Velocity.Z);
 					}
 					bLocalCMCModified = false;
 				}
