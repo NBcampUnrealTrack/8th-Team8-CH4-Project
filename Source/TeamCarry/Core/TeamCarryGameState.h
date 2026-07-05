@@ -43,6 +43,11 @@ public:
 	// GameMode가 서버 권한으로 값을 직접 수정한 직후 해당 OnRep을 수동으로 호출할 수 있도록 허용한다.
 	friend class ATeamCarryGameMode;
 
+	// ── 접속 로그(명세 3장·4장-7·7장-4) ──
+	// 서버 권위 전용. GameMode 의 PostLogin/Logout 이 호출한다. 새로 추가된 항목만
+	// UMockUIController::OnSessionLogAdded 로 Broadcast 한다(OnRep_SessionLogEntries 에서 처리).
+	void AddSessionLogEntry(const FText& NewEntry);
+
 protected:
 	UFUNCTION()
 	void OnRep_TotalScore();
@@ -52,10 +57,18 @@ protected:
 
 	UFUNCTION()
 	void OnRep_bIsGameFinished();
-	
+
 	UFUNCTION()
 	void OnRep_StarCount();
-	
+
 	UFUNCTION()
 	void OnRep_CurrentPhase();
+
+	// 접속 로그 항목(입장/퇴장 등). 항상 뒤에 추가만 되고 삭제/재정렬되지 않는다.
+	UPROPERTY(ReplicatedUsing = OnRep_SessionLogEntries, BlueprintReadOnly)
+	TArray<FText> SessionLogEntries;
+
+	// 이전 값(OldSessionLogEntries) 대비 새로 추가된 항목만 골라 OnSessionLogAdded 로 Broadcast.
+	UFUNCTION()
+	void OnRep_SessionLogEntries(const TArray<FText>& OldSessionLogEntries);
 };

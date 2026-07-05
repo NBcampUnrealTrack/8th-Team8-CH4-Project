@@ -35,4 +35,8 @@ public:
 
 	// 최상단 오버레이 1개 제거(Pop).
 	virtual void HideTopOverlay() = 0;
+
+	// 오버레이 스택 전체 제거. ReplaceState() 로 화면(맵)이 통째로 바뀔 때
+	// 남아있는 모달(O_PauseMenu, O_Confirm 등)이 새 화면을 가리지 않도록 호출된다.
+	virtual void ClearAllOverlays() = 0;
 };

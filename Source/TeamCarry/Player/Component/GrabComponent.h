@@ -41,7 +41,11 @@ public:
 private:
 	// 매 프레임 전방을 스캔하여 BestTarget을 찾는 함수
 	void ScanBestTarget();
-	
+
+	// 서버 권위 게이팅(명세 4장-8): 게임이 이미 종료(bIsGameFinished)됐으면 가구 상호작용을 막는다.
+	// 로컬 Pause 대신 GameState 의 서버 복제값을 기준으로 판단한다.
+	bool IsGameFinishedAuthoritative() const;
+
 protected:
 	// 현재 플레이어가 잡고 있는 가구를 기억하는 변수(GrabbedActor)
 	// Replicated 키워드를 추가하여 서버의 값을 클라이언트에도 자동 공유

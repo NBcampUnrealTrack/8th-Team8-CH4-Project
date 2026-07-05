@@ -36,6 +36,16 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "TeamCarry|Lobby")
 	void RequestStartGame();
 
+	// O_CharacterSelect 가 호출한다. 즉시 적용 방식(확인 버튼 없음).
+	UFUNCTION(BlueprintCallable, Category = "TeamCarry|Lobby")
+	void RequestSetCharacterIndex(int32 InCharacterIndex);
+
+	// Alt(IA_ToggleLobbyCursor) 토글: S_Lobby 는 GetDesiredInputConfig() 로 "캐릭터 조작"을 항상
+	// 고정 선언해 두므로(라우터가 임의로 되돌리지 않도록), 커서를 꺼내는 동작은 여기서 SetInputMode 를
+	// 직접 호출해 처리한다. 오버레이 Push/Pop 같은 트리 변경이 없는 한 이 값은 그대로 유지된다.
+	UFUNCTION(BlueprintCallable, Category = "TeamCarry|Lobby")
+	void SetLobbyCursorActive(bool bInActive);
+
 protected:
 	// --- UI 테스트용 BeginPlay() ---
 	virtual void BeginPlay() override;
@@ -57,12 +67,20 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input|UI")
 	TObjectPtr<UInputAction> IA_SkipTutorial;
 
+	// 로비 커서 토글(Alt). S_Lobby 에서만 유효 — 누르면 마우스가 나와 로비 인라인 버튼을 조작할 수
+	// 있고, 다시 누르면 캐릭터 조작으로 복귀한다.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input|UI")
+	TObjectPtr<UInputAction> IA_ToggleLobbyCursor;
+
 private:
 	UFUNCTION(Server, Reliable)
 	void ServerSetReady(bool bInReady);
 
 	UFUNCTION(Server, Reliable)
 	void ServerRequestStartGame();
+
+	UFUNCTION(Server, Reliable)
+	void ServerSetCharacterIndex(int32 InCharacterIndex);
 
 	// IA_ToggleESCUI 핸들러: 현재 State 가 InGame/Tutorial 일 때만 O_PauseMenu 오버레이를 연다.
 	// (오버레이를 닫는 동작은 CommonUI 의 NativeOnHandleBackAction 이 자체 처리하므로,
@@ -71,4 +89,11 @@ private:
 
 	// IA_SkipTutorial 핸들러: 현재 State 가 Tutorial 일 때만 StageSelect 로 직행한다.
 	void Input_SkipTutorial();
+
+	// IA_ToggleLobbyCursor 핸들러: State 가 Lobby 이고 오버레이가 떠 있지 않을 때만 토글한다
+	// (오버레이가 열려 있으면 그쪽 GetDesiredInputConfig 가 이미 입력을 소유하므로 끼어들지 않는다).
+	void Input_ToggleLobbyCursor();
+
+	// 현재 로비 커서가 켜져 있는지(Alt 토글 상태).
+	bool bLobbyCursorActive = false;
 };

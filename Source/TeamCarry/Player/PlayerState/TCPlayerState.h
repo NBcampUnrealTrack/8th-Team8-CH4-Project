@@ -34,11 +34,17 @@ public:
 	UFUNCTION(BlueprintPure, Category = "TeamCarry|Lobby")
 	int32 GetLobbySlotIndex() const { return LobbySlotIndex; }
 
+	// 선택된 캐릭터 외형(스킨) 인덱스. O_CharacterSelect 에서 선택.
+	// 주의(3단계): 값 복제/조회만 제공하며, 실제 폰 외형 적용 훅은 이번 단계에서 의도적으로 생략했다.
+	UFUNCTION(BlueprintPure, Category = "TeamCarry|Lobby")
+	int32 GetCharacterIndex() const { return CharacterIndex; }
+
 	// ── 쓰기(서버 권위 전용) ──
 	// HasAuthority() 가드 내장. 클라가 직접 부르면 무시된다(로그만).
 
 	void SetReadyAuthoritative(bool bInReady);
 	void SetLobbySlotIndexAuthoritative(int32 InSlot);
+	void SetCharacterIndexAuthoritative(int32 InCharacterIndex);
 
 protected:
 	// 준비 완료 플래그.
@@ -48,6 +54,10 @@ protected:
 	// 로비 슬롯 인덱스(서버 배정).
 	UPROPERTY(ReplicatedUsing = OnRep_LobbyInfo, VisibleAnywhere, Category = "TeamCarry|Lobby")
 	int32 LobbySlotIndex = -1;
+
+	// 캐릭터 외형(스킨) 인덱스(클라 선택, 서버 권위 확정).
+	UPROPERTY(ReplicatedUsing = OnRep_LobbyInfo, VisibleAnywhere, Category = "TeamCarry|Lobby")
+	int32 CharacterIndex = 0;
 
 	UFUNCTION()
 	void OnRep_LobbyInfo();
