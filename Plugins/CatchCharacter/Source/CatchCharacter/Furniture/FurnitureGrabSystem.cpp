@@ -8,6 +8,7 @@
 #include "Components/CapsuleComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "CatchCharacter/Furniture/FurnitureStat.h"
+#include "CatchCharacter/Furniture/FurnitureDamage.h"
 
 // =====================================================================
 // 생성 / 초기화
@@ -148,9 +149,9 @@ void UFurnitureGrabSystem::Grab(ACharacter* Grabber, FVector height, UPrimitiveC
 		CMC->bOrientRotationToMovement = false;
 	}
 
-	// 그랩 순간 1초 무적: 잡는 과정의 스윕/물리 접촉으로 즉시 데미지 입는 것 방지
-	if (FurnitureStat)
-		FurnitureStat->SetInvincible(1.0f);
+	// 그랩 순간 무적: 잡는 과정의 스윕/물리 접촉으로 즉시 데미지 입는 것 방지
+	if (UFurnitureDamage* DamageComp = Owner->FindComponentByClass<UFurnitureDamage>())
+		DamageComp->SetInvincible(0.5f);
 
 	// 모든 현재 그랩 플레이어 이동속도 = BaseSpeed * (현재인원 / 필요인원)
 	if (FurnitureStat)
@@ -213,10 +214,10 @@ void UFurnitureGrabSystem::Release(ACharacter* Grabber)
 		Owner->SetReplicateMovement(true);
 	}
 
-	// 놓는 순간 1초 무적: 물리 복원 직후 바닥 낙하 접촉(Hit 이벤트)으로
+	// 놓는 순간 무적: 물리 복원 직후 바닥 낙하 접촉(Hit 이벤트)으로
 	// 놓자마자 데미지 입는 것 방지
-	if (FurnitureStat)
-		FurnitureStat->SetInvincible(1.0f);
+	if (UFurnitureDamage* DamageComp = Owner->FindComponentByClass<UFurnitureDamage>())
+		DamageComp->SetInvincible(0.5f);
 
 	if (FurnitureStat)
 		FurnitureStat->UpdateGrabbedPlayers(GrabbedPlayers.Num());

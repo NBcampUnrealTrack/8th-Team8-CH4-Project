@@ -91,23 +91,20 @@ void AFurnitureActor::SetHighlight(bool bEnabled)
 	// 지금은 더미임
 }
 
-void AFurnitureActor::FurnitureOffset(FVector LocationOffset, float YawOffset)
+void AFurnitureActor::FurnitureOffset(FVector LocationOffset, float YawOffset, float PitchOffset)
 {
-	if (HasAuthority() && bTestAutoOffset && GrabSystem)
+	// 서버에서만 이루어짐
+	if (HasAuthority() && GrabSystem)
 	{
-		GrabSystem->AddFurnitureOffset(LocationOffset, YawOffset);
+		GrabSystem->AddFurnitureOffset(LocationOffset, YawOffset, PitchOffset);
 	}
 }
 
 void AFurnitureActor::ExecuteTestOffset()
 {
+	// 디버그 자동 이동/회전: bTestAutoOffset 켠 가구만
 	if (HasAuthority() && bTestAutoOffset && GrabSystem)
 	{
-		// offset량 설정
-		FVector FrameLocOffset = TestLocationSpeed * 1.f;
-		float FrameYawOffset = TestYawSpeed * 1.f;
-
-		// 새로 추가했던 오프셋 전용 함수 호출
-		GrabSystem->AddFurnitureOffset(FrameLocOffset, FrameYawOffset);
+		GrabSystem->AddFurnitureOffset(TestLocationSpeed, TestYawSpeed, TestPitchSpeed);
 	}
 }
