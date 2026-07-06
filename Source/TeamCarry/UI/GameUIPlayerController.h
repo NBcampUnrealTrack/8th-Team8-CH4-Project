@@ -39,6 +39,7 @@ public:
 	virtual void ShowState(EE_UIState NewState) override;
 	virtual UCommonActivatableWidget* ShowOverlay(FName OverlayId) override;
 	virtual void HideTopOverlay() override;
+	virtual void ClearAllOverlays() override;
 
 protected:
 	// PC 가 소유·생성하는 루트 레이아웃 위젯 클래스(에디터에서 WBP_RootLayout 지정).

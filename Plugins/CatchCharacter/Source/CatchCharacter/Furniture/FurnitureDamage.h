@@ -13,13 +13,13 @@ class CATCHCHARACTER_API UFurnitureDamage : public UActorComponent
 {
 	GENERATED_BODY()
 
-public:	
+public:
 	UFurnitureDamage();
 
 protected:
 	virtual void BeginPlay() override;
 
-public:	
+public:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
 	void Setup(UFurnitureStat* InStat);
@@ -27,23 +27,48 @@ public:
 	UFUNCTION()
 	virtual void OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp,
 		FVector NormalImpulse, const FHitResult& Hit);
+
+	// --- ë¬´ì  (ì¶©ëŒ ë°ë¯¸ì§€ ë©´ì—­) ---
+
+	// Durationì´ˆ ë™ì•ˆ ë¬´ì . ì¬í˜¸ì¶œ ì‹œ íƒ€ì´ë¨¸ ê°±ì‹  (ì„œë²„ ì „ìš©)
+	UFUNCTION(BlueprintCallable, Category = "Furniture|Damage")
+	void SetInvincible(float Duration);
+
+	// ë¬´ì  ì¦‰ì‹œ í•´ì œ (ì„œë²„ ì „ìš©)
+	UFUNCTION(BlueprintCallable, Category = "Furniture|Damage")
+	void DisableInvincible();
+
+	UFUNCTION(BlueprintPure, Category = "Furniture|Damage")
+	bool IsInvincible() const { return bIsInvincible; }
+
 protected:
 
-	// --- µ¥¹ÌÁö Ã³¸® º¯¼ö ---
+	// --- ë°ë¯¸ì§€ ì²˜ë¦¬ ê´€ë ¨ ---
 
-	// ÀÌÁ¤µµÀÇ Ãæ·Â·®ÀÌ ³ª¿Í¾ß µ¥¹ÌÁö ÀÔÀ½
+	// ë°ë¯¸ì§€ë¡œ ì¸ì •í•  ìµœì†Œ ì¶©ëŒ ì†ë„(cm/s). ë¬´ê²Œì™€ ë¬´ê´€í•œ í•„í„°
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Damage")
 	float MinImpactSpeedForDamage = 50.0f;
-	// µ¥¹ÌÁö °è»ê½Ã µ¥¹ÌÁö ¹èÀ²À» ±×´ë·Î ÇÔ³à ³Ê¹«Å©´Ï º¸Á¤¿ë
+
+	// ì¶©ëŒ ì†ë„(cm/s) â†’ ë°ë¯¸ì§€ í™˜ì‚° ê³„ìˆ˜. ì§ˆëŸ‰ì€ ë°ë¯¸ì§€ì— ì˜í–¥ ì—†ìŒ (ê°€êµ¬ë³„ ë°°ìœ¨ë¡œ ì¡°ì ˆ)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Damage")
 	float DamagePerImpactSpeed = 0.05f;
 
-	// --- Ãæ°İ·® °è»êÀ» À§ÇÑ º¯¼ö------
-	// ¾îÂ÷ÇÇ ¼­¹ö¿¡¼­ ¿¬»êÇÒ°Å¶ó º¹Á¦´Â ÇÊ¿ä¾øÀ½
+	// --- ì¶©ê²©ëŸ‰ ì¸¡ì •ìš© ë³€ìˆ˜ ---
+	// ì„œë²„ì—ì„œë§Œ ì—°ì‚°í•˜ë¯€ë¡œ ë³µì œ í•„ìš” ì—†ìŒ
 	FVector PreviousLocation;
 	FVector CurrentVelocity;
+
+	// íšŒì „(3ì¶• ê°ì†ë„) ì¶”ì : ì œìë¦¬ íšŒì „ ì‹œ ëë‹¨ ì¶©ëŒ ì†ë„(Ï‰ Ã— r) ë°˜ì˜ìš©
+	// Yawë¿ ì•„ë‹ˆë¼ Pitch/Roll íšŒì „(AddFurnitureOffset ê¸°ìš¸ì´ê¸° ë“±)ë„ í¬í•¨
+	FQuat PreviousQuat = FQuat::Identity;
+	FVector CurrentAngularVelocityRad = FVector::ZeroVector;   // ë¼ë””ì•ˆ/ì´ˆ, ì¶• ë°©í–¥ ë²¡í„°
 	UPROPERTY()
 	UFurnitureStat* FurnitureStat;
+
+	// --- ë¬´ì  ìƒíƒœ (ì„œë²„ì—ì„œë§Œ íŒì •í•˜ë¯€ë¡œ ë³µì œ ë¶ˆí•„ìš”) ---
+	bool bIsInvincible = false;
+
+	FTimerHandle InvincibilityTimerHandle;
 
 private:
 	void CalculateVelocity(float DeltaTime);

@@ -13,7 +13,6 @@ UFurnitureStat::UFurnitureStat()
 	CurrentGrabbedPlayer = 0;
 	Mass = 200.f;
 	Friction = 4.f;
-	bIsInvincible = false;
 }
 
 void UFurnitureStat::BeginPlay()
@@ -23,7 +22,6 @@ void UFurnitureStat::BeginPlay()
 	// 서버에서만 데미지를 처리하도록 바인딩
 	if (GetOwner() && GetOwner()->HasAuthority())
 	{
-		SetInvincible(1.f);
 		GetOwner()->OnTakeAnyDamage.AddDynamic(this, &UFurnitureStat::TakeDamage);
 	}
 }
@@ -39,7 +37,6 @@ void UFurnitureStat::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLi
 	DOREPLIFETIME(UFurnitureStat, CurrentGrabbedPlayer);
 	DOREPLIFETIME(UFurnitureStat, Mass);
 	DOREPLIFETIME(UFurnitureStat, Friction);
-	DOREPLIFETIME(UFurnitureStat, bIsInvincible);
 }
 
 void UFurnitureStat::InitializeStats(const FFurnitureData& Data)
@@ -69,8 +66,9 @@ void UFurnitureStat::TakeDamage(AActor* DamagedActor, float Damage, const UDamag
 	if (GetOwner() && !GetOwner()->HasAuthority())
 		return;
 
-	// 무적 상태이거나 체력이 이미 0이하거나 데미지가 없다면 처리x
-	if (bIsInvincible || Damage <= 0.f || CurrentHealth <= 0.f)
+	// 체력이 이미 0이하거나 데미지가 없다면 처리x
+	// (충돌 무적 판정은 UFurnitureDamage::OnHit에서 처리)
+	if (Damage <= 0.f || CurrentHealth <= 0.f)
 		return;
 
 	float PreviousHealth = CurrentHealth;
@@ -83,53 +81,5 @@ void UFurnitureStat::TakeDamage(AActor* DamagedActor, float Damage, const UDamag
 	if (CurrentHealth <= 0.f)
 	{
 		OnFurnitureDestroy.Broadcast();
-	}
-	else
-	{
-		// 피해를 입었으므로 1초 동안 무적 상태 적용
-		SetInvincible(1.0f);
-	}
-}
-
-void UFurnitureStat::SetInvincible(float Duration)
-{
-	if (GetOwner() && !GetOwner()->HasAuthority())
-		return;
-
-	if (Duration <= 0.f)
-	{
-		DisableInvincible();
-		return;
-	}
-
-	bIsInvincible = true;
-
-	if (GetWorld())
-	{
-		if (GetWorld()->GetTimerManager().IsTimerActive(InvincibilityTimerHandle))
-		{
-			GetWorld()->GetTimerManager().ClearTimer(InvincibilityTimerHandle);
-		}
-
-		GetWorld()->GetTimerManager().SetTimer(
-			InvincibilityTimerHandle,
-			this,
-			&UFurnitureStat::DisableInvincible,
-			Duration,
-			false
-		);
-	}
-}
-
-void UFurnitureStat::DisableInvincible()
-{
-	if (GetOwner() && !GetOwner()->HasAuthority())
-		return;
-
-	bIsInvincible = false;
-
-	if (GetWorld())
-	{
-		GetWorld()->GetTimerManager().ClearTimer(InvincibilityTimerHandle);
 	}
 }

@@ -37,6 +37,9 @@ public:
 	// 최상단 오버레이 Pop.
 	void PopOverlay();
 
+	// 메뉴 레이어(오버레이 스택) 전체 비우기.
+	void ClearOverlays();
+
 protected:
 	// 풀스크린 화면 레이어(하단).
 	UPROPERTY(meta = (BindWidget))

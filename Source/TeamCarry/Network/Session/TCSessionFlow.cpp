@@ -4,6 +4,7 @@
 #include "Network/Session/TCGameInstance.h"
 #include "Network/Session/TCLobbyGameState.h"
 #include "Network/Net/TCNetStatics.h"
+#include "Core/TCSaveGame.h"
 #include "Engine/World.h"
 #include "Kismet/GameplayStatics.h"
 
@@ -76,6 +77,76 @@ void UTCSessionFlow::SetSaveSelection(const FString& InSlotName, bool bInContinu
 	UE_LOG(LogTCNet, Log, TEXT("[SessionFlow] SaveSelection: slot='%s' continue=%d"), *InSlotName, bInContinue);
 }
 
+// ── 스테이지 선택 ──
+void UTCSessionFlow::SetStageSelection(int32 InStageId)
+{
+	SelectedStageId = InStageId;
+	UE_LOG(LogTCNet, Log, TEXT("[SessionFlow] StageSelection: StageId=%d"), InStageId);
+
+	// O_StageSelect 는 방장에게만 노출되므로, 이 호출은 곧 서버 권위 프로세스에서 일어난다.
+	// 참가자도 로비에서 확인 가능하도록 GameState 에 복제(명세 5장).
+	if (UWorld* World = GetWorld())
+	{
+		if (ATCLobbyGameState* LobbyGS = World->GetGameState<ATCLobbyGameState>())
+		{
+			LobbyGS->SetSelectedStageIdAuthoritative(InStageId);
+		}
+	}
+}
+
+int32 UTCSessionFlow::GetSelectedStageId() const
+{
+	// 미선택(0 이하)이면 기본 1스테이지로 폴백.
+	return SelectedStageId > 0 ? SelectedStageId : 1;
+}
+
+FString UTCSessionFlow::GetSelectedStageMapPath() const
+{
+	FStageInfo Info;
+	if (FindStageInfo(GetSelectedStageId(), Info) && !Info.MapPath.IsEmpty())
+	{
+		return Info.MapPath;
+	}
+	// DT_Stages 미설정/일치하는 행 없음 시 단일 폴백 맵을 반환한다.
+	return DefaultStageMapPath;
+}
+
+TArray<FStageInfo> UTCSessionFlow::GetAllStageInfos() const
+{
+	TArray<FStageInfo> Result;
+	if (const UDataTable* Table = StageDataTable.LoadSynchronous())
+	{
+		TArray<FStageInfo*> Rows;
+		Table->GetAllRows<FStageInfo>(TEXT("GetAllStageInfos"), Rows);
+		for (const FStageInfo* Row : Rows)
+		{
+			if (Row)
+			{
+				Result.Add(*Row);
+			}
+		}
+	}
+	return Result;
+}
+
+bool UTCSessionFlow::FindStageInfo(int32 StageId, FStageInfo& OutInfo) const
+{
+	if (const UDataTable* Table = StageDataTable.LoadSynchronous())
+	{
+		TArray<FStageInfo*> Rows;
+		Table->GetAllRows<FStageInfo>(TEXT("FindStageInfo"), Rows);
+		for (const FStageInfo* Row : Rows)
+		{
+			if (Row && Row->StageId == StageId)
+			{
+				OutInfo = *Row;
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
 // ── 호스트 의도 ──
 void UTCSessionFlow::HostCreateRoom()
 {
@@ -97,19 +168,9 @@ void UTCSessionFlow::HostStartGame()
 		UE_LOG(LogTCNet, Warning, TEXT("[SessionFlow] HostStartGame: 호스트 아님 — 무시"));
 		return;
 	}
-	// 새 게임 → 튜토리얼, 이어하기 → 스테이지 선택.
-	const FString& NextMap = bContinueMode ? StageSelectMapPath : TutorialMapPath;
+	// 새 게임 → 튜토리얼, 이어하기 → 선택된 스테이지(미선택 시 기본 1스테이지)로 직행.
+	const FString& NextMap = bContinueMode ? GetSelectedStageMapPath() : TutorialMapPath;
 	HostServerTravel(NextMap);
-}
-
-void UTCSessionFlow::HostTravelToStage(const FString& StageMapPath)
-{
-	if (!IsHost())
-	{
-		UE_LOG(LogTCNet, Warning, TEXT("[SessionFlow] HostTravelToStage: 호스트 아님 — 무시"));
-		return;
-	}
-	HostServerTravel(StageMapPath);
 }
 
 void UTCSessionFlow::HostReturnToLobby()
@@ -121,6 +182,32 @@ void UTCSessionFlow::HostReturnToLobby()
 	HostServerTravel(LobbyMapPath);
 }
 
+void UTCSessionFlow::CompleteTutorial()
+{
+	if (!IsHost())
+	{
+		UE_LOG(LogTCNet, Warning, TEXT("[SessionFlow] CompleteTutorial: 호스트 아님 — 무시"));
+		return;
+	}
+
+	// 세이브에 튜토리얼 완료 플래그 기록(명세 5장). 슬롯 시스템이 아직 단일 슬롯("TCGameSave")만
+	// 지원하므로 ATeamCarryGameMode::SaveGame()/LoadGame() 과 동일한 슬롯을 사용한다.
+	UTCSaveGame* SaveData = Cast<UTCSaveGame>(UGameplayStatics::LoadGameFromSlot(TEXT("TCGameSave"), 0));
+	if (!SaveData)
+	{
+		SaveData = Cast<UTCSaveGame>(UGameplayStatics::CreateSaveGameObject(UTCSaveGame::StaticClass()));
+	}
+	SaveData->bTutorialCompleted = true;
+	UGameplayStatics::SaveGameToSlot(SaveData, TEXT("TCGameSave"), 0);
+
+	// 같은 방의 다음 HostStartGame() 이 이어하기(스테이지 직행) 경로를 타도록 전환.
+	bContinueMode = true;
+
+	UE_LOG(LogTCNet, Log, TEXT("[SessionFlow] 튜토리얼 완료 기록. 이후 게임 시작은 스테이지로 직행합니다."));
+
+	HostReturnToLobby();
+}
+
 void UTCSessionFlow::HostServerTravel(const FString& MapPath)
 {
 	UWorld* World = GetWorld();
@@ -130,6 +217,7 @@ void UTCSessionFlow::HostServerTravel(const FString& MapPath)
 		return;
 	}
 	UE_LOG(LogTCNet, Log, TEXT("[SessionFlow] ServerTravel → %s"), *MapPath);
+	OnTravelStarted.Broadcast(MapPath);
 	// 이미 리슨서버이므로 ?listen 재지정 불필요. 클라는 자동 추종.
 	World->ServerTravel(MapPath);
 }
@@ -176,20 +264,6 @@ FString UTCSessionFlow::GetRoomCode() const
 	return FString();
 }
 
-// --- UI 테스트용 ---
-void UTCSessionFlow::HostReturnToStageSelect()
-{
-	// 방장(호스트)이 아니면 실행을 무시합니다. (싱글 플레이는 IsHost()가 true를 반환하므로 정상 실행됨)
-	if (!IsHost())
-	{
-		UE_LOG(LogTCNet, Warning, TEXT("[SessionFlow] HostReturnToStageSelect: 호스트 아님 — 무시"));
-		return;
-	}
-
-	// 내부 창고(protected)에 있는 맵 경로를 찾아 알아서 이동을 지시합니다.
-	HostServerTravel(StageSelectMapPath);
-}
-
 // ── 공용 ──
 void UTCSessionFlow::LeaveToTitle()
 {
@@ -201,6 +275,7 @@ void UTCSessionFlow::LeaveToTitle()
 	// 세션 파기는 비동기지만, 타이틀 복귀는 로컬 맵 오픈으로 즉시 진행.
 	if (!TitleMapPath.IsEmpty())
 	{
+		OnTravelStarted.Broadcast(TitleMapPath);
 		UGameplayStatics::OpenLevel(this, FName(*TitleMapPath));
 	}
 }
@@ -210,8 +285,10 @@ void UTCSessionFlow::HandleCreateSessionComplete(bool bSuccess)
 {
 	if (bSuccess)
 	{
-		// 실제 트래블은 HostSteamSession 콜백이 수행 → 여기선 단계 통지만.
+		// 실제 트래블은 HostSteamSession 콜백이 수행하며, 이 Broadcast가 그보다 먼저 온다
+		// (UTCGameInstance::HandleCreateSessionComplete 참고: OnCreateSessionComplete 통지 후 ServerTravel).
 		SetPhase(ETCSessionPhase::Hosting, TEXT("방 생성 완료 — 로비 진입"));
+		OnTravelStarted.Broadcast(LobbyMapPath);
 	}
 	else
 	{
@@ -260,8 +337,11 @@ void UTCSessionFlow::HandleJoinSessionComplete(bool bSuccess)
 {
 	if (bSuccess)
 	{
-		// ClientTravel 은 JoinFoundSession 콜백이 수행 → 단계 통지만.
+		// ClientTravel 은 JoinFoundSession 콜백이 수행하며, 이 Broadcast가 그보다 먼저 온다
+		// (UTCGameInstance::HandleJoinSessionComplete 참고: OnJoinSessionComplete 통지 후 ClientTravel).
+		// 접속 대상은 호스트가 광고한 로비 맵으로 근사한다(정확한 목적지는 S_Loading 표시용 힌트일 뿐).
 		SetPhase(ETCSessionPhase::Joined, TEXT("방 접속 완료"));
+		OnTravelStarted.Broadcast(LobbyMapPath);
 	}
 	else
 	{

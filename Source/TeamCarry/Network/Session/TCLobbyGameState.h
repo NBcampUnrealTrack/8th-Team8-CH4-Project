@@ -52,6 +52,18 @@ public:
 	// 서버 권위 전용(GameMode 가 로비 시작 시 주입).
 	void SetRoomCodeAuthoritative(const FString& InCode);
 
+	// ── 선택된 스테이지(호스트가 O_StageSelect 에서 확정, 참가자는 로비에서 조회만) ──
+	UFUNCTION(BlueprintPure, Category = "TeamCarry|Lobby")
+	int32 GetSelectedStageId() const { return SelectedStageId; }
+
+	// 서버 권위 전용(UTCSessionFlow::SetStageSelection 이 주입).
+	void SetSelectedStageIdAuthoritative(int32 InStageId);
+
+	// ── 접속 로그(명세 3장·4장-7·7장-4) ──
+	// 서버 권위 전용. GameMode 의 PostLogin/Logout 이 호출한다. 새로 추가된 항목만
+	// UMockUIController::OnSessionLogAdded 로 Broadcast 한다(OnRep_SessionLogEntries 에서 처리).
+	void AddSessionLogEntry(const FText& NewEntry);
+
 protected:
 	// 세션 방 코드. 호스트가 set, 클라는 복제 수신.
 	UPROPERTY(ReplicatedUsing = OnRep_RoomCode, VisibleAnywhere, Category = "TeamCarry|Lobby")
@@ -60,4 +72,20 @@ protected:
 	// 클라에 코드 도착 → UI 갱신 트리거(위젯이 OnLobbyPlayersChanged 를 이미 구독 중).
 	UFUNCTION()
 	void OnRep_RoomCode();
+
+	// 방장이 O_StageSelect 에서 확정한 스테이지 ID(0 = 미선택 → 참가자 표시상으로도 기본 1스테이지 취급은
+	// UI 쪽에서 UTCSessionFlow::GetSelectedStageId() 의 폴백 규칙을 따른다).
+	UPROPERTY(ReplicatedUsing = OnRep_SelectedStageId, VisibleAnywhere, Category = "TeamCarry|Lobby")
+	int32 SelectedStageId = 0;
+
+	UFUNCTION()
+	void OnRep_SelectedStageId();
+
+	// 접속 로그 항목(입장/퇴장 등). 항상 뒤에 추가만 되고 삭제/재정렬되지 않는다.
+	UPROPERTY(ReplicatedUsing = OnRep_SessionLogEntries, VisibleAnywhere, Category = "TeamCarry|Lobby")
+	TArray<FText> SessionLogEntries;
+
+	// 이전 값(OldSessionLogEntries) 대비 새로 추가된 항목만 골라 OnSessionLogAdded 로 Broadcast.
+	UFUNCTION()
+	void OnRep_SessionLogEntries(const TArray<FText>& OldSessionLogEntries);
 };

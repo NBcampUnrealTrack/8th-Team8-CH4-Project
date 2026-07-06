@@ -4,9 +4,33 @@
 
 #include "CoreMinimal.h"
 #include "Subsystems/GameInstanceSubsystem.h"
+#include "Engine/DataTable.h"
 #include "TCSessionFlow.generated.h"
 
 class UTCGameInstance;
+
+// 스테이지 정의(명세 2장·7장-3). DT_Stages(DataTable) 의 행 구조체.
+// 현재는 StageId=1 / L_LevelProto 단일 폴백 행만 존재하지만, 행이 늘어나도
+// O_StageSelect/GetSelectedStageMapPath() 는 수정 없이 그대로 확장된다.
+USTRUCT(BlueprintType)
+struct FStageInfo : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	// 스테이지 식별자. SetStageSelection()/GetSelectedStageId() 가 참조하는 키.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "TeamCarry|Stage")
+	int32 StageId = 0;
+
+	// UI 표시용 이름(O_StageSelect 카드 라벨).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "TeamCarry|Stage")
+	FText DisplayName;
+
+	// 트래블 대상 맵 경로.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "TeamCarry|Stage")
+	FString MapPath;
+
+	// 확장 여지(미구현): 썸네일 SoftObjectPtr, 해금 조건, 별 획득 조건 등.
+};
 
 // 세션 진행 단계 — UI 로딩/에러 표시에 사용.
 UENUM(BlueprintType)
@@ -23,6 +47,9 @@ enum class ETCSessionPhase : uint8
 
 // 세션 단계 변화 통지(로딩 스피너/팝업/에러 토스트용).
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnTCSessionPhaseChanged, ETCSessionPhase, Phase, const FString&, Message);
+
+// 레벨 트래블 시작 통지(S_Loading 표시 트리거용). 실제 트래블 직전에 Broadcast된다.
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnTCTravelStarted, const FString&, TargetMapPath);
 
 /**
  * UTCSessionFlow - UI 와 Steam 세션(UTCGameInstance) 사이의 단일 바인딩 계층(seam).
@@ -46,6 +73,11 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "TeamCarry|Session")
 	FOnTCSessionPhaseChanged OnSessionPhaseChanged;
 
+	// 레벨 트래블 시작 통지(S_Loading 표시용). 각 트래블 지점(HostServerTravel/LeaveToTitle/
+	// 세션 콜백 경유 호스트 생성·조인)에서 실제 트래블 직전에 Broadcast된다.
+	UPROPERTY(BlueprintAssignable, Category = "TeamCarry|Session")
+	FOnTCTravelStarted OnTravelStarted;
+
 	// ── 세이브 선택(슬롯) ──
 	// S_SlotSelect 에서 슬롯 확정 시 호출. SlotName 은 후속 SaveGame 연동 지점.
 	UFUNCTION(BlueprintCallable, Category = "TeamCarry|Session")
@@ -57,22 +89,46 @@ public:
 	UFUNCTION(BlueprintPure, Category = "TeamCarry|Session")
 	FString GetSelectedSlotName() const { return SelectedSlotName; }
 
+	// ── 스테이지 선택 ──
+	// O_StageSelect 에서 스테이지 확정(호스트 전용) 시 호출. 세션 수명 동안 유지.
+	UFUNCTION(BlueprintCallable, Category = "TeamCarry|Session")
+	void SetStageSelection(int32 InStageId);
+
+	// 선택된 스테이지 ID 조회. 미선택(0 이하) 시 기본 1스테이지를 반환한다.
+	UFUNCTION(BlueprintPure, Category = "TeamCarry|Session")
+	int32 GetSelectedStageId() const;
+
+	// 선택된 스테이지의 맵 경로 조회. StageDataTable 에 일치하는 행이 있으면 그 MapPath 를,
+	// 없으면(DT_Stages 미설정/행 없음) DefaultStageMapPath 로 폴백한다.
+	UFUNCTION(BlueprintPure, Category = "TeamCarry|Session")
+	FString GetSelectedStageMapPath() const;
+
+	// O_StageSelect 목록 UI 용 전체 스테이지 조회(DT_Stages 미설정 시 빈 배열).
+	UFUNCTION(BlueprintPure, Category = "TeamCarry|Session")
+	TArray<FStageInfo> GetAllStageInfos() const;
+
+	// StageId 로 단일 스테이지 정보 조회. 찾으면 true.
+	UFUNCTION(BlueprintPure, Category = "TeamCarry|Session")
+	bool FindStageInfo(int32 StageId, FStageInfo& OutInfo) const;
+
 	// ── 호스트 의도 ──
 	// 방 생성 → 로비 레벨로 ServerTravel(HostSteamSession 콜백서 자동).
 	UFUNCTION(BlueprintCallable, Category = "TeamCarry|Session")
 	void HostCreateRoom();
 
-	// 로비 시작(호스트) → 새 게임=Tutorial / 이어하기=StageSelect 로 ServerTravel.
+	// 로비 시작(호스트) → 새 게임=Tutorial / 이어하기=선택된 스테이지(미선택 시 기본 1스테이지)로 직행 ServerTravel.
 	UFUNCTION(BlueprintCallable, Category = "TeamCarry|Session")
 	void HostStartGame();
-
-	// StageSelect 에서 스테이지 확정(호스트 독점) → 해당 맵으로 ServerTravel.
-	UFUNCTION(BlueprintCallable, Category = "TeamCarry|Session")
-	void HostTravelToStage(const FString& StageMapPath);
 
 	// 세션 유지한 채 로비로 복귀(호스트).
 	UFUNCTION(BlueprintCallable, Category = "TeamCarry|Session")
 	void HostReturnToLobby();
+
+	// 튜토리얼 마지막 Step 완료/건너뛰기(호스트 전용, 명세 4장-6·5장) 시 S_Tutorial 이 호출.
+	// 세이브에 bTutorialCompleted=true 를 기록하고, 같은 방의 다음 HostStartGame() 이 이어하기
+	// (스테이지 직행) 경로를 타도록 전환한 뒤, 세션 유지한 채 로비로 복귀한다.
+	UFUNCTION(BlueprintCallable, Category = "TeamCarry|Session")
+	void CompleteTutorial();
 
 	// ── 클라이언트 의도 ──
 	// 방 코드로 접속. (현재는 TeamCarry 세션 필터 후 첫 결과 조인 — 코드매칭은 확장지점)
@@ -92,11 +148,6 @@ public:
 	UFUNCTION(BlueprintPure, Category = "TeamCarry|Session")
 	FString GetRoomCode() const;
 
-	// --- UI 테스트용 ---
-	// 세션을 유지한 채 스테이지 선택 화면으로 복귀 (호스트 전용)
-	UFUNCTION(BlueprintCallable, Category = "TeamCarry|Session")
-	void HostReturnToStageSelect();
-
 protected:
 	// ── 레벨 경로(Config=Game 로 ini 덮어쓰기 가능) ──
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "TeamCarry|Session|Maps")
@@ -108,8 +159,14 @@ protected:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "TeamCarry|Session|Maps")
 	FString TutorialMapPath = TEXT("/Game/Maps/L_Tutorial");
 
+	// 스테이지 데이터(DT_Stages) 조회 실패 시 GetSelectedStageMapPath()가 반환하는 단일 폴백 맵.
+	// L_StageSelect 맵은 폐기되었으므로(v2), 이어하기는 항상 이 경로(또는 DT_Stages 행)로 직행한다.
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "TeamCarry|Session|Maps")
-	FString StageSelectMapPath = TEXT("/Game/Maps/L_StageSelect");
+	FString DefaultStageMapPath = TEXT("/Game/Prototype/L_LevelProto");
+
+	// 스테이지 목록 데이터 테이블(행 구조체=FStageInfo). DefaultGame.ini 에서 지정.
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "TeamCarry|Session|Stages")
+	TSoftObjectPtr<UDataTable> StageDataTable;
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "TeamCarry|Session")
 	int32 MaxPlayers = 4;
@@ -118,6 +175,9 @@ private:
 	// 선택된 세이브 슬롯/이어하기 여부(세션 수명 동안 유지).
 	FString SelectedSlotName;
 	bool bContinueMode = false;
+
+	// 선택된 스테이지 ID(0 = 미선택 → GetSelectedStageId()가 기본 1스테이지로 폴백).
+	int32 SelectedStageId = 0;
 
 	// UTCGameInstance 핸들/델리게이트 바인딩.
 	UTCGameInstance* GetTCGameInstance() const;
