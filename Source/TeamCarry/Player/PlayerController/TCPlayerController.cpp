@@ -13,6 +13,8 @@
 // --- 글로벌 UI 단축키(Enhanced Input) ---
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
+#include "Framework/Application/SlateApplication.h"
+#include "Engine/World.h"
 
 void ATCPlayerController::RequestSetReady(bool bInReady)
 {
@@ -49,10 +51,18 @@ void ATCPlayerController::BeginPlay()
 
 		if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
 		{
-			FString CurrentMapName = GetWorld()->GetName();
+			MockController->OnStateChanged.AddUniqueDynamic(this, &ATCPlayerController::HandleUIStateChanged);
+
+			// 맵 이름(GetWorld()->GetName())에 대한 문자열 하드코딩 대신, DefaultGame.ini 로
+			// 덮어쓸 수 있는 UTCSessionFlow 의 실제 설정 경로와 직접 비교한다. 그래야 레벨을
+			// 옮기거나 이름을 바꿔도(ini 값만 갱신하면) 화면 판별이 계속 맞아떨어진다.
+			// GetOutermost()->GetName() 은 패키지 전체 경로("/Game/...")를 돌려주므로 ini 값과
+			// 형식이 일치한다. PIE 는 패키지 이름에 "UEDPIE_n_" 접두어를 붙이므로 제거 후 비교한다.
+			const UTCSessionFlow* Flow = GetGameInstance()->GetSubsystem<UTCSessionFlow>();
+			const FString CurrentMapPath = UWorld::RemovePIEPrefix(GetWorld()->GetOutermost()->GetName());
 
 			// 1. 타이틀 맵
-			if (CurrentMapName.Contains(TEXT("L_Title")))
+			if (Flow && CurrentMapPath.Equals(Flow->GetTitleMapPath(), ESearchCase::IgnoreCase))
 			{
 				MockController->ReplaceState(EE_UIState::MainMenu);
 				UE_LOG(LogTCNet, Log, TEXT("[PlayerController] 타이틀 진입: MainMenu 출력."));
@@ -61,7 +71,7 @@ void ATCPlayerController::BeginPlay()
 				return;
 			}
 			// 2. 로비 맵 (캐릭터 조작 + 마우스 커서 필요 — 플레이어블 로비, 명세 4장-3)
-			else if (CurrentMapName.Contains(TEXT("L_Lobby")))
+			else if (Flow && CurrentMapPath.Equals(Flow->GetLobbyMapPath(), ESearchCase::IgnoreCase))
 			{
 				MockController->ReplaceState(EE_UIState::Lobby);
 				UE_LOG(LogTCNet, Log, TEXT("[PlayerController] 로비 진입: S_Lobby 출력."));
@@ -72,8 +82,9 @@ void ATCPlayerController::BeginPlay()
 				// 자동으로 적용한다. Alt(IA_ToggleLobbyCursor)를 눌러야만 커서가 나와 로비 버튼을
 				// 조작할 수 있다.
 			}
-			// 3. 튜토리얼 및 프로토타입 맵 (캐릭터 조작 필요)
-			else if (CurrentMapName.Contains(TEXT("L_Tutorial")) || CurrentMapName.Contains(TEXT("L_FurnitureProto")))
+			// 3. 튜토리얼 맵 (캐릭터 조작 필요). 별도의 튜토리얼 맵이 실제로 존재할 때만 매치되며,
+			// 스테이지 맵(DefaultStageMapPath 등)과는 ini 상에서 서로 다른 경로를 유지해야 한다.
+			else if (Flow && CurrentMapPath.Equals(Flow->GetTutorialMapPath(), ESearchCase::IgnoreCase))
 			{
 				MockController->ReplaceState(EE_UIState::Tutorial);
 
@@ -82,9 +93,9 @@ void ATCPlayerController::BeginPlay()
 				FInputModeGameAndUI GameAndUIMode;
 				SetInputMode(GameAndUIMode);
 
-				UE_LOG(LogTCNet, Log, TEXT("[PlayerController] 튜토리얼/프로토타입 진입: 조작 모드 활성화."));
+				UE_LOG(LogTCNet, Log, TEXT("[PlayerController] 튜토리얼 진입: 조작 모드 활성화."));
 			}
-			// 4. 그 외 실제 인게임 맵 폴백 (캐릭터 조작 필요)
+			// 4. 그 외 실제 인게임 맵 폴백(스테이지 등, 캐릭터 조작 필요)
 			else
 			{
 				MockController->ReplaceState(EE_UIState::InGame);
@@ -97,6 +108,29 @@ void ATCPlayerController::BeginPlay()
 				UE_LOG(LogTCNet, Log, TEXT("[PlayerController] 인게임 맵 진입: 조작 모드 활성화."));
 			}
 		}
+	}
+}
+
+void ATCPlayerController::HandleUIStateChanged(EE_UIState NewState)
+{
+	if (!IsLocalController())
+	{
+		return;
+	}
+
+	// InGame/Tutorial 로 돌아올 때마다(오버레이를 전부 닫고 게임 화면으로 복귀할 때 포함)
+	// BeginPlay() 에서 이미 검증된 방식으로 입력 모드를 다시 확실히 적용한다.
+	// CommonUI 라우터의 자동 복원(last-resort 포커스 처리)은 O_PauseMenu 위에서 O_Settings/
+	// O_KeyGuide/O_SaveLoad 등을 한 번 더 열었다 닫는 것처럼 오버레이가 2단 이상 중첩되면
+	// 신뢰할 수 없어지는 경우가 재현되어, 그 경로를 우회해 직접 복구한다.
+	if (NewState == EE_UIState::InGame || NewState == EE_UIState::Tutorial)
+	{
+		if (FSlateApplication::IsInitialized())
+		{
+			FSlateApplication::Get().ClearKeyboardFocus(EFocusCause::SetDirectly);
+		}
+		bShowMouseCursor = true;
+		SetInputMode(FInputModeGameAndUI());
 	}
 }
 

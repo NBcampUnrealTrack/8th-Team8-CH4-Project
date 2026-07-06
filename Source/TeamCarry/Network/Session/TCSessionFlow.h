@@ -148,6 +148,17 @@ public:
 	UFUNCTION(BlueprintPure, Category = "TeamCarry|Session")
 	FString GetRoomCode() const;
 
+	// ── 레벨 경로 조회(ATCPlayerController::BeginPlay 의 맵 판별용) ──
+	// DefaultGame.ini 로 덮어쓴 실제 값을 그대로 돌려준다 — 호출부가 맵 이름을 하드코딩하지 않도록.
+	UFUNCTION(BlueprintPure, Category = "TeamCarry|Session|Maps")
+	FString GetTitleMapPath() const { return TitleMapPath; }
+
+	UFUNCTION(BlueprintPure, Category = "TeamCarry|Session|Maps")
+	FString GetLobbyMapPath() const { return LobbyMapPath; }
+
+	UFUNCTION(BlueprintPure, Category = "TeamCarry|Session|Maps")
+	FString GetTutorialMapPath() const { return TutorialMapPath; }
+
 protected:
 	// ── 레벨 경로(Config=Game 로 ini 덮어쓰기 가능) ──
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "TeamCarry|Session|Maps")

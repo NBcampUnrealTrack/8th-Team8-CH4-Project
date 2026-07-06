@@ -40,7 +40,9 @@ void US_Lobby::NativeConstruct()
 	}
 
 	bLocalPlayerReady = false;
-	SetIsFocusable(true);
+	// SetIsFocusable(true) 를 두면 오버레이(O_Confirm 등)가 닫혀 이 위젯이 leaf-most 로
+	// 복귀할 때, 포커스 대상이 없어 라우터가 이 위젯 자체에 키보드 포커스를 last-resort로
+	// 박아버려 캐릭터 조작이 막힌다(S_InGame 과 동일 버그, 상세 사유는 S_InGame.cpp 참고).
 
 	if (!TryBindNetworkLobby())
 	{

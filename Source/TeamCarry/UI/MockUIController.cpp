@@ -6,10 +6,22 @@
 #include "Network/Session/TCSessionFlow.h"
 #include "Engine/World.h"
 #include "Engine/Engine.h"
+#include "Blueprint/UserWidget.h"
+#include "UObject/ConstructorHelpers.h"
+#include "Framework/Application/SlateApplication.h"
+#include "TimerManager.h"
+#include "GameFramework/PlayerController.h"
 
 UMockUIController::UMockUIController()
 	: CurrentState(EE_UIState::None)
 {
+	// 지속형 로딩 위젯 클래스(트래블 구간 전용, HandleTravelStarted 참고).
+	static ConstructorHelpers::FClassFinder<UUserWidget> LoadingWidgetFinder(
+		TEXT("/Game/Developers/MinkiCho/Blueprint/UI/WBP_S_Loading"));
+	if (LoadingWidgetFinder.Succeeded())
+	{
+		LoadingWidgetClass = LoadingWidgetFinder.Class;
+	}
 }
 
 void UMockUIController::Initialize(FSubsystemCollectionBase& Collection)
@@ -37,7 +49,44 @@ void UMockUIController::Deinitialize()
 void UMockUIController::HandleTravelStarted(const FString& TargetMapPath)
 {
 	UE_LOG(LogTemp, Log, TEXT("[UI Router] Travel started -> %s. Showing S_Loading."), *TargetMapPath);
+	ShowPersistentLoadingWidget();
 	ReplaceState(EE_UIState::Loading);
+}
+
+void UMockUIController::ShowPersistentLoadingWidget()
+{
+	if (PersistentLoadingWidget && PersistentLoadingWidget->IsInViewport())
+	{
+		return;
+	}
+
+	UGameInstance* GI = GetGameInstance();
+	if (!GI || !LoadingWidgetClass)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[UI Router] LoadingWidgetClass 없음 — 지속형 로딩 위젯을 띄울 수 없음"));
+		return;
+	}
+
+	if (!PersistentLoadingWidget)
+	{
+		// GameInstance 소유로 생성한다: PlayerController 는 트래블마다 파괴/재생성되지만
+		// GameInstance(및 공유 GameViewportClient)는 프로세스 내내 유지되므로, 이 위젯은
+		// 구 PC 파괴~신규 PC BeginPlay 사이의 공백 구간에도 계속 화면에 남는다.
+		PersistentLoadingWidget = CreateWidget<UUserWidget>(GI, LoadingWidgetClass);
+	}
+
+	if (PersistentLoadingWidget)
+	{
+		PersistentLoadingWidget->AddToViewport(1000);
+	}
+}
+
+void UMockUIController::HidePersistentLoadingWidget()
+{
+	if (PersistentLoadingWidget && PersistentLoadingWidget->IsInViewport())
+	{
+		PersistentLoadingWidget->RemoveFromParent();
+	}
 }
 
 void UMockUIController::ReplaceState(EE_UIState NewState)
@@ -53,6 +102,13 @@ void UMockUIController::ReplaceState(EE_UIState NewState)
 	if (CurrentState == NewState)
 	{
 		return;
+	}
+
+	// 목적지 State 로 실제 전환되는 시점(= 신규 PC 가 자기 화면을 띄우는 시점)에 지속형
+	// 로딩 위젯을 내린다. Loading 으로 들어가는 경우는 유지(ShowPersistentLoadingWidget 이 올림).
+	if (NewState != EE_UIState::Loading)
+	{
+		HidePersistentLoadingWidget();
 	}
 
 	EE_UIState OldState = CurrentState;
@@ -146,6 +202,34 @@ void UMockUIController::PopCurrentOverlay()
 
 	FString Popped = MockOverlayStack.Pop();
 	UE_LOG(LogTemp, Log, TEXT("[UI Stack] Pop Overlay: %s. Current Stack Size: %d"), *Popped, MockOverlayStack.Num());
+
+	// 마지막 오버레이가 닫혀 게임 화면(캐릭터 조작)으로 돌아가는 시점.
+	// CommonUI 라우터의 "leaf-most 위젯에 포커스 대상이 없으면 게임 뷰포트로 포커스" last-resort
+	// 처리가, 오버레이를 2단 이상 중첩해서 열고 닫으면(O_PauseMenu 위에서 O_Settings 등을 열었다
+	// 닫는 경우) 신뢰할 수 없어지는 것이 재현된다(정확한 근본 원인은 CommonUI/Slate 내부로 추정).
+	// CurrentState 는 이 경로에서 바뀌지 않으므로 OnStateChanged 로는 감지할 수 없다 — 여기서
+	// 직접, PC(BeginPlay 에서 이미 검증된 SetInputMode 경로)로 입력을 확실히 복구한다.
+	// 위젯 제거가 실제로 끝난 다음 프레임까지 미뤄서 재시도한다(같은 프레임 경합 회피).
+	if (MockOverlayStack.IsEmpty())
+	{
+		if (UWorld* World = GetWorld())
+		{
+			TWeakObjectPtr<UObject> HostObjectWeak = UIHostObject;
+			World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([HostObjectWeak]()
+				{
+					if (FSlateApplication::IsInitialized())
+					{
+						FSlateApplication::Get().ClearKeyboardFocus(EFocusCause::SetDirectly);
+						FSlateApplication::Get().SetAllUserFocusToGameViewport();
+					}
+					if (APlayerController* PC = Cast<APlayerController>(HostObjectWeak.Get()))
+					{
+						PC->bShowMouseCursor = true;
+						PC->SetInputMode(FInputModeGameAndUI());
+					}
+				}));
+		}
+	}
 }
 
 void UMockUIController::RegisterUIHost(const TScriptInterface<IUIHost>& InHost)

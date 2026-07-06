@@ -27,6 +27,9 @@ class TEAMCARRY_API UW_RootLayout : public UCommonUserWidget
 {
 	GENERATED_BODY()
 
+protected:
+	virtual void NativeConstruct() override;
+
 public:
 	// 풀스크린 화면 교체: 게임 레이어 스택을 비우고 새 화면을 올린다(Replace).
 	void ShowScreen(TSubclassOf<UCommonActivatableWidget> ScreenClass);
