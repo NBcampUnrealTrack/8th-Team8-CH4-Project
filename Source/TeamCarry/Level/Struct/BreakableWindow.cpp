@@ -16,6 +16,9 @@ void ABreakableWindow::OnDamageChanged(int32 NewLevel)
 
 	Mesh->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
 
+	Mesh->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Ignore);
+	Mesh->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Ignore);
+
 	if (BreakSound)
 	{
 		UGameplayStatics::PlaySoundAtLocation(this, BreakSound, GetActorLocation());

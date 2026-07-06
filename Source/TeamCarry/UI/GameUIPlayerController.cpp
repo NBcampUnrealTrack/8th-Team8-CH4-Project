@@ -99,3 +99,11 @@ void AGameUIPlayerController::HideTopOverlay()
 		RootLayout->PopOverlay();
 	}
 }
+
+void AGameUIPlayerController::ClearAllOverlays()
+{
+	if (RootLayout)
+	{
+		RootLayout->ClearOverlays();
+	}
+}

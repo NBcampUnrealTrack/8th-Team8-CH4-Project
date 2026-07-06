@@ -3,6 +3,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "TCSaveGame.h"
 #include "Furniture/TCFurnitureActor.h"
+#include "GameFramework/PlayerState.h"
 
 ATeamCarryGameMode::ATeamCarryGameMode()
 {
@@ -68,6 +69,13 @@ void ATeamCarryGameMode::Logout(AController* Exiting)
     int32 PlayerCount = GetNumPlayers();
     UE_LOG(LogTemp, Warning, TEXT("플레이어 이탈 | 남은 플레이어: %d"), PlayerCount - 1);
 
+    // 접속 로그(명세 3장·4장-7). Super::Logout() 후에도 PlayerState 는 아직 유효하다.
+    if (ATeamCarryGameState* GS = GetGameState<ATeamCarryGameState>())
+    {
+        const FString PlayerName = Exiting && Exiting->GetPlayerState<APlayerState>() ? Exiting->GetPlayerState<APlayerState>()->GetPlayerName() : TEXT("Player");
+        GS->AddSessionLogEntry(FText::Format(NSLOCTEXT("SessionLog", "PlayerLeft", "{0}님이 퇴장했습니다."), FText::FromString(PlayerName)));
+    }
+
     // 모든 플레이어가 나가면 게임 종료
     if (PlayerCount <= 1)
     {
@@ -89,6 +97,10 @@ void ATeamCarryGameMode::PostLogin(APlayerController* NewPlayer)
     {
         UE_LOG(LogTemp, Warning, TEXT("플레이어 재접속 | 게임 진행 중 복귀"));
     }
+
+    // 접속 로그(명세 3장·4장-7).
+    const FString PlayerName = NewPlayer && NewPlayer->GetPlayerState<APlayerState>() ? NewPlayer->GetPlayerState<APlayerState>()->GetPlayerName() : TEXT("Player");
+    GS->AddSessionLogEntry(FText::Format(NSLOCTEXT("SessionLog", "PlayerJoined", "{0}님이 입장했습니다."), FText::FromString(PlayerName)));
 }
 
 void ATeamCarryGameMode::SaveGame(const FString& StageName)
@@ -302,7 +314,10 @@ void ATeamCarryGameMode::FinishGame(bool bIsClear)
     GS->OnRep_bIsGameFinished();
 
     SetGamePhase(EGamePhase::Result);
-    
+
+    // 명세 4장-8: 로컬 Pause 대신 타이머류도 명시적으로 정지시킨다(카운트다운 중 조기 종료되는 경우 대비).
+    GetWorldTimerManager().ClearTimer(CountdownTimerHandle);
+
     if (bIsClear)
     {
         SaveGame(GetWorld()->GetMapName());

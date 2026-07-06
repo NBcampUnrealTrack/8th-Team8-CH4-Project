@@ -5,6 +5,7 @@
 #include "Components/Button.h"
 #include "Components/TextBlock.h"
 #include "TeamCarry/UI/MockUIController.h"
+#include "Network/Session/TCSessionFlow.h"
 
 void US_Tutorial::NativeConstruct()
 {
@@ -37,10 +38,10 @@ TOptional<FUIInputConfig> US_Tutorial::GetDesiredInputConfig() const
 
 void US_Tutorial::HandleSkipClicked()
 {
-	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
+	// 명세 4장-6: 마지막 Step 완료/건너뛰기 모두 동일하게 S_Lobby 로 복귀한다(L_StageSelect 직행 폐기).
+	if (UTCSessionFlow* Flow = GetGameInstance()->GetSubsystem<UTCSessionFlow>())
 	{
-		// 명세 3-4 / 1 흐름: 마지막 Step 완료·건너뛰기 → S_StageSelect 직행(풀스크린 교체).
-		UE_LOG(LogTemp, Log, TEXT("[UI Tutorial] Skip clicked. Replacing to StageSelect."));
-		MockController->ReplaceState(EE_UIState::StageSelect);
+		UE_LOG(LogTemp, Log, TEXT("[UI Tutorial] Skip clicked. Completing tutorial and returning to lobby."));
+		Flow->CompleteTutorial();
 	}
 }

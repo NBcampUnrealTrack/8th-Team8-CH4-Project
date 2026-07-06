@@ -3,6 +3,7 @@
 #include "Player/Component/GrabComponent.h"
 #include "Player/Character/TCPlayerCharacter.h"
 #include "Player/Interface/TCInteractable.h"
+#include "Core/TeamCarryGameState.h"
 #include "Camera/CameraComponent.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Net/UnrealNetwork.h"
@@ -162,9 +163,27 @@ void UGrabComponent::ScanBestTarget()
 	}
 }
 
+// 게임이 이미 종료됐는지 서버 권위(GameState 복제값) 기준으로 판정(명세 4장-8).
+bool UGrabComponent::IsGameFinishedAuthoritative() const
+{
+	if (const UWorld* World = GetWorld())
+	{
+		if (const ATeamCarryGameState* GS = World->GetGameState<ATeamCarryGameState>())
+		{
+			return GS->bIsGameFinished;
+		}
+	}
+	return false;
+}
+
 // Server - 실제 가구 회전 적용
 void UGrabComponent::ServerRotateFurniture_Implementation(FRotator RotationDelta)
 {
+	if (IsGameFinishedAuthoritative())
+	{
+		return;
+	}
+
 	if (GrabbedActor)
 	{
 		// 전달받은 회전축과 각도(RotationDelta)만큼 가구 회전 적용
@@ -177,6 +196,11 @@ void UGrabComponent::ServerRotateFurniture_Implementation(FRotator RotationDelta
 // Server - 상호작용-던지기 실행
 void UGrabComponent::ServerTryThrow_Implementation()
 {
+	if (IsGameFinishedAuthoritative())
+	{
+		return;
+	}
+
 	// 캐릭터가 들고 있는 대상이 있거나 상호작용이 가능한 객체인지 확인
 	if (GrabbedActor && GrabbedActor->Implements<UTCInteractable>())
 	{
@@ -216,6 +240,11 @@ void UGrabComponent::ServerTryThrow_Implementation()
 // Server - 상호작용-잡기 실행
 void UGrabComponent::ServerTryInteract_Implementation(AActor* TargetActor)
 {
+	if (IsGameFinishedAuthoritative())
+	{
+		return;
+	}
+
 	// 이미 무언가를 잡고 있다면 내려놓기 우선 처리
 	if (GrabbedActor)
 	{

@@ -41,3 +41,11 @@ void UW_RootLayout::PopOverlay()
 		MenuLayer->RemoveWidget(*Top);
 	}
 }
+
+void UW_RootLayout::ClearOverlays()
+{
+	if (MenuLayer)
+	{
+		MenuLayer->ClearWidgets();
+	}
+}

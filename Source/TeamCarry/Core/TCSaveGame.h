@@ -36,4 +36,9 @@ public:
 	// 마지막으로 플레이한 스테이지
 	UPROPERTY(BlueprintReadOnly)
 	FString LastPlayedStage;
+
+	// 튜토리얼 완료 여부(명세 4장-6, 5장). true 가 되면 같은 방의 다음 HostStartGame() 은
+	// 이어하기(스테이지 직행) 경로를 탄다.
+	UPROPERTY(BlueprintReadOnly)
+	bool bTutorialCompleted = false;
 };
