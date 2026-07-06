@@ -18,6 +18,7 @@ void ATCPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLi
 
 	DOREPLIFETIME(ATCPlayerState, bIsReady);
 	DOREPLIFETIME(ATCPlayerState, LobbySlotIndex);
+	DOREPLIFETIME(ATCPlayerState, CharacterIndex);
 }
 
 void ATCPlayerState::SetReadyAuthoritative(bool bInReady)
@@ -47,6 +48,22 @@ void ATCPlayerState::SetLobbySlotIndexAuthoritative(int32 InSlot)
 		return;
 	}
 	LobbySlotIndex = InSlot;
+	NotifyLobbyChanged();
+}
+
+void ATCPlayerState::SetCharacterIndexAuthoritative(int32 InCharacterIndex)
+{
+	if (!HasAuthority())
+	{
+		UE_LOG(LogTCNet, Warning, TEXT("SetCharacterIndexAuthoritative: 비권위 호출 무시"));
+		return;
+	}
+	if (CharacterIndex == InCharacterIndex)
+	{
+		return;
+	}
+	CharacterIndex = InCharacterIndex;
+	// 서버 자신은 OnRep 이 안 불리므로 직접 알린다(리슨서버 로컬 UI 갱신).
 	NotifyLobbyChanged();
 }
 

@@ -3,6 +3,7 @@
 
 #include "TeamCarry/UI/MockUIController.h"
 #include "TeamCarry/UI/UIHost.h"
+#include "Network/Session/TCSessionFlow.h"
 #include "Engine/World.h"
 #include "Engine/Engine.h"
 
@@ -15,11 +16,28 @@ void UMockUIController::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
 	UE_LOG(LogTemp, Log, TEXT("UMockUIController Initialized."));
+
+	// 레벨 트래블 시작 통지 구독(명세 4장-9) — S_Loading 표시 트리거.
+	if (UTCSessionFlow* Flow = GetGameInstance() ? GetGameInstance()->GetSubsystem<UTCSessionFlow>() : nullptr)
+	{
+		Flow->OnTravelStarted.AddUniqueDynamic(this, &UMockUIController::HandleTravelStarted);
+	}
 }
 
 void UMockUIController::Deinitialize()
 {
+	if (UTCSessionFlow* Flow = GetGameInstance() ? GetGameInstance()->GetSubsystem<UTCSessionFlow>() : nullptr)
+	{
+		Flow->OnTravelStarted.RemoveDynamic(this, &UMockUIController::HandleTravelStarted);
+	}
+
 	Super::Deinitialize();
+}
+
+void UMockUIController::HandleTravelStarted(const FString& TargetMapPath)
+{
+	UE_LOG(LogTemp, Log, TEXT("[UI Router] Travel started -> %s. Showing S_Loading."), *TargetMapPath);
+	ReplaceState(EE_UIState::Loading);
 }
 
 void UMockUIController::ReplaceState(EE_UIState NewState)
@@ -43,10 +61,19 @@ void UMockUIController::ReplaceState(EE_UIState NewState)
 
 	UE_LOG(LogTemp, Warning, TEXT("[UI State Machine] State Changed: %d -> %d"), (int32)OldState, (int32)NewState);
 
+	// 풀스크린 화면이 통째로 바뀌므로, 이전 화면 위에 쌓여 있던 오버레이(O_PauseMenu, O_Confirm 등)를
+	// 먼저 정리한다. 그렇지 않으면 남은 모달이 새 화면(특히 S_Loading)을 계속 가리게 되고,
+	// 스택 잔여 항목이 레벨 트래블을 넘어 다음 화면까지 새어나가 Push/Pop 이 어긋난다.
+	if (!MockOverlayStack.IsEmpty())
+	{
+		MockOverlayStack.Empty();
+	}
+
 	// 실제 풀스크린 화면 교체를 호스트(PC)에 위임한다.
 	// (Replace 는 단순 교체이므로 PushOverlay 와 달리 롤백이 필요 없다.)
 	if (IUIHost* Host = GetUIHost())
 	{
+		Host->ClearAllOverlays();
 		Host->ShowState(NewState);
 	}
 
@@ -56,16 +83,17 @@ void UMockUIController::ReplaceState(EE_UIState NewState)
 
 UCommonActivatableWidget* UMockUIController::PushOverlay(const FString& OverlayName)
 {
-	if (UWorld* World = GetWorld())
+	// FPlatformTime::Seconds() 는 프로세스 기준 벽시계 시간이라 레벨 트래블로 월드가
+	// 바뀌어도 계속 증가한다. World->GetRealTimeSeconds() 를 쓰면 새 레벨에서 0부터
+	// 다시 시작해 LastMenuToggleTime(이전 월드의 누적 시간)보다 작아지고, 그 차이가
+	// 영원히 음수가 되어 쿨타임 체크가 항상 실패(= 모든 Push 가 막힘)하는 문제가 있었다.
+	const double CurrentTime = FPlatformTime::Seconds();
+	if (CurrentTime - LastMenuToggleTime < MenuToggleCooldown)
 	{
-		float CurrentTime = World->GetRealTimeSeconds(); // 일시정지에 영향받지 않는 현실 시간
-		if (CurrentTime - LastMenuToggleTime < MenuToggleCooldown)
-		{
-			UE_LOG(LogTemp, Warning, TEXT("[UI Stack] 연타 방지: 쿨타임 중 Push 무시 (%s)"), *OverlayName);
-			return nullptr;
-		}
-		LastMenuToggleTime = CurrentTime; // 마지막 실행 시간 갱신
+		UE_LOG(LogTemp, Warning, TEXT("[UI Stack] 연타 방지: 쿨타임 중 Push 무시 (%s)"), *OverlayName);
+		return nullptr;
 	}
+	LastMenuToggleTime = CurrentTime; // 마지막 실행 시간 갱신
 
 	IUIHost* Host = GetUIHost();
 	if (!Host)
@@ -97,16 +125,13 @@ UCommonActivatableWidget* UMockUIController::PushOverlay(const FString& OverlayN
 
 void UMockUIController::PopCurrentOverlay()
 {
-	if (UWorld* World = GetWorld())
+	const double CurrentTime = FPlatformTime::Seconds();
+	if (CurrentTime - LastMenuToggleTime < MenuToggleCooldown)
 	{
-		float CurrentTime = World->GetRealTimeSeconds(); // 일시정지에 영향받지 않는 현실 시간
-		if (CurrentTime - LastMenuToggleTime < MenuToggleCooldown)
-		{
-			UE_LOG(LogTemp, Warning, TEXT("[UI Stack] 연타 방지: 쿨타임 중 Pop 무시"));
-			return;
-		}
-		LastMenuToggleTime = CurrentTime; // 마지막 실행 시간 갱신
+		UE_LOG(LogTemp, Warning, TEXT("[UI Stack] 연타 방지: 쿨타임 중 Pop 무시"));
+		return;
 	}
+	LastMenuToggleTime = CurrentTime; // 마지막 실행 시간 갱신
 
 	if (MockOverlayStack.Num() == 0)
 	{
@@ -182,5 +207,6 @@ void UMockUIController::TriggerGameResult(int32 FinalScore, int32 StarCount, flo
 	UE_LOG(LogTemp, Log, TEXT("[UI GameData] Game Result Ready: Score=%d, Star=%d, Time=%.1fs"), FinalScore, StarCount, ElapsedTime);
 	OnGameResultReady.Broadcast(FinalScore, StarCount, ElapsedTime); // [수정됨]
 
-	ReplaceState(EE_UIState::Result);
+	// O_Result 는 인게임 레벨 위 오버레이다(명세 4장-8) — S_InGame HUD 는 아래에 남은 채 가려진다.
+	PushOverlay(TEXT("O_Result"));
 }

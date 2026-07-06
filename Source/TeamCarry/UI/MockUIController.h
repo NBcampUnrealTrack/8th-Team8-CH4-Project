@@ -17,11 +17,10 @@ enum class EE_UIState : uint8
 	Boot,
 	MainMenu,
 	SlotSelect,
-	CharacterSelect,
+	Lobby,
 	Tutorial,
-	StageSelect,
 	InGame,
-	Result
+	Loading,
 };
 
 USTRUCT(BlueprintType)
@@ -62,6 +61,9 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnRemainingFurnitureUpdated, int32,
 
 // 8. 게임 결과(최종 점수/별 개수/소요 시간) 확정 델리게이트 수정
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnGameResultReady, int32, FinalScore, int32, StarCount, float, ElapsedTime);
+
+// 9. 접속 로그(유저 입장/퇴장 등) 항목 추가(명세 3장·4장-7·7장-4)
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnSessionLogAdded, FText, LogMessage);
 
 // 명세 ③ 수정: 전원 준비완료 시 호스트가 시작을 누르면 카운트다운 없이 즉시 전환된다.
 //             따라서 로비 카운트다운 델리게이트(FOnLobbyCountdownUpdated)는 제거되었다.
@@ -106,6 +108,10 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "UI|Delegates")
 	FOnGameResultReady OnGameResultReady;
 
+	// W_SessionLog(S_Lobby/S_InGame 공통)가 구독. GameState 의 SessionLogEntries 복제 도착 시 Broadcast.
+	UPROPERTY(BlueprintAssignable, Category = "UI|Delegates")
+	FOnSessionLogAdded OnSessionLogAdded;
+
 
 	// --- Routing & Stack Management ---
 	UFUNCTION(BlueprintCallable, Category = "UI|Controller")
@@ -124,6 +130,11 @@ public:
 	// 분기해야 하는 화면(예: S_StageSelect)에서 사용한다.
 	UFUNCTION(BlueprintPure, Category = "UI|Controller")
 	EE_UIState GetPreviousState() const { return PreviousState; }
+
+	// 현재 오버레이가 하나라도 떠 있는지(S_Lobby 의 Alt 커서 토글처럼, 오버레이가 이미 입력을
+	// 소유하고 있을 때 끼어들지 않아야 하는 호출부가 사용한다).
+	UFUNCTION(BlueprintPure, Category = "UI|Controller")
+	bool IsAnyOverlayActive() const { return !MockOverlayStack.IsEmpty(); }
 
 
 	// --- Lobby Helpers ---
@@ -186,9 +197,10 @@ private:
 	UPROPERTY()
 	float LastElapsedTime = 0.0f;
 
-	// 연속 버튼 클릭으로 입력 누락 방지를 위한 타이머.
-	float LastMenuToggleTime = 0.0f;
-	const float MenuToggleCooldown = 0.2f;
+	// 연속 버튼 클릭으로 입력 누락 방지를 위한 타이머. FPlatformTime::Seconds() 기준(레벨 트래블에
+	// 영향받지 않는 프로세스 벽시계 시간)이므로 double 로 보관한다.
+	double LastMenuToggleTime = 0.0;
+	const double MenuToggleCooldown = 0.2;
 
 	// 실제 위젯 생성/제거를 위임할 호스트(PC). 약참조로 보관하여 PC 파괴 시 dangling 을 방지한다.
 	UPROPERTY()
@@ -196,4 +208,8 @@ private:
 
 	// 약참조를 IUIHost* 로 해석. PC 가 이미 파괴되었으면 nullptr 을 반환한다.
 	IUIHost* GetUIHost() const;
+
+	// UTCSessionFlow::OnTravelStarted 구독 핸들러(명세 4장-9) — S_Loading 표시 트리거.
+	UFUNCTION()
+	void HandleTravelStarted(const FString& TargetMapPath);
 };

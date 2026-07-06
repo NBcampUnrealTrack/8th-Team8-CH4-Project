@@ -1,4 +1,4 @@
-// TCLobbyGameMode.cpp
+﻿// TCLobbyGameMode.cpp
 
 #include "Network/Session/TCLobbyGameMode.h"
 #include "Network/Session/TCLobbyGameState.h"
@@ -51,6 +51,12 @@ void ATCLobbyGameMode::OnPostLogin(AController* NewPlayer)
 		{
 			PS->SetLobbySlotIndexAuthoritative(NextSlotIndex++);
 			UE_LOG(LogTCNet, Log, TEXT("[Lobby] Slot %d 배정: %s"), PS->GetLobbySlotIndex(), *PS->GetPlayerName());
+
+			// 접속 로그(명세 3장·4장-7).
+			if (ATCLobbyGameState* LobbyGS = GetGameState<ATCLobbyGameState>())
+			{
+				LobbyGS->AddSessionLogEntry(FText::Format(NSLOCTEXT("SessionLog", "PlayerJoined", "{0}님이 입장했습니다."), FText::FromString(PS->GetPlayerName())));
+			}
 		}
 	}
 }
@@ -80,6 +86,10 @@ void ATCLobbyGameMode::Logout(AController* Exiting)
 	if (ATCLobbyGameState* LobbyGS = GetGameState<ATCLobbyGameState>())
 	{
 		LobbyGS->NotifyLobbyChanged();
+
+		// 접속 로그(명세 3장·4장-7). Super::Logout() 전이라 PlayerState 가 아직 유효하다.
+		const FString PlayerName = Exiting && Exiting->GetPlayerState<APlayerState>() ? Exiting->GetPlayerState<APlayerState>()->GetPlayerName() : TEXT("Player");
+		LobbyGS->AddSessionLogEntry(FText::Format(NSLOCTEXT("SessionLog", "PlayerLeft", "{0}님이 퇴장했습니다."), FText::FromString(PlayerName)));
 	}
 	Super::Logout(Exiting);
 }

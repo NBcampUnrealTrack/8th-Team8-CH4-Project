@@ -24,6 +24,7 @@ void ATeamCarryGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 	DOREPLIFETIME(ATeamCarryGameState, bIsGameFinished);
 	DOREPLIFETIME(ATeamCarryGameState, StarCount);
 	DOREPLIFETIME(ATeamCarryGameState, CurrentPhase);
+	DOREPLIFETIME(ATeamCarryGameState, SessionLogEntries);
 }
 
 void ATeamCarryGameState::OnRep_TotalScore()
@@ -70,6 +71,35 @@ void ATeamCarryGameState::OnRep_bIsGameFinished()
 void ATeamCarryGameState::OnRep_StarCount()
 {
 
+}
+
+void ATeamCarryGameState::AddSessionLogEntry(const FText& NewEntry)
+{
+	if (!HasAuthority())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("AddSessionLogEntry: 비권위 호출 무시"));
+		return;
+	}
+
+	// 브로드캐스트용으로 추가 직전 상태를 캡처(리슨 서버 호스트는 OnRep 이 자동 호출되지 않는다).
+	const TArray<FText> OldEntries = SessionLogEntries;
+	SessionLogEntries.Add(NewEntry);
+	OnRep_SessionLogEntries(OldEntries);
+}
+
+void ATeamCarryGameState::OnRep_SessionLogEntries(const TArray<FText>& OldSessionLogEntries)
+{
+	if (UWorld* World = GetWorld())
+	{
+		if (UMockUIController* MockController = World->GetGameInstance()->GetSubsystem<UMockUIController>())
+		{
+			// 이전 값 대비 새로 추가된 항목만 순서대로 Broadcast(늦게 접속한 클라는 전체 이력을 받는다).
+			for (int32 i = OldSessionLogEntries.Num(); i < SessionLogEntries.Num(); ++i)
+			{
+				MockController->OnSessionLogAdded.Broadcast(SessionLogEntries[i]);
+			}
+		}
+	}
 }
 
 void ATeamCarryGameState::OnRep_CurrentPhase()

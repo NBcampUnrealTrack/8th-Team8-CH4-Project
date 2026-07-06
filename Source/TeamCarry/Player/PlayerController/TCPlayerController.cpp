@@ -3,6 +3,7 @@
 #include "Player/PlayerController/TCPlayerController.h"
 #include "Player/PlayerState/TCPlayerState.h"
 #include "Network/Session/TCLobbyGameMode.h"
+#include "Network/Session/TCSessionFlow.h"
 #include "Network/Net/TCNetStatics.h"
 
 // --- UI 테스트용 MockUIController, GameInstance ---
@@ -21,6 +22,11 @@ void ATCPlayerController::RequestSetReady(bool bInReady)
 void ATCPlayerController::RequestStartGame()
 {
 	ServerRequestStartGame();
+}
+
+void ATCPlayerController::RequestSetCharacterIndex(int32 InCharacterIndex)
+{
+	ServerSetCharacterIndex(InCharacterIndex);
 }
 
 // --- UI 테스트용 BeginPlay() ---
@@ -54,11 +60,17 @@ void ATCPlayerController::BeginPlay()
 				bShowMouseCursor = true;
 				return;
 			}
-			// 2. 로비 맵 (마우스 커서 필요)
+			// 2. 로비 맵 (캐릭터 조작 + 마우스 커서 필요 — 플레이어블 로비, 명세 4장-3)
 			else if (CurrentMapName.Contains(TEXT("L_Lobby")))
 			{
-				MockController->ReplaceState(EE_UIState::CharacterSelect);
-				UE_LOG(LogTCNet, Log, TEXT("[PlayerController] 로비 진입: S_CharacterSelect 출력."));
+				MockController->ReplaceState(EE_UIState::Lobby);
+				UE_LOG(LogTCNet, Log, TEXT("[PlayerController] 로비 진입: S_Lobby 출력."));
+
+				// 로비는 캐릭터 조작이 기본(명세 6장-2 예외 규정). US_Lobby::GetDesiredInputConfig() 가
+				// 기본값(bCursorModeActive=false → 커서 숨김/게임 전용 입력)을 이미 선언하므로,
+				// 여기서 별도로 입력 모드를 덮어쓸 필요가 없다 — CommonUI 라우터가 화면 활성화 시점에
+				// 자동으로 적용한다. Alt(IA_ToggleLobbyCursor)를 눌러야만 커서가 나와 로비 버튼을
+				// 조작할 수 있다.
 			}
 			// 3. 튜토리얼 및 프로토타입 맵 (캐릭터 조작 필요)
 			else if (CurrentMapName.Contains(TEXT("L_Tutorial")) || CurrentMapName.Contains(TEXT("L_FurnitureProto")))
@@ -72,13 +84,7 @@ void ATCPlayerController::BeginPlay()
 
 				UE_LOG(LogTCNet, Log, TEXT("[PlayerController] 튜토리얼/프로토타입 진입: 조작 모드 활성화."));
 			}
-			// 4. 스테이지 선택 맵 (마우스 커서 필요)
-			else if (CurrentMapName.Contains(TEXT("L_StageSelect")))	
-			{
-				MockController->ReplaceState(EE_UIState::StageSelect);
-				UE_LOG(LogTCNet, Log, TEXT("[PlayerController] 스테이지 선택 진입: StageSelect HUD 출력."));
-			}
-			// 5. 그 외 실제 인게임 맵 폴백 (캐릭터 조작 필요)
+			// 4. 그 외 실제 인게임 맵 폴백 (캐릭터 조작 필요)
 			else
 			{
 				MockController->ReplaceState(EE_UIState::InGame);
@@ -102,6 +108,7 @@ void ATCPlayerController::SetupInputComponent()
 	{
 		EIC->BindAction(IA_ToggleESCUI, ETriggerEvent::Started, this, &ThisClass::Input_ToggleESCUI);
 		EIC->BindAction(IA_SkipTutorial, ETriggerEvent::Started, this, &ThisClass::Input_SkipTutorial);
+		EIC->BindAction(IA_ToggleLobbyCursor, ETriggerEvent::Started, this, &ThisClass::Input_ToggleLobbyCursor);
 	}
 }
 
@@ -122,6 +129,48 @@ void ATCPlayerController::Input_ToggleESCUI()
 	}
 }
 
+void ATCPlayerController::SetLobbyCursorActive(bool bInActive)
+{
+	// 로비 밖(메인메뉴/인게임 등)에서 잘못 호출돼도 다른 화면의 입력 모드를 건드리지 않도록 가드한다.
+	const UMockUIController* MockController = GetGameInstance() ? GetGameInstance()->GetSubsystem<UMockUIController>() : nullptr;
+	if (!MockController || MockController->GetCurrentState() != EE_UIState::Lobby)
+	{
+		return;
+	}
+
+	bLobbyCursorActive = bInActive;
+	bShowMouseCursor = bInActive;
+
+	if (bInActive)
+	{
+		// 커서를 꺼내 로비 인라인 버튼(Btn_CharacterSelect 등)을 클릭할 수 있게 한다.
+		SetInputMode(FInputModeGameAndUI());
+	}
+	else
+	{
+		// 캐릭터 조작 모드로 복귀. 커서를 숨기고 게임 전용 입력으로 전환한다.
+		SetInputMode(FInputModeGameOnly());
+	}
+}
+
+void ATCPlayerController::Input_ToggleLobbyCursor()
+{
+	UMockUIController* MockController = GetGameInstance() ? GetGameInstance()->GetSubsystem<UMockUIController>() : nullptr;
+	if (!MockController || MockController->GetCurrentState() != EE_UIState::Lobby)
+	{
+		return;
+	}
+
+	// O_CharacterSelect/O_StageSelect 등 오버레이가 열려 있으면 그쪽 GetDesiredInputConfig 가 이미
+	// 입력을 UI 전용으로 강제하고 있으므로 끼어들지 않는다.
+	if (MockController->IsAnyOverlayActive())
+	{
+		return;
+	}
+
+	SetLobbyCursorActive(!bLobbyCursorActive);
+}
+
 void ATCPlayerController::Input_SkipTutorial()
 {
 	UMockUIController* MockController = GetGameInstance() ? GetGameInstance()->GetSubsystem<UMockUIController>() : nullptr;
@@ -131,9 +180,13 @@ void ATCPlayerController::Input_SkipTutorial()
 	}
 
 	// Tutorial 상태일 때만 스킵이 유효하다(다른 화면에서 실수로 눌려도 무시).
+	// 명세 4장-6: 마지막 Step 완료와 동일하게 HostReturnToLobby() 로 S_Lobby 복귀(L_StageSelect 직행 폐기).
 	if (MockController->GetCurrentState() == EE_UIState::Tutorial)
 	{
-		MockController->ReplaceState(EE_UIState::StageSelect);
+		if (UTCSessionFlow* Flow = GetGameInstance() ? GetGameInstance()->GetSubsystem<UTCSessionFlow>() : nullptr)
+		{
+			Flow->CompleteTutorial();
+		}
 	}
 }
 
@@ -142,6 +195,14 @@ void ATCPlayerController::ServerSetReady_Implementation(bool bInReady)
 	if (ATCPlayerState* PS = GetPlayerState<ATCPlayerState>())
 	{
 		PS->SetReadyAuthoritative(bInReady);
+	}
+}
+
+void ATCPlayerController::ServerSetCharacterIndex_Implementation(int32 InCharacterIndex)
+{
+	if (ATCPlayerState* PS = GetPlayerState<ATCPlayerState>())
+	{
+		PS->SetCharacterIndexAuthoritative(InCharacterIndex);
 	}
 }
 
