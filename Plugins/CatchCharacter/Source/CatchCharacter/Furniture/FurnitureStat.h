@@ -40,18 +40,6 @@ public:
 		AActor* Causer
 	);
 
-	// 무적 설정 함수
-	UFUNCTION(BlueprintCallable, Category = "Furniture|State")
-	void SetInvincible(float Duration);
-
-	// 무적 해제 함수
-	UFUNCTION(BlueprintCallable, Category = "Furniture|State")
-	void DisableInvincible();
-
-	// 무적 상태인지 여부 반환
-	UFUNCTION(BlueprintPure, Category = "Furniture|State")
-	bool IsInvincible() const { return bIsInvincible; }
-
 	// getter
 	const FFurnitureData& GetFurnitureData() const { return DefaultStats; }
 	int32 GetCurrentGrabbedPlayer() const { return CurrentGrabbedPlayer; }
@@ -98,8 +86,4 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Replicated, Category = "Furniture|State")
 	float Friction;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Replicated, Category = "Furniture|State")
-	bool bIsInvincible;
-
-	FTimerHandle InvincibilityTimerHandle;
 };

@@ -14,6 +14,13 @@ void UFurnitureDamage::BeginPlay()
 	Super::BeginPlay();
 
 	PreviousLocation = GetOwner()->GetActorLocation();
+	PreviousQuat     = GetOwner()->GetActorQuat();
+
+	// 스폰 직후 낙하/배치 접촉으로 즉시 데미지 입는 것 방지 (서버 전용)
+	if (GetOwner() && GetOwner()->HasAuthority())
+	{
+		SetInvincible(2.f);
+	}
 }
 
 void UFurnitureDamage::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
@@ -39,6 +46,10 @@ void UFurnitureDamage::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, U
 	if (!Owner->HasAuthority() || !FurnitureStat)
 		return;
 
+	// 무적 상태면 충돌 데미지 무시
+	if (bIsInvincible)
+		return;
+
 	FString NetMode = Owner->HasAuthority() ? TEXT("Server") : TEXT("Client");
 
 	// TODO : 플레이어나 특정 사물에는 부딪쳐도 데미지 안입으려면 조건논의 필요
@@ -48,32 +59,46 @@ void UFurnitureDamage::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, U
 		return;
 	}
 
+	// 이미 파괴된 가구(체력 0)와의 충돌은 무시 — 파괴 조각/잔해에 맞아 데미지 입는 것 방지
+	if (OtherActor)
+	{
+		if (UFurnitureStat* OtherStat = OtherActor->FindComponentByClass<UFurnitureStat>())
+		{
+			if (OtherStat->GetCurrentHealth() <= 0.f)
+			{
+				return;
+			}
+		}
+	}
+
+	// 충돌 세기(cm/s). 질량은 데미지에 영향 없음 — 가구별 위력은 CollisionDamageMultiplier로 조절
 	float ImpactSpeed = 0.f;
 
 	if (HitComp && HitComp->IsSimulatingPhysics())
 	{
-		// 물리 충돌: 충격량 ÷ 질량 = 실제 접촉 속도 변화량.
+		// 물리 충돌: 충격량 ÷ 질량 = 실제 접촉 속도 변화량 (질량 정규화 → 무게 무관 지표)
 		const float Mass = HitComp->GetMass();
 		ImpactSpeed = (Mass > KINDA_SMALL_NUMBER) ? NormalImpulse.Size() / Mass : 0.f;
 	}
-	else
+	else if (HitComp)
 	{
-		// 운반 중 스윕 충돌:
-		// 벽에 박힐당시 충격량 = 내적을 통해 연산.a와 b의 내적 = 충격자의 의한 벽에 수직인 벡터
-		// 노말 벡터 -한이유 = 그냥 하면 둔각이라서 -값나옴
-		ImpactSpeed = FMath::Max(0.f, FVector::DotProduct(CurrentVelocity, -Hit.ImpactNormal));
+		// 운반 중 스윕 충돌: 충돌 지점의 실제 속도 = 중심 속도 + 회전 접선 속도(ω × r)
+		// 제자리 회전이라도 끝단은 ω·r 속도로 움직이므로 회전 충돌 데미지가 반영됨
+		// ω는 3축 각속도 벡터라 Yaw 회전·Pitch 기울이기 모두 포함 (회전 없으면 ω=0 → 중심 속도만)
+		const FVector R = Hit.ImpactPoint - Owner->GetActorLocation();
+		const FVector PointVelocity = CurrentVelocity + FVector::CrossProduct(CurrentAngularVelocityRad, R);
+
+		// 접점 속도의 벽 법선 방향 성분 = 실제 충돌 세기 (스치는 방향 성분은 제외)
+		ImpactSpeed = FMath::Max(0.f, FVector::DotProduct(PointVelocity, -Hit.ImpactNormal));
 	}
-
-	//GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Red, FString::Printf(TEXT("충격 속도 : %f (최소 요구: %f)"), ImpactSpeed, MinImpactSpeedForDamage));
-	// 데미지 배율 = 충격량 * 가구의 데미지 배율
+	// 데미지 = 충돌 속도 × 가구의 데미지 배율
 	float Damage = ImpactSpeed * FurnitureStat->GetCollisionDamageMultiplier();
-
-	//GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Yellow, FString::Printf(TEXT("피해량 : %f"), Damage));
 
 	if (MinImpactSpeedForDamage < ImpactSpeed)
 	{
 		Damage *= DamagePerImpactSpeed;
-
+		//GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Red, FString::Printf(TEXT("충격 속도 : %f (최소 요구: %f)"), ImpactSpeed, MinImpactSpeedForDamage));
+		//GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Yellow, FString::Printf(TEXT("피해량 : %f"), Damage));
 		//GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Red, FString::Printf(TEXT("[%s] ApplyDamage 호출! 데미지: %f"), *NetMode, Damage));
 
 		UGameplayStatics::ApplyDamage(
@@ -83,12 +108,73 @@ void UFurnitureDamage::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, U
 			OtherActor,                     // 때린 녀석의 몸통 : 보통은 벽일듯
 			UDamageType::StaticClass()		// 데미지 속성 : 기본 데미지
 		);
+
+		// 피해를 입혔으므로 1초 동안 무적 (연쇄 충돌 완충)
+		SetInvincible(1.0f);
+	}
+}
+
+void UFurnitureDamage::SetInvincible(float Duration)
+{
+	if (GetOwner() && !GetOwner()->HasAuthority())
+		return;
+
+	if (Duration <= 0.f)
+	{
+		DisableInvincible();
+		return;
+	}
+
+	bIsInvincible = true;
+
+	if (GetWorld())
+	{
+		if (GetWorld()->GetTimerManager().IsTimerActive(InvincibilityTimerHandle))
+		{
+			GetWorld()->GetTimerManager().ClearTimer(InvincibilityTimerHandle);
+		}
+
+		GetWorld()->GetTimerManager().SetTimer(
+			InvincibilityTimerHandle,
+			this,
+			&UFurnitureDamage::DisableInvincible,
+			Duration,
+			false
+		);
+	}
+}
+
+void UFurnitureDamage::DisableInvincible()
+{
+	if (GetOwner() && !GetOwner()->HasAuthority())
+		return;
+
+	bIsInvincible = false;
+
+	if (GetWorld())
+	{
+		GetWorld()->GetTimerManager().ClearTimer(InvincibilityTimerHandle);
 	}
 }
 
 void UFurnitureDamage::CalculateVelocity(float DeltaTime)
 {
-	// 속도 = 이동량 / 시간(m/s)
+	// 속도 = 이동량 / 시간(cm/s)
 	CurrentVelocity = (GetOwner()->GetActorLocation() - PreviousLocation) / DeltaTime;
 	PreviousLocation = GetOwner()->GetActorLocation();
+
+	// 3축 각속도 = 회전 변화량(쿼터니언) / 시간. 스윕 분기의 접점 속도(ω × r) 계산에 사용
+	// Yaw·Pitch·Roll 어떤 축의 회전이든 하나의 각속도 벡터로 잡힘
+	const FQuat CurQuat = GetOwner()->GetActorQuat();
+	FQuat DeltaQuat = CurQuat * PreviousQuat.Inverse();
+	// 최단 경로 보정 (W<0이면 반대 방향 장회전으로 해석되는 것 방지)
+	if (DeltaQuat.W < 0.f)
+	{
+		DeltaQuat = FQuat(-DeltaQuat.X, -DeltaQuat.Y, -DeltaQuat.Z, -DeltaQuat.W);
+	}
+	FVector Axis;
+	float AngleRad;
+	DeltaQuat.ToAxisAndAngle(Axis, AngleRad);
+	CurrentAngularVelocityRad = Axis * (AngleRad / DeltaTime);
+	PreviousQuat = CurQuat;
 }

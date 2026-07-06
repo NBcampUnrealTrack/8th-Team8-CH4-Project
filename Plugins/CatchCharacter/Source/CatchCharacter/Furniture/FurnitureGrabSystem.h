@@ -29,8 +29,10 @@ public:
 	void Release(ACharacter* Grabber);
 	void AllRelease();
 
+	// 가구만 이동/회전 (플레이어는 회전·이동하지 않음)
+	// YawOffset = Z축 회전, PitchOffset = Y축 회전(기울이기, 좁은 곳 통과용)
 	UFUNCTION(BlueprintCallable, Category = "Interaction")
-	void AddFurnitureOffset(FVector LocationOffset, float YawOffset);
+	void AddFurnitureOffset(FVector LocationOffset, float YawOffset, float PitchOffset = 0.0f);
 
 	void Setup(UStaticMeshComponent* InMesh, UFurnitureStat* InStat);
 
