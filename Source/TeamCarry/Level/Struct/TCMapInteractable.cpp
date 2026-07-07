@@ -19,7 +19,7 @@ bool ATCMapInteractable::CanInteract_Implementation(ATCPlayerCharacter*)
 	return true;
 }
 
-void ATCMapInteractable::OnFocus_Implementation() { Mesh->SetRenderCustomDepth(true); }
+void ATCMapInteractable::OnFocus_Implementation() { Mesh->SetCustomDepthStencilValue(1); Mesh->SetRenderCustomDepth(true); }
 void ATCMapInteractable::OnUnfocus_Implementation() { Mesh->SetRenderCustomDepth(false); }
 
 void ATCMapInteractable::OnInteract_Implementation(ATCPlayerCharacter* Player)

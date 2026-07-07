@@ -88,7 +88,12 @@ void AFurnitureActor::Tick(float DeltaTime)
 
 void AFurnitureActor::SetHighlight(bool bEnabled)
 {
-	// 지금은 더미임
+	// PP 아웃라인 셰이더(M_PP_OutlineHLSL)가 CustomStencil==1 실루엣 둘레에 하이라이트 링을 그린다
+	if (FurnitureMesh)
+	{
+		FurnitureMesh->SetCustomDepthStencilValue(1);
+		FurnitureMesh->SetRenderCustomDepth(bEnabled);
+	}
 }
 
 void AFurnitureActor::FurnitureOffset(FVector LocationOffset, float YawOffset, float PitchOffset)
