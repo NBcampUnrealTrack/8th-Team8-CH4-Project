@@ -199,11 +199,11 @@ void ATCPlayerCharacter::Interact(const FInputActionValue& InValue)
 		// 뷰포트에 로그 출력
 		if (GEngine)
 		{
-			GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Green, TEXT("E키 입력 : 가구 잡기 시도"));
+			GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Green, TEXT("가구 잡기 시도"));
 		}
 
 		// 출력 로그
-		UE_LOG(LogTemp, Warning, TEXT("E키 입력 : 가구 잡기 시도"));
+		UE_LOG(LogTemp, Warning, TEXT("가구 잡기 시도"));
 
 		// 상호작용 - 잡기 실행 명령을 먼저 호출하고 성공 여부를 반환받음
 		bool bIsGrabSuccess = GrabComponent->TryInteract();
@@ -232,11 +232,11 @@ void ATCPlayerCharacter::Throw(const FInputActionValue& InValue)
 		// 뷰포트에 로그 출력
 		if (GEngine)
 		{
-			GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Cyan, TEXT("F키 입력 : 가구 던지기 시도"));
+			GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Cyan, TEXT("가구 던지기 시도"));
 		}
 
 		// 출력 로그
-		UE_LOG(LogTemp, Warning, TEXT("F키 입력 : 가구 던지기 시도"));
+		UE_LOG(LogTemp, Warning, TEXT("가구 던지기 시도"));
 
 		// 애니메이션 재생
 		if (ThrowMontage)
