@@ -428,7 +428,7 @@ UI 위젯의 NativeConstruct에서 `AddDynamic`을 통해 이벤트를 수신할
 | 파괴 가능 구조물 | BreakableWindow, DamageableWall, InteractableDoor, BreakableProp | 상호작용 프롬프트 (`OnInteractTargetChanged` 재사용) |
 | 움직이는 트럭 | TCMovingTruck | 트럭 위치/적재 안내 |
 
----
+--- 
 
 ## 9. v1 → v2 마이그레이션 체크리스트 (구현 순서 가이드)
 

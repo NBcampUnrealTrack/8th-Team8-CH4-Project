@@ -212,4 +212,20 @@ private:
 	// UTCSessionFlow::OnTravelStarted 구독 핸들러(명세 4장-9) — S_Loading 표시 트리거.
 	UFUNCTION()
 	void HandleTravelStarted(const FString& TargetMapPath);
+
+	// --- 트래블 구간 전용 지속형 로딩 위젯 ---
+	// RootLayout(ScreenWidgetClasses 의 Loading 항목)에 기대는 방식은 PlayerController 가
+	// 트래블 내내 생존한다고 가정하는데, 실제로는 하드 트래블은 물론 Seamless Travel 에서도
+	// 매번 새 PlayerController 가 스폰된다(구 PC 는 파괴). RootLayout/S_Loading 위젯은 그
+	// PC 소유이므로 파괴 시점에 함께 사라지고, 신규 PC 가 목적지 State 를 띄우기 전까지는
+	// 화면에 아무것도 없는 공백 구간(검은 화면)이 생긴다. 이 위젯은 대신 GameInstance(본
+	// 서브시스템, 트래블 내내 생존) 소유로 뷰포트에 직접 올려서 그 공백을 메운다.
+	UPROPERTY()
+	TSubclassOf<class UUserWidget> LoadingWidgetClass;
+
+	UPROPERTY()
+	TObjectPtr<class UUserWidget> PersistentLoadingWidget;
+
+	void ShowPersistentLoadingWidget();
+	void HidePersistentLoadingWidget();
 };

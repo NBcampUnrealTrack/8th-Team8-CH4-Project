@@ -27,7 +27,7 @@ void ATeamCarryGameMode::BeginPlay()
     {
         GS->ElapsedTime = 0.0f;
     }
-    
+
     // 게임 시작 시 카운트다운 시작
     SetGamePhase(EGamePhase::WaitingToStart);
     StartCountdown();

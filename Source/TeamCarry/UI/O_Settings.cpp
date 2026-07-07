@@ -115,8 +115,11 @@ void UO_Settings::CloseSettings()
 
 bool UO_Settings::NativeOnHandleBackAction()
 {
-	// ESC = 닫기. 처리했음을 알려 상위 스택으로 Back 이 전파되지 않게 한다.
-	DeactivateWidget();
+	// ESC = 닫기. CloseSettings() 를 통해 라우터(PopCurrentOverlay)로 위임해야 스택/입력모드
+	// 동기화가 유지된다. DeactivateWidget() 을 직접 호출하면 MockUIController 의 오버레이
+	// 스택이 갱신되지 않아 이후 입력 모드 복원이 꼬인다(CloseSettings() 주석 참고).
+	CloseSettings();
+	// 처리했음을 알려 상위 스택으로 Back 전파를 막는다.
 	return true;
 }
 
