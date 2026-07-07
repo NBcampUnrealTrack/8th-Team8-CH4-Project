@@ -84,6 +84,10 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TCPlayerCharacter|Input")
 	TObjectPtr<UInputAction> LookAction;
 
+	// 상하 시점 액션 (Aim Offset)
+	UFUNCTION(BlueprintPure, Category = "TCPlayerCharacter|Animation")
+	float GetAimPitch() const;
+
 	// 점프 액션
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TCPlayerCharacter|Input")
 	TObjectPtr<UInputAction> JumpAction;

@@ -248,10 +248,13 @@ void UFurnitureGrabSystem::AddFurnitureOffset(FVector LocationOffset, float YawO
 	// 가구 단독 이동 및 회전 적용
 	// Pitch(기울이기)는 HandleMovement가 매 틱 현재값을 유지하므로 여기서 바꾸면 그대로 운반됨
 	FVector NewLoc = OldLoc + LocationOffset;
-	FRotator NewRot = Owner->GetActorRotation();
-	NewRot.Yaw += YawOffset;
-	NewRot.Pitch += PitchOffset;
-	Owner->SetActorLocationAndRotation(NewLoc, NewRot, true);
+
+	// 위치 이동
+	Owner->SetActorLocation(NewLoc, true);
+
+	// 짐벌락 방지를 위해 AddActorRotation 사용
+	Owner->AddActorWorldRotation(FRotator(0.0f, YawOffset, 0.0f), true);
+	Owner->AddActorLocalRotation(FRotator(PitchOffset, 0.0f, 0.0f), true);
 
 	FVector ActualLoc = Owner->GetActorLocation();
 	float ActualYaw = Owner->GetActorRotation().Yaw;
