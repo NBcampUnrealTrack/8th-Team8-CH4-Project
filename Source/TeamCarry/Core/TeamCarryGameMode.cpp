@@ -99,7 +99,9 @@ void ATeamCarryGameMode::PostLogin(APlayerController* NewPlayer)
     FString CurrentMap = GetWorld()->GetMapName();
     bool bIsLobby = CurrentMap.Contains(TEXT("L_Lobby"));
 
-    if (!bIsLobby)
+    // 난입 차단은 실제 진행 중(Playing)일 때만 — 시작 전(WaitingToStart/Countdown)이나
+    // 스테이지 맵 직접 실행(에디터 PIE)의 첫 입장은 정상 허용한다
+    if (!bIsLobby && GS->CurrentPhase == EGamePhase::Playing)
     {
         // 로비가 아닌 경우 (스테이지 진행 중)
         if (NewPlayer->PlayerState && NewPlayer->PlayerState->GetUniqueId().IsValid())
