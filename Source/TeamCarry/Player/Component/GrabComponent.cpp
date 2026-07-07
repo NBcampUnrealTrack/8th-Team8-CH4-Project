@@ -7,6 +7,8 @@
 #include "Camera/CameraComponent.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Net/UnrealNetwork.h"
+#include "CatchCharacter/Furniture/FurnitureGrabSystem.h"
+#include "GameFramework/CharacterMovementComponent.h"
 
 // 틱 활성화 여부 및 초기화
 UGrabComponent::UGrabComponent()
@@ -29,6 +31,45 @@ void UGrabComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorC
 
 	// 모든 플레이어의 트레이스 실행
 	ScanBestTarget();
+
+	// 가구를 들고 체공 시 강제 드랍
+	if (GrabbedActor)
+	{
+		if (ATCPlayerCharacter* OwnerChar = Cast<ATCPlayerCharacter>(GetOwner()))
+		{
+			if (UCharacterMovementComponent* CMC = OwnerChar->GetCharacterMovement())
+			{
+				// 캐릭터가 공중에 있는지 확인
+				if (CMC->IsFalling())
+				{
+					CurrentFallTime += DeltaTime;
+
+					// 설정한 체공 시간(0.8초)을 초과하면 강제로 놓기
+					if (CurrentFallTime >= MaxFallTimeToDrop)
+					{
+						// 로컬 클라 + 서버에서 실행 (중복 통신 방지)
+						if (OwnerChar->IsLocallyControlled() || OwnerChar->HasAuthority())
+						{
+							// 가구 내려놓기 로직 호출
+							TryInteract();
+						}
+						// 초기화
+						CurrentFallTime = 0.0f;
+					}
+				}
+				else
+				{
+					// 땅에 닿으면 체공 시간 초기화
+					CurrentFallTime = 0.0f;
+				}
+			}
+		}
+	}
+	else
+	{
+		// 가구를 들고 있지 않으면 시간 초기화
+		CurrentFallTime = 0.0f;
+	}
 }
 
 // 대상이 존재하면 서버로 상호작용-잡기 시도 요청
@@ -186,10 +227,16 @@ void UGrabComponent::ServerRotateFurniture_Implementation(FRotator RotationDelta
 
 	if (GrabbedActor)
 	{
-		// 전달받은 회전축과 각도(RotationDelta)만큼 가구 회전 적용
-		GrabbedActor->AddActorWorldRotation(RotationDelta);
+		// 가구 액터에서 FurnitureGrabSystem 컴포넌트 찾기
+		UFurnitureGrabSystem* GrabSystem = GrabbedActor->FindComponentByClass<UFurnitureGrabSystem>();
 
-		UE_LOG(LogTemp, Warning, TEXT("[Server] 가구 회전 적용: %s"), *RotationDelta.ToString());
+		if (GrabSystem)
+		{
+			// 시스템에 구현된 오프셋 적용 함수 사용 (LocationOffset, YawOffset, PitchOffset 순서)
+			GrabSystem->AddFurnitureOffset(FVector::ZeroVector, RotationDelta.Yaw, RotationDelta.Pitch);
+
+			UE_LOG(LogTemp, Warning, TEXT("[Server] 가구 회전 적용(GrabSystem): %s"), *RotationDelta.ToString());
+		}
 	}
 }
 
