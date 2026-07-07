@@ -67,8 +67,8 @@ void ATCPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 	EIC->BindAction(InteractAction, ETriggerEvent::Started, this, &ThisClass::Interact);
 	EIC->BindAction(ThrowAction, ETriggerEvent::Started, this, &ThisClass::Throw);
 	EIC->BindAction(ToggleViewAction, ETriggerEvent::Started, this, &ThisClass::ToggleView);
-	EIC->BindAction(RotateZAction, ETriggerEvent::Started, this, &ThisClass::RotateZ);
-	EIC->BindAction(RotateYAction, ETriggerEvent::Started, this, &ThisClass::RotateY);
+	EIC->BindAction(RotateZAction, ETriggerEvent::Triggered, this, &ThisClass::RotateZ);
+	EIC->BindAction(RotateYAction, ETriggerEvent::Triggered, this, &ThisClass::RotateY);
 }
 
 // 게임 시작 시 수행
@@ -133,6 +133,13 @@ void ATCPlayerCharacter::HandleLookInput(const FInputActionValue& InValue)
 	// 카메라 회전 적용
 	AddControllerYawInput(InLookVector.X);
 	AddControllerPitchInput(InLookVector.Y);
+}
+
+// 상하 시점 (Aim Offset) 각도 반환
+float ATCPlayerCharacter::GetAimPitch() const
+{
+	// Aim Offset 설정에 맞게 180도 형식으로 정규화(Normalize)해서 반환
+	return FRotator::NormalizeAxis(GetBaseAimRotation().Pitch);
 }
 
 // 플레이어 달리기 시작
@@ -286,7 +293,9 @@ void ATCPlayerCharacter::RotateZ(const FInputActionValue& InValue)
 	if (GrabComponent)
 	{
 		// FRotator(Y축, Z축, X축)
-		GrabComponent->TryRotateFurniture(FRotator(0.0f, 45.0f, 0.0f));
+		// 초당 135도의 속도로 회전 (조절 가능)
+		float DeltaTime = GetWorld()->GetDeltaSeconds();
+		GrabComponent->TryRotateFurniture(FRotator(0.0f, 135.0f * DeltaTime, 0.0f));
 	}
 }
 
@@ -296,7 +305,9 @@ void ATCPlayerCharacter::RotateY(const FInputActionValue& InValue)
 	if (GrabComponent)
 	{
 		// FRotator(Y축, Z축, X축)
-		GrabComponent->TryRotateFurniture(FRotator(45.0f, 0.0f, 0.0f));
+		// 초당 135도의 속도로 회전 (조절 가능)
+		float DeltaTime = GetWorld()->GetDeltaSeconds();
+		GrabComponent->TryRotateFurniture(FRotator(135.0f * DeltaTime, 0.0f, 0.0f));
 	}
 }
 

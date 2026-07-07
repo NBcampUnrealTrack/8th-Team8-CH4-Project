@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "TeamCarry/UI/GameUIPlayerController.h"
+#include "TeamCarry/UI/MockUIController.h"
 #include "TCPlayerController.generated.h"
 
 class UInputMappingContext;
@@ -96,4 +97,13 @@ private:
 
 	// 현재 로비 커서가 켜져 있는지(Alt 토글 상태).
 	bool bLobbyCursorActive = false;
+
+	// UMockUIController::OnStateChanged 구독 핸들러.
+	// 오버레이를 2단 이상 중첩해서 열고 닫으면(예: O_PauseMenu 위에서 O_Settings/O_KeyGuide/
+	// O_SaveLoad 를 열었다 닫는 경우) CommonUI 라우터가 leaf-most 위젯을 재계산하는 과정에서
+	// 게임 뷰포트 포커스 복원이 신뢰할 수 없게 되는 경우가 재현된다(원인은 CommonUI/Slate
+	// 내부로 추정, 정확한 근본 원인 미상). BeginPlay() 에서 이미 검증된 방식(PC 가 직접
+	// SetInputMode 호출)을 InGame/Tutorial 로 돌아올 때마다 다시 적용해 확실히 복구한다.
+	UFUNCTION()
+	void HandleUIStateChanged(EE_UIState NewState);
 };

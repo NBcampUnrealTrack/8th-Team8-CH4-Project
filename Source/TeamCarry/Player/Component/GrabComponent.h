@@ -64,4 +64,11 @@ protected:
 	UFUNCTION(Server, Reliable)
 	void ServerRotateFurniture(FRotator RotationDelta);
 
+	// 가구를 들고 떨어질 때 강제로 놓치게 되는 최대 체공 시간
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interaction")
+	float MaxFallTimeToDrop = 0.01f;
+
+private:
+	// 현재 체공 시간 추적용
+	float CurrentFallTime = 0.0f;
 };

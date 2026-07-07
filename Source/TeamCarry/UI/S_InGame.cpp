@@ -15,7 +15,11 @@ void US_InGame::NativeConstruct()
 {
 	Super::NativeConstruct();
 
-	SetIsFocusable(true);
+	// SetIsFocusable(true) 를 두면 오버레이가 모두 닫혀 이 위젯이 leaf-most 로 복귀할 때,
+	// 포커스 대상(NativeGetDesiredFocusTarget)이 없으므로 라우터가 "이 위젯 자체"에 키보드
+	// 포커스를 last-resort로 박아버린다. 그러면 WASD 가 뷰포트(→ 캐릭터)로 가지 못하고 이
+	// 빈 HUD 위젯에서 막혀 조작 불능이 된다. Focusable 을 끄면 라우터가 게임 뷰포트로
+	// 포커스를 넘긴다(O_PauseMenu 등 다른 위젯이 이미 그렇게 동작하는 것과 동일한 경로).
 
 	// Setup initial placeholder values
 	if (TextBlock_Score)
