@@ -105,4 +105,7 @@ private:
 
 	// 카운트다운 타이머 핸들
 	FTimerHandle CountdownTimerHandle;
+	
+	// 튕긴 플레이어 ID 목록
+	TArray<FUniqueNetIdRepl> DisconnectedPlayerIds;
 };
