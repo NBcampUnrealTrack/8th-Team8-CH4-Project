@@ -132,12 +132,20 @@ bool ATCCarriableFurniture::CanInteract_Implementation(ATCPlayerCharacter* Playe
 
 void ATCCarriableFurniture::OnFocus_Implementation()
 {
-	// 외곽선 하이라이트 등은 BP에서 확장
+	// PP 아웃라인 셰이더가 CustomStencil==1 실루엣 둘레에 하이라이트 링을 그린다
+	if (Mesh)
+	{
+		Mesh->SetCustomDepthStencilValue(1);
+		Mesh->SetRenderCustomDepth(true);
+	}
 }
 
 void ATCCarriableFurniture::OnUnfocus_Implementation()
 {
-	// 외곽선 하이라이트 해제 등은 BP에서 확장
+	if (Mesh)
+	{
+		Mesh->SetRenderCustomDepth(false);
+	}
 }
 
 void ATCCarriableFurniture::OnInteract_Implementation(ATCPlayerCharacter* Player)
