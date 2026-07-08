@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameModeBase.h"
@@ -75,9 +75,11 @@ public:
 	// 카운트다운 시작
 	void StartCountdown();
 
+	// 별 3개 기준 시간 (블루프린트에서 스테이지마다 수정 가능)
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite)
 	float StarThreeTime = 180.0f; // 기본 3분
 
+	// 별 2개 기준 시간
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite)
 	float StarTwoTime = 600.0f; // 기본 10분
 
@@ -88,6 +90,7 @@ protected:
 	// 게임 종료 처리
 	void FinishGame(bool bIsClear);
 	
+	// 별 개수 판정
 	int32 CalculateStar(float ElapsedTime);
 
 private:
@@ -96,6 +99,9 @@ private:
 
 	// 트럭 안 가구 목록
 	TArray<FTruckFurnitureInfo> FurnitureInTruck;
+
+	// 트럭 안 가구 누적 점수 (CalculateFinalScore 최적화용)
+	int32 AccumulatedScore;
 
 	// 최종 점수 계산
 	int32 CalculateFinalScore();
@@ -108,4 +114,11 @@ private:
 	
 	// 튕긴 플레이어 ID 목록
 	TArray<FUniqueNetIdRepl> DisconnectedPlayerIds;
+
+	// GameState 캐시 (매 프레임 GetGameState 호출 방지)
+	UPROPERTY()
+	ATeamCarryGameState* CachedGameState = nullptr;
+
+	// GameState 캐시 가져오기
+	ATeamCarryGameState* GetCachedGameState();
 };

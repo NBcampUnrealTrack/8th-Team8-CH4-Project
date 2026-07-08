@@ -50,6 +50,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "TeamCarry|Session|Steam")
 	void DestroySteamSession();
 
+	// 스테이지 시작 시 새 플레이어 참여 차단
+	void SetAllowJoinInProgress(bool bAllow);
+
 	// ── 콘솔 테스트 트리거 (패키징 빌드에서 ` 콘솔로 호출) ──
 	// 호스트: 테스트 맵을 Steam 세션으로 열고 리슨 서버로 이동
 	UFUNCTION(Exec)
@@ -73,7 +76,7 @@ public:
 	FString GetFoundSessionName(int32 SearchResultIndex) const;
 
 	// ── 방 코드(Room Code) ──
-
+	
 	// 호스트가 광고 중인 방 코드. 생성 후 UI 표시·공유용. 호스트가 아니면 빈 문자열.
 	UFUNCTION(BlueprintPure, Category = "TeamCarry|Session|Steam")
 	FString GetHostRoomCode() const { return HostRoomCode; }
@@ -98,7 +101,7 @@ private:
 
 	// CreateSession 완료 후 이동할 맵
 	FString PendingTravelMap;
-
+	
 	// 호스트가 이번 세션에 광고한 방 코드(6자리 A-Z0-9). 호스트 전용.
 	FString HostRoomCode;
 
