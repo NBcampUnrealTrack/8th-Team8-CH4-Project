@@ -75,7 +75,7 @@ public:
 
 	// 피동 플레이어를 끌어당기는 최대 속도 (cm/s)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
-	float MaxCorrectionSpeed = 2000.0f;
+	float MaxCorrectionSpeed = 5000.0f;
 
 	// 이보다 작은 위치 오차는 무시 (cm)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
@@ -83,6 +83,14 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
 	float YawCorrectionDeadzone = 0.25f;
+
+	// [서버] 원격 운반자 몸통 Yaw에 대한 서버 개입 허용 오차(도).
+	// 원격 몸통 Yaw는 그 클라가 로컬에서(복제된 가구 Yaw 기준 = 한두 틱 낡음) 돌려서 ServerMove로 올라오는데,
+	// 서버 Step 5가 최신 가구 Yaw로 매 틱 덮어쓰면 '낡은 값 ↔ 최신 값'이 서버 사본에서 매 틱 왕복
+	// → 회전 중에만 뚝뚝 끊김(직진은 두 값이 같아 무증상). 정상 신선도 차(회전속도×지연 ≈ 2~5°)는
+	// 클라 값을 존중하고, 이 값 이상 어긋날 때만 서버가 교정. 호스트는 지연이 없어 기존 정밀 데드존 사용.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
+	float RemoteBodyYawTolerance = 8.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
 	bool bBlockedCarrierStopsFurniture = true;
@@ -92,7 +100,10 @@ public:
 
 	// 가구 최대 회전 속도 (도/초). 빠른 카메라 회전 시 가구 위치 튐 방지.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
-	float FurnYawRotationSpeed = 270.0f;
+	float FurnYawRotationSpeed = 90.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
+	float FurnMaxZHeight = 80.0f;
 
 private:
 	struct FGrabAnchor

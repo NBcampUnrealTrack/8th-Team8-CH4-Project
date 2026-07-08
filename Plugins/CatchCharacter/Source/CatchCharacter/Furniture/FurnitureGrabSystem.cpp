@@ -93,6 +93,7 @@ void UFurnitureGrabSystem::TickComponent(float DeltaTime, ELevelTick TickType, F
 				NewRot.Yaw      = DesiredYaw;
 				LocalChar->SetActorRotation(NewRot);
 			}
+
 		}
 	}
 }
@@ -114,7 +115,15 @@ void UFurnitureGrabSystem::Grab(ACharacter* Grabber, FVector height, UPrimitiveC
 	{
 		FurnitureMesh->SetSimulatePhysics(false);
 		FurnitureMesh->SetCollisionProfileName(TEXT("BlockAllDynamic"));
-		Owner->SetActorLocation(Owner->GetActorLocation() + height, false, nullptr, ETeleportType::TeleportPhysics);
+
+		// 들어올릴 시 플레이어와 특정높이 이상차이나지 않도록함
+		FVector sumLocation = Owner->GetActorLocation() + height;
+		if (FurnMaxZHeight < sumLocation.Z - Grabber->GetActorLocation().Z)
+		{
+			sumLocation.Z = Grabber->GetActorLocation().Z + FurnMaxZHeight;
+		}
+
+		Owner->SetActorLocation(sumLocation, false, nullptr, ETeleportType::TeleportPhysics);
 		Owner->SetReplicateMovement(false);
 		ServerLocation = Owner->GetActorLocation();
 		ServerRotation = Owner->GetActorRotation();
@@ -248,13 +257,19 @@ void UFurnitureGrabSystem::AddFurnitureOffset(FVector LocationOffset, float YawO
 	// 가구 단독 이동 및 회전 적용
 	// Pitch(기울이기)는 HandleMovement가 매 틱 현재값을 유지하므로 여기서 바꾸면 그대로 운반됨
 	FVector NewLoc = OldLoc + LocationOffset;
+	//FRotator NewRot = Owner->GetActorRotation();
+	//NewRot.Yaw += YawOffset;
+	//NewRot.Pitch += PitchOffset;
+	//Owner->SetActorLocationAndRotation(NewLoc, NewRot, true);
+	Owner->AddActorLocalRotation(FRotator(PitchOffset, YawOffset, 0.0f), true);
+	Owner->AddActorLocalOffset(LocationOffset, true);
 
 	// 위치 이동
-	Owner->SetActorLocation(NewLoc, true);
-
-	// 짐벌락 방지를 위해 AddActorRotation 사용
-	Owner->AddActorWorldRotation(FRotator(0.0f, YawOffset, 0.0f), true);
-	Owner->AddActorLocalRotation(FRotator(PitchOffset, 0.0f, 0.0f), true);
+	//Owner->SetActorLocation(NewLoc, true);
+	//
+	//// 짐벌락 방지를 위해 AddActorRotation 사용
+	//Owner->AddActorWorldRotation(FRotator(PitchOffset, YawOffset, 0.0f), true);
+	////Owner->AddActorLocalRotation(FRotator(PitchOffset, YawOffset, 0.0f), true);
 
 	FVector ActualLoc = Owner->GetActorLocation();
 	float ActualYaw = Owner->GetActorRotation().Yaw;
@@ -550,10 +565,12 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 		if (bAtTarget && !bWasDragged)
 		{
 			// 능동 주도자: CMC 속도 간섭 없음.
-			// Yaw는 서버에서 SetActorRotation → 자동 복제 → 다른 클라가 캐릭터 회전을 볼 수 있음.
-			// Multicast_ApplyPlayerCorrection → 해당 클라이언트 즉시 적용.
+			// Yaw: 원격 운반자는 자기 클라가 로컬로 돌리고 있으므로(낡은 가구 Yaw 기준),
+			// 허용 오차(RemoteBodyYawTolerance) 안에서는 서버가 덮어쓰지 않음 → 이중 기록 왕복(회전 시 뚝뚝) 방지.
+			// 호스트는 지연이 없어 정밀 데드존으로 즉시 교정.
 			const float DesiredYaw = GetDesiredYaw(P, ActualYaw);
-			if (FMath::Abs(FMath::FindDeltaAngleDegrees(P->GetActorRotation().Yaw, DesiredYaw)) > YawCorrectionDeadzone)
+			const float YawTol = P->IsLocallyControlled() ? YawCorrectionDeadzone : RemoteBodyYawTolerance;
+			if (FMath::Abs(FMath::FindDeltaAngleDegrees(P->GetActorRotation().Yaw, DesiredYaw)) > YawTol)
 			{
 				FRotator NewRot = P->GetActorRotation();
 				NewRot.Yaw = DesiredYaw;
@@ -564,8 +581,10 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 		}
 
 		// 여기 이후 = 피동·정지 플레이어 (능동 주도자는 위 블록에서 continue됨)
+		// Yaw 관용치는 능동 블록과 동일한 이유로 원격/호스트 분리
 		const float DesiredYaw = GetDesiredYaw(P, ActualYaw);
-		if (FMath::Abs(FMath::FindDeltaAngleDegrees(P->GetActorRotation().Yaw, DesiredYaw)) > YawCorrectionDeadzone)
+		const float YawTol = P->IsLocallyControlled() ? YawCorrectionDeadzone : RemoteBodyYawTolerance;
+		if (FMath::Abs(FMath::FindDeltaAngleDegrees(P->GetActorRotation().Yaw, DesiredYaw)) > YawTol)
 		{
 			FRotator NewRot = P->GetActorRotation();
 			NewRot.Yaw = DesiredYaw;
@@ -719,7 +738,7 @@ void UFurnitureGrabSystem::Multicast_ApplyPlayerCorrection_Implementation(
 
 	// 서버와 동일한 velocity를 클라 CMC에 설정.
 	// 서버/클라 CMC가 같은 속도로 같은 거리를 이동 → 예측 일치 → ClientAdjustPosition 없음.
-	// Z는 로컬 값 보존 (서버와 동일 규칙: 낙하 속도 리셋 방지)
+	// Z는 로컬 값 보존 (낙하 속도 리셋 방지)
 	if (UCharacterMovementComponent* CMC = Player->GetCharacterMovement())
 		CMC->Velocity = FVector(CarryVelocity.X, CarryVelocity.Y, CMC->Velocity.Z);
 
