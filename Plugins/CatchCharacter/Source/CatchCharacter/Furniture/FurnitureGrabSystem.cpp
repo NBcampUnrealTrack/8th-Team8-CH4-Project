@@ -116,12 +116,14 @@ void UFurnitureGrabSystem::Grab(ACharacter* Grabber, FVector height, UPrimitiveC
 		FurnitureMesh->SetSimulatePhysics(false);
 		FurnitureMesh->SetCollisionProfileName(TEXT("BlockAllDynamic"));
 
-		// 들어올릴 시 플레이어와 특정높이 이상차이나지 않도록함
+		CurrentHeightOffset = 0.0f;
+
+		// 들어올릴 시 높이를 잡은 플레이어 기준 [FurnitureHeightMin, FurnitureHeightMax] 범위로 제한.
+		// (운반 중 매 틱 제약과 동일 기준 → 그랩 순간과 이후가 일관됨. 잡은 사람 1명이 기준)
 		FVector sumLocation = Owner->GetActorLocation() + height;
-		if (FurnMaxZHeight < sumLocation.Z - Grabber->GetActorLocation().Z)
-		{
-			sumLocation.Z = Grabber->GetActorLocation().Z + FurnMaxZHeight;
-		}
+		sumLocation.Z = FMath::Clamp(sumLocation.Z,
+			Grabber->GetActorLocation().Z + FurnitureHeightMin,
+			Grabber->GetActorLocation().Z + FurnitureHeightMax);
 
 		Owner->SetActorLocation(sumLocation, false, nullptr, ETeleportType::TeleportPhysics);
 		Owner->SetReplicateMovement(false);
@@ -138,6 +140,7 @@ void UFurnitureGrabSystem::Grab(ACharacter* Grabber, FVector height, UPrimitiveC
 		Anchor.InitialFurnitureYaw = Owner->GetActorRotation().Yaw;
 		Anchor.InitialPlayerYaw    = Grabber->GetActorRotation().Yaw;       // 몸통 방향: GetDesiredYaw 기준, 그랩 시 스냅 방지
 		Anchor.InitialAimYaw       = Grabber->GetBaseAimRotation().Yaw;     // 카메라 방향: 가구 회전 기준
+		Anchor.InitialAimPitch     = Grabber->GetBaseAimRotation().Pitch;   // 카메라 상하: 가구 높이 조절 기준
 		Anchors.Add(Grabber, Anchor);
 		Multicast_SetPlayerAnchor(Grabber, Anchor.InitialFurnitureYaw, Anchor.InitialPlayerYaw, Anchor.InitialAimYaw, Anchor.InitialOffset);
 
@@ -419,15 +422,47 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 	}
 	FVector TargetLoc = (WTotal > 0.0) ? (WLocSum / WTotal) : CurFurnLoc;
 
+	// ---- 2.5. 카메라 상하(Pitch) → 가구 높이 오프셋 ----
+	// 그랩 시점 카메라 대비 위/아래로 본 각도만큼 가구를 올리고 내림. 전원 평균(둘 다 위 봐야 최대).
+	// 범위 제약은 여기서 하지 않음 → 아래 '플레이어 기준' 제약에서 처리.
+	float TargetHeightOffset = 0.0f;
+	if (FurnitureHeightPerPitch != 0.0f)
+	{
+		float HSum = 0.0f;
+		for (int32 i = 0; i < N; ++i)
+		{
+			const FGrabAnchor& Anc = Anchors[Players[i]];
+			HSum += FMath::FindDeltaAngleDegrees(Anc.InitialAimPitch, Players[i]->GetBaseAimRotation().Pitch) * FurnitureHeightPerPitch;
+		}
+		TargetHeightOffset = HSum / (float)N;
+	}
+
+	// 현재 높이 오프셋에서 목표 높이 오프셋으로 부드럽게 보간
+	CurrentHeightOffset = FMath::FInterpTo(CurrentHeightOffset, TargetHeightOffset, DeltaTime, FurnitureHeightInterpSpeed);
+
+	// [범위 제약: 플레이어 기준] 가구 높이를 '들고 있는 플레이어들의 평균 위치' 대비 [Min, Max]로 제한.
+	// 경사에서 두 사람 높이가 다르면 그 평균에 맞춰 허용 범위(고저)가 함께 오르내림.
+	{
+		float AvgPlayerZ = 0.0f;
+		for (int32 i = 0; i < N; ++i)
+			AvgPlayerZ += Players[i]->GetActorLocation().Z;
+		AvgPlayerZ /= (float)N;
+
+		const float DesiredZ = TargetLoc.Z + CurrentHeightOffset;
+		const float ClampedZ = FMath::Clamp(DesiredZ, AvgPlayerZ + FurnitureHeightMin, AvgPlayerZ + FurnitureHeightMax);
+		// 윈드업 방지: 범위 밖 입력이 계속 쌓이지 않도록, 실제 적용 가능한 오프셋으로 되돌려 저장
+		CurrentHeightOffset = ClampedZ - TargetLoc.Z;
+	}
+
 	// ---- 3. 가구 이동 (sweep=true, 가구 자체 충돌) ----
 	// Pitch/Roll은 현재 값 유지: 물리로 쓰러진 가구는 그 자세 그대로 운반 (억지로 세우면 바닥 파고듦)
-	// AddFurnitureOffset으로 기울인 자세도 그대로 존중됨 (좁은 곳 통과용)
 	FRotator TargetRot = Owner->GetActorRotation();
 	TargetRot.Yaw = TargetYaw;
-	Owner->SetActorLocationAndRotation(TargetLoc, TargetRot, true);
-	
-	// sweep 이동 도중 발생한 물리/데미지 이벤트(가구 파괴 등)로 인해 
-	// 플레이어가 동기적으로 Release 되었을 수 있으므로 로컬 배열(Players)의 유효성을 다시 갱신합니다.
+
+	// HeightOffset 대신 보간된 CurrentHeightOffset 적용
+	Owner->SetActorLocationAndRotation(TargetLoc + FVector(0.0f, 0.0f, CurrentHeightOffset), TargetRot, true);
+
+	// sweep 이동 도중 발생한 물리/데미지 이벤트 처리 로직 (기존 코드 유지)
 	for (int32 i = Players.Num() - 1; i >= 0; --i)
 	{
 		if (!Anchors.Contains(Players[i]))
@@ -435,11 +470,11 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 			Players.RemoveAt(i);
 		}
 	}
-	// 갱신 후 남은 플레이어가 없다면 아래 로직(위치 보정 등)을 수행할 필요 없이 즉시 중단합니다.
 	if (Players.Num() == 0)
 		return;
 
-	FVector ActualLoc = Owner->GetActorLocation();
+	// 앵커 계산용 자연 좌표 추출 시에도 보간된 CurrentHeightOffset 제거
+	FVector ActualLoc = Owner->GetActorLocation() - FVector(0.0f, 0.0f, CurrentHeightOffset);
 	const float ActualYaw = Owner->GetActorRotation().Yaw;
 
 	// ---- 3.5. 회전 막힘 감지 → 위치 기준점 리셋 (호(弧) 미끄러짐 방지) ----
