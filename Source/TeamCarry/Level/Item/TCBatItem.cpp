@@ -33,7 +33,7 @@ bool ATCBatItem::CanInteract_Implementation(ATCPlayerCharacter* /*Player*/)
 	return Holder == nullptr; // 아무도 안 들었을 때만 줍기 가능
 }
 
-void ATCBatItem::OnFocus_Implementation() { Mesh->SetRenderCustomDepth(true); }
+void ATCBatItem::OnFocus_Implementation() { Mesh->SetCustomDepthStencilValue(1); Mesh->SetRenderCustomDepth(true); }
 void ATCBatItem::OnUnfocus_Implementation() { Mesh->SetRenderCustomDepth(false); }
 
 void ATCBatItem::OnInteract_Implementation(ATCPlayerCharacter* Player)

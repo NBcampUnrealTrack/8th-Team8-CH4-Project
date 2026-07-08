@@ -63,21 +63,26 @@ void ATeamCarryGameMode::SetTotalFurnitureCount(int32 Count)
 
 void ATeamCarryGameMode::Logout(AController* Exiting)
 {
+    // 스테이지 진행 중에 나간 플레이어 ID 저장
+    ATeamCarryGameState* GS = GetGameState<ATeamCarryGameState>();
+    if (GS && GS->CurrentPhase == EGamePhase::Playing)
+    {
+        if (APlayerController* PC = Cast<APlayerController>(Exiting))
+        {
+            if (PC->PlayerState && PC->PlayerState->GetUniqueId().IsValid())
+            {
+                DisconnectedPlayerIds.Add(PC->PlayerState->GetUniqueId());
+            }
+        }
+    }
+
     Super::Logout(Exiting);
 
-    // 남은 플레이어 수 확인
     int32 PlayerCount = GetNumPlayers();
     UE_LOG(LogTemp, Warning, TEXT("플레이어 이탈 | 남은 플레이어: %d"), PlayerCount - 1);
 
-    // 접속 로그(명세 3장·4장-7). Super::Logout() 후에도 PlayerState 는 아직 유효하다.
-    if (ATeamCarryGameState* GS = GetGameState<ATeamCarryGameState>())
-    {
-        const FString PlayerName = Exiting && Exiting->GetPlayerState<APlayerState>() ? Exiting->GetPlayerState<APlayerState>()->GetPlayerName() : TEXT("Player");
-        GS->AddSessionLogEntry(FText::Format(NSLOCTEXT("SessionLog", "PlayerLeft", "{0}님이 퇴장했습니다."), FText::FromString(PlayerName)));
-    }
-
-    // 모든 플레이어가 나가면 게임 종료
-    if (PlayerCount <= 1)
+    // 월드가 종료 중이면 FinishGame 호출 안 함
+    if (GetWorld() && !GetWorld()->bIsTearingDown && PlayerCount <= 1)
     {
         FinishGame(false);
     }
@@ -90,17 +95,34 @@ void ATeamCarryGameMode::PostLogin(APlayerController* NewPlayer)
     ATeamCarryGameState* GS = GetGameState<ATeamCarryGameState>();
     if (!GS) return;
 
-    UE_LOG(LogTemp, Warning, TEXT("플레이어 재접속 | 현재 단계: %d"), (int32)GS->CurrentPhase);
+    // 현재 맵이 로비맵인지 확인
+    FString CurrentMap = GetWorld()->GetMapName();
+    bool bIsLobby = CurrentMap.Contains(TEXT("L_Lobby"));
 
-    // 게임 진행 중에 재접속하면 현재 게임 상태 동기화
-    if (GS->CurrentPhase == EGamePhase::Playing)
+    // 난입 차단은 실제 진행 중(Playing)일 때만 — 시작 전(WaitingToStart/Countdown)이나
+    // 스테이지 맵 직접 실행(에디터 PIE)의 첫 입장은 정상 허용한다
+    if (!bIsLobby && GS->CurrentPhase == EGamePhase::Playing)
     {
-        UE_LOG(LogTemp, Warning, TEXT("플레이어 재접속 | 게임 진행 중 복귀"));
-    }
+        // 로비가 아닌 경우 (스테이지 진행 중)
+        if (NewPlayer->PlayerState && NewPlayer->PlayerState->GetUniqueId().IsValid())
+        {
+            FUniqueNetIdRepl NewPlayerId = NewPlayer->PlayerState->GetUniqueId();
+            bool bIsReconnecting = DisconnectedPlayerIds.Contains(NewPlayerId);
 
-    // 접속 로그(명세 3장·4장-7).
-    const FString PlayerName = NewPlayer && NewPlayer->GetPlayerState<APlayerState>() ? NewPlayer->GetPlayerState<APlayerState>()->GetPlayerName() : TEXT("Player");
-    GS->AddSessionLogEntry(FText::Format(NSLOCTEXT("SessionLog", "PlayerJoined", "{0}님이 입장했습니다."), FText::FromString(PlayerName)));
+            if (bIsReconnecting)
+            {
+                // 튕긴 플레이어 → 재접속 허용
+                DisconnectedPlayerIds.Remove(NewPlayerId);
+                UE_LOG(LogTemp, Warning, TEXT("플레이어 재접속 | 게임 진행 중 복귀"));
+            }
+            else
+            {
+                // 새 플레이어 → 로비로 킥
+                UE_LOG(LogTemp, Warning, TEXT("새 플레이어 참여 불가 | 스테이지 진행 중"));
+                NewPlayer->ClientTravel(TEXT("/Game/Maps/L_Lobby"), ETravelType::TRAVEL_Absolute);
+            }
+        }
+    }
 }
 
 void ATeamCarryGameMode::SaveGame(const FString& StageName)
