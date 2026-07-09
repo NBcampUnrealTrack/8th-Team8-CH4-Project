@@ -83,6 +83,10 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite)
 	float StarTwoTime = 600.0f; // 기본 10분
 
+	// 게임 제한시간(초). 경과 시 실패로 종료. 0 이하 = 무제한
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite)
+	float TimeLimitSeconds = 300.0f; // 기본 5분
+
 protected:
 	// 점수 계산
 	int32 CalculateScore(float CurrentHealth, float MaxHealth, int32 BaseScore);
