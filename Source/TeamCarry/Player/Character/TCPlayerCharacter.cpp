@@ -229,6 +229,23 @@ void ATCPlayerCharacter::Throw(const FInputActionValue& InValue)
 	// 유효성 검사
 	if (GrabComponent)
 	{
+		// 현재 들고 있는 가구가 있는지 확인
+		if (AActor* GrabbedActor = GrabComponent->GetGrabbedActor())
+		{
+			// 가구 시스템을 가져와서 현재 잡고 있는 인원수 확인
+			UFurnitureGrabSystem* FGS = GrabbedActor->FindComponentByClass<UFurnitureGrabSystem>();
+			
+			// 2명 이상이면 애니메이션 X 던지기 요청 중단
+			if (FGS && FGS->GetGrabbedPlayers().Num() >= 2)
+			{
+				if (GEngine)
+				{
+					GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Red, TEXT("2명 이상 운반 중: 던지기 불가"));
+				}
+				return;
+			}
+		}
+
 		// 뷰포트에 로그 출력
 		if (GEngine)
 		{
