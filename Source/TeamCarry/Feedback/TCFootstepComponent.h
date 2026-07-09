@@ -32,6 +32,10 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Footstep")
 	TArray<TObjectPtr<USoundBase>> StepSounds;
 
+	// 점프 도약음 (지면 → 상승 전이 시 1회)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Footstep")
+	TObjectPtr<USoundBase> JumpSound;
+
 	// 이 속도(cm/s) 이상 지면 이동 시에만 발소리
 	UPROPERTY(EditAnywhere, Category = "Footstep")
 	float MinSpeed = 130.f;
@@ -55,4 +59,5 @@ private:
 
 	float StepClock = 0.f;
 	int32 LastIndex = -1;
+	bool bWasOnGround = true;
 };

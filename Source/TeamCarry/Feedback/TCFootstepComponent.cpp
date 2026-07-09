@@ -81,6 +81,10 @@ void UTCFootstepComponent::BeginPlay()
 			}
 		}
 	}
+	if (!JumpSound)
+	{
+		JumpSound = LoadObject<USoundBase>(nullptr, TEXT("/Game/Developers/goldb/Audio/SW_Jump.SW_Jump"));
+	}
 }
 
 void UTCFootstepComponent::TickComponent(float DeltaTime, ELevelTick TickType,
@@ -96,6 +100,20 @@ void UTCFootstepComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 	const UCharacterMovementComponent* Move = OwnerChar->GetCharacterMovement();
 	const float Speed = OwnerChar->GetVelocity().Size2D();
 	const float IdleSentinel = SlowInterval * 0.5f;
+
+	// ── 점프 도약음: 지면 → 상승 전이 감지 (낙하 시작은 Z속도가 음수라 제외) ──
+	const bool bOnGround = Move && Move->IsMovingOnGround();
+	if (bWasOnGround && !bOnGround && OwnerChar->GetVelocity().Z > 200.f && JumpSound)
+	{
+		FVector Foot = OwnerChar->GetActorLocation();
+		if (const UCapsuleComponent* Cap = OwnerChar->GetCapsuleComponent())
+		{
+			Foot.Z -= Cap->GetScaledCapsuleHalfHeight();
+		}
+		UGameplayStatics::PlaySoundAtLocation(this, JumpSound, Foot, 1.f,
+			FMath::RandRange(0.95f, 1.05f));
+	}
+	bWasOnGround = bOnGround;
 	if (!Move || !Move->IsMovingOnGround() || Speed < MinSpeed)
 	{
 		// 걷다가 멈춘 첫 틱: 마무리 스텝 한 발 (급정지의 어색함 완화)
