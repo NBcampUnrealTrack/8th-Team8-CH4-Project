@@ -9,6 +9,7 @@
 class USoundBase;
 class UNiagaraSystem;
 class UFurnitureGrabSystem;
+class UFurnitureStat;
 
 /**
  * 가구 잡기/놓기 피드백 컴포넌트.
@@ -30,7 +31,6 @@ public:
 	UTCFeedbackComponent();
 
 	virtual void BeginPlay() override;
-	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType,
 		FActorComponentTickFunction* ThisTickFunction) override;
 
@@ -45,16 +45,13 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Feedback")
 	TObjectPtr<UNiagaraSystem> PickupFX;
 
-	// 가구 파괴 시 그 자리에서 재생 (EndPlay(Destroyed)에서 감지 — 트럭 근처면 적재로 보고 억제)
+	// 가구 파괴 시 그 자리에서 재생 — 내구도(FurnitureStat.CurrentHealth)가
+	// 0이 되는 프레임을 관찰해 감지한다 (액터 Destroy 시점은 적재·정리와 겹쳐 부정확)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Feedback")
 	TObjectPtr<USoundBase> BreakSound;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Feedback")
 	TObjectPtr<UNiagaraSystem> BreakFX;
-
-	// 이 거리 안에서 파괴(=액터 제거)되면 트럭 적재로 간주해 파괴 연출을 내지 않는다
-	UPROPERTY(EditAnywhere, Category = "Feedback")
-	float TruckSuppressRadius = 800.f;
 
 private:
 	// 잡힘 상태 소스 1: 플러그인 GrabSystem 컴포넌트 (TCFurnitureActor 계열)
@@ -63,6 +60,12 @@ private:
 
 	// 잡힘 상태 소스 2: 소유자 클래스의 bIsGrabbed(bool) — 리플렉션 캐시
 	const FBoolProperty* GrabbedProp = nullptr;
+
+	// 내구도 관찰용 (복제값 — 호스트·클라 공통)
+	UPROPERTY()
+	TObjectPtr<UFurnitureStat> Stat;
+
+	float LastHealth = -1.f;
 
 	bool bLastGrabbed = false;
 

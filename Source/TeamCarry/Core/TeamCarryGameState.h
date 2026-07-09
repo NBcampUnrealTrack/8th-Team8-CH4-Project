@@ -71,4 +71,12 @@ protected:
 	// 이전 값(OldSessionLogEntries) 대비 새로 추가된 항목만 골라 OnSessionLogAdded 로 Broadcast.
 	UFUNCTION()
 	void OnRep_SessionLogEntries(const TArray<FText>& OldSessionLogEntries);
+
+private:
+	// MockUIController 캐시 (OnRep 함수마다 GetSubsystem 호출 방지)
+	UPROPERTY()
+	mutable class UMockUIController* CachedMockController = nullptr;
+
+	// MockUIController 캐시 가져오기
+	UMockUIController* GetCachedMockController() const;
 };

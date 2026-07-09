@@ -3,6 +3,10 @@
 #include "Feedback/TCFeedbackSubsystem.h"
 #include "Feedback/TCFeedbackComponent.h"
 #include "Feedback/TCFeedbackOverride.h"
+#include "Feedback/TCFootstepComponent.h"
+#include "Player/Character/TCPlayerCharacter.h"
+#include "Components/AudioComponent.h"
+#include "TimerManager.h"
 #include "Core/TeamCarryGameState.h"
 #include "Network/Carry/TCCarriableFurniture.h"
 #include "CatchCharacter/Furniture/FurnitureGrabSystem.h"
@@ -19,6 +23,8 @@ namespace
 	const TCHAR* DefaultTruckInFX = TEXT("/Game/Developers/goldb/VFX/NS_TruckInPop.NS_TruckInPop");
 	const TCHAR* DefaultCountdownSound = TEXT("/Game/Developers/goldb/Audio/SW_CountTick.SW_CountTick");
 	const TCHAR* DefaultGoSound = TEXT("/Game/Developers/goldb/Audio/SW_CountGo.SW_CountGo");
+	const TCHAR* DefaultGameBGM = TEXT("/Game/Developers/goldb/Audio/SW_BGM_Main.SW_BGM_Main");
+	const TCHAR* DefaultGameClear = TEXT("/Game/Developers/goldb/Audio/SW_GameClear.SW_GameClear");
 }
 
 bool UTCFeedbackSubsystem::ShouldCreateSubsystem(UObject* Outer) const
@@ -46,8 +52,9 @@ void UTCFeedbackSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 	TruckInFX = LoadObject<UNiagaraSystem>(nullptr, DefaultTruckInFX);
 	CountdownSound = LoadObject<USoundBase>(nullptr, DefaultCountdownSound);
 	GoSound = LoadObject<USoundBase>(nullptr, DefaultGoSound);
+	GameBGM = LoadObject<USoundBase>(nullptr, DefaultGameBGM);
 
-	// 레벨에 이미 있는 운반 가구에 피드백 컴포넌트 부착
+	// 레벨에 이미 있는 운반 가구·플레이어에 피드백 컴포넌트 부착
 	for (TActorIterator<AActor> It(&InWorld); It; ++It)
 	{
 		AttachFeedbackIfFurniture(*It);
@@ -70,6 +77,16 @@ void UTCFeedbackSubsystem::AttachFeedbackIfFurniture(AActor* Actor)
 {
 	if (!Actor)
 	{
+		return;
+	}
+	// 플레이어 캐릭터에는 발소리 컴포넌트 부착
+	if (Actor->IsA<ATCPlayerCharacter>())
+	{
+		if (!Actor->FindComponentByClass<UTCFootstepComponent>())
+		{
+			UTCFootstepComponent* Foot = NewObject<UTCFootstepComponent>(Actor, TEXT("TCFootstep"));
+			Foot->RegisterComponent();
+		}
 		return;
 	}
 	// 부착 대상: TCCarriableFurniture 계열 또는 GrabSystem을 가진 가구(TCFurnitureActor 계열)
@@ -150,10 +167,46 @@ void UTCFeedbackSubsystem::Tick(float DeltaTime)
 		{
 			UGameplayStatics::PlaySound2D(this, CountdownSound);
 		}
-		else if (Phase == EGamePhase::Playing && GoSound)
+		else if (Phase == EGamePhase::Playing)
 		{
-			UGameplayStatics::PlaySound2D(this, GoSound);
+			if (GoSound) { UGameplayStatics::PlaySound2D(this, GoSound); }
+			// 시작음이 끝난 뒤 BGM 페이드인
+			World->GetTimerManager().SetTimer(BGMStartTimer, this,
+				&UTCFeedbackSubsystem::StartBGM, 1.2f, false);
 		}
+	}
+
+	// 게임 종료: BGM 페이드아웃 + 클리어 팡파르
+	if (GS->bIsGameFinished && !bBGMFadedOut)
+	{
+		bBGMFadedOut = true;
+		StopBGM();
+		if (USoundBase* Clear = LoadObject<USoundBase>(nullptr, DefaultGameClear))
+		{
+			UGameplayStatics::PlaySound2D(this, Clear);
+		}
+	}
+}
+
+void UTCFeedbackSubsystem::StartBGM()
+{
+	UWorld* World = GetWorld();
+	if (!World || !GameBGM || (BGMComp && BGMComp->IsPlaying()))
+	{
+		return;
+	}
+	BGMComp = UGameplayStatics::SpawnSound2D(World, GameBGM, 1.f, 1.f, 0.f, nullptr, false, false);
+	if (BGMComp)
+	{
+		BGMComp->FadeIn(2.0f, 0.35f); // 2초에 걸쳐 볼륨 0.35까지
+	}
+}
+
+void UTCFeedbackSubsystem::StopBGM()
+{
+	if (BGMComp && BGMComp->IsPlaying())
+	{
+		BGMComp->FadeOut(1.5f, 0.f);
 	}
 }
 

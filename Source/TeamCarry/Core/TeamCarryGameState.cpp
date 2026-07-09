@@ -1,4 +1,4 @@
-﻿#include "TeamCarryGameState.h"
+#include "TeamCarryGameState.h"
 #include "Net/UnrealNetwork.h"
 #include "TeamCarry/UI/MockUIController.h" 
 #include "Engine/World.h"
@@ -27,27 +27,38 @@ void ATeamCarryGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 	DOREPLIFETIME(ATeamCarryGameState, SessionLogEntries);
 }
 
+// MockUIController 캐시 가져오기
+// OnRep 함수마다 GetWorld()->GetGameInstance()->GetSubsystem 호출을 방지한다.
+UMockUIController* ATeamCarryGameState::GetCachedMockController() const
+{
+	if (!CachedMockController)
+	{
+		if (UWorld* World = GetWorld())
+		{
+			if (UGameInstance* GI = World->GetGameInstance())
+			{
+				CachedMockController = GI->GetSubsystem<UMockUIController>();
+			}
+		}
+	}
+	return CachedMockController;
+}
+
 void ATeamCarryGameState::OnRep_TotalScore()
 {
-	if (UWorld* World = GetWorld())
+	if (UMockUIController* MockController = GetCachedMockController())
 	{
-		if (UMockUIController* MockController = World->GetGameInstance()->GetSubsystem<UMockUIController>())
-		{
-			UE_LOG(LogTemp, Log, TEXT("[GameState] UI 점수 갱신: %d"), TotalScore);
-			MockController->UpdateTeamMoney(TotalScore);
-		}
+		UE_LOG(LogTemp, Log, TEXT("[GameState] UI 점수 갱신: %d"), TotalScore);
+		MockController->UpdateTeamMoney(TotalScore);
 	}
 }
 
 void ATeamCarryGameState::OnRep_RemainingFurniture()
 {
-	if (UWorld* World = GetWorld())
+	if (UMockUIController* MockController = GetCachedMockController())
 	{
-		if (UMockUIController* MockController = World->GetGameInstance()->GetSubsystem<UMockUIController>())
-		{
-			UE_LOG(LogTemp, Log, TEXT("[GameState] UI 남은 가구 갱신: %d"), RemainingFurniture);
-			MockController->UpdateRemainingFurniture(RemainingFurniture);
-		}
+		UE_LOG(LogTemp, Log, TEXT("[GameState] UI 남은 가구 갱신: %d"), RemainingFurniture);
+		MockController->UpdateRemainingFurniture(RemainingFurniture);
 	}
 }
 
@@ -57,13 +68,10 @@ void ATeamCarryGameState::OnRep_bIsGameFinished()
 	// (TotalScore, StarCount는 bIsGameFinished와 같은 프레임에 함께 변경/복제되므로 이 시점에 이미 최신값이다.)
 	if (bIsGameFinished)
 	{
-		if (UWorld* World = GetWorld())
+		if (UMockUIController* MockController = GetCachedMockController())
 		{
-			if (UMockUIController* MockController = World->GetGameInstance()->GetSubsystem<UMockUIController>())
-			{
-				UE_LOG(LogTemp, Log, TEXT("[GameState] 게임 종료 확인. Result 화면 호출 (Score: %d, Star: %d)"), TotalScore, StarCount);
-				MockController->TriggerGameResult(TotalScore, StarCount, ElapsedTime);
-			}
+			UE_LOG(LogTemp, Log, TEXT("[GameState] 게임 종료 확인. Result 화면 호출 (Score: %d, Star: %d)"), TotalScore, StarCount);
+			MockController->TriggerGameResult(TotalScore, StarCount, ElapsedTime);
 		}
 	}
 }
@@ -89,28 +97,22 @@ void ATeamCarryGameState::AddSessionLogEntry(const FText& NewEntry)
 
 void ATeamCarryGameState::OnRep_SessionLogEntries(const TArray<FText>& OldSessionLogEntries)
 {
-	if (UWorld* World = GetWorld())
+	if (UMockUIController* MockController = GetCachedMockController())
 	{
-		if (UMockUIController* MockController = World->GetGameInstance()->GetSubsystem<UMockUIController>())
+		// 이전 값 대비 새로 추가된 항목만 순서대로 Broadcast(늦게 접속한 클라는 전체 이력을 받는다).
+		for (int32 i = OldSessionLogEntries.Num(); i < SessionLogEntries.Num(); ++i)
 		{
-			// 이전 값 대비 새로 추가된 항목만 순서대로 Broadcast(늦게 접속한 클라는 전체 이력을 받는다).
-			for (int32 i = OldSessionLogEntries.Num(); i < SessionLogEntries.Num(); ++i)
-			{
-				MockController->OnSessionLogAdded.Broadcast(SessionLogEntries[i]);
-			}
+			MockController->OnSessionLogAdded.Broadcast(SessionLogEntries[i]);
 		}
 	}
 }
 
 void ATeamCarryGameState::OnRep_CurrentPhase()
 {
-	if (UWorld* World = GetWorld())
+	if (UMockUIController* MockController = GetCachedMockController())
 	{
-		if (UMockUIController* MockController = World->GetGameInstance()->GetSubsystem<UMockUIController>())
-		{
-			UE_LOG(LogTemp, Log, TEXT("[GameState] UI 페이즈 갱신: %d"), (int32)CurrentPhase);
-			// 카운트다운 시작 등 페이즈 변화에 따른 UI 연출이 있다면 이곳에서 호출합니다.
-			// MockController->OnPhaseChanged(CurrentPhase);
-		}
+		UE_LOG(LogTemp, Log, TEXT("[GameState] UI 페이즈 갱신: %d"), (int32)CurrentPhase);
+		// 카운트다운 시작 등 페이즈 변화에 따른 UI 연출이 있다면 이곳에서 호출합니다.
+		// MockController->OnPhaseChanged(CurrentPhase);
 	}
 }
