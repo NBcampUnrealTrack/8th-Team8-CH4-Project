@@ -4,6 +4,8 @@
 #include "Feedback/TCFeedbackOverride.h"
 #include "CatchCharacter/Furniture/FurnitureGrabSystem.h"
 #include "CatchCharacter/Furniture/FurnitureStat.h"
+#include "Core/TeamCarryGameState.h"
+#include "Core/TeamCarryGameMode.h"
 #include "Components/StaticMeshComponent.h"
 #include "GameFramework/Actor.h"
 #include "Kismet/GameplayStatics.h"
@@ -20,6 +22,11 @@ namespace
 
 	// 놓는 순간 이 속도(cm/s) 이상이면 '던지기'로 판정 (던지기 임펄스=1000, 운반 속도≈300)
 	constexpr float ThrowSpeedThreshold = 600.f;
+
+	// 잔여시간 임박 시 남은 가구 빨간 아웃라인(스텐실 4) — 제한 5분 중 마지막 60초.
+	// BGM 배속(TCFeedbackSubsystem::BGMSpeedupRemaining=60)과 같은 순간에 발동한다.
+	constexpr float UrgentTimeLimit = 300.f;
+	constexpr float UrgentRemaining = 60.f;
 
 	// 내구도 감소(타격) 시 재생 — 2종 교대 (헤더 무수정을 위해 cpp 로컬 상수)
 	const TCHAR* DefaultHitSounds[] = {
@@ -128,6 +135,33 @@ void UTCFeedbackComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 		{
 			if (MeshC->CustomDepthStencilValue != 3) { MeshC->SetCustomDepthStencilValue(3); }
 			if (!MeshC->bRenderCustomDepth) { MeshC->SetRenderCustomDepth(true); }
+		}
+	}
+	else
+	{
+		// ── 시간 임박: 남아 있는(안 잡힌) 가구에 빨간 링(스텐실 4) 재주장 ──
+		// 남은 시간에 어느 가구를 옮겨야 하는지 한눈에 보이게 한다.
+		// 제한시간 정본은 게임모드(서버) — 클라 폴백은 UrgentTimeLimit 상수.
+		UWorld* W = GetWorld();
+		const ATeamCarryGameState* GS = W ? W->GetGameState<ATeamCarryGameState>() : nullptr;
+		float EffectiveLimit = UrgentTimeLimit;
+		if (W)
+		{
+			if (const ATeamCarryGameMode* GM = W->GetAuthGameMode<ATeamCarryGameMode>())
+			{
+				EffectiveLimit = GM->TimeLimitSeconds;
+			}
+		}
+		const bool bUrgent = GS && !GS->bIsGameFinished
+			&& GS->CurrentPhase == EGamePhase::Playing
+			&& (EffectiveLimit - GS->ElapsedTime) <= UrgentRemaining;
+		if (bUrgent)
+		{
+			if (UStaticMeshComponent* MeshC = Owner->FindComponentByClass<UStaticMeshComponent>())
+			{
+				if (MeshC->CustomDepthStencilValue != 4) { MeshC->SetCustomDepthStencilValue(4); }
+				if (!MeshC->bRenderCustomDepth) { MeshC->SetRenderCustomDepth(true); }
+			}
 		}
 	}
 

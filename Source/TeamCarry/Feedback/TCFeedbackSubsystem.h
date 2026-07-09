@@ -52,12 +52,22 @@ protected:
 	UPROPERTY()
 	TObjectPtr<USoundBase> GoSound;
 
-	// 인게임 BGM — Playing 진입 시 시작음 뒤에 페이드인, 게임 종료 시 페이드아웃
+	// 인게임 BGM 트랙 풀 — Playing 진입 시 랜덤 1곡 페이드인, 게임 종료 시 페이드아웃
 	UPROPERTY()
-	TObjectPtr<USoundBase> GameBGM;
+	TArray<TObjectPtr<USoundBase>> BGMTracks;
 
 	UPROPERTY()
 	TObjectPtr<UAudioComponent> BGMComp;
+
+	// 제한시간(초). 잔여시간이 BGMSpeedupRemaining 이하로 내려가면 BGM 배속으로 긴박감 연출
+	UPROPERTY(EditDefaultsOnly, Category = "Feedback|BGM")
+	float TimeLimitSeconds = 300.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Feedback|BGM")
+	float BGMSpeedupRemaining = 60.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Feedback|BGM")
+	float BGMSpeedupPitch = 1.25f;
 
 private:
 	void AttachFeedbackIfFurniture(AActor* Actor);
@@ -66,6 +76,7 @@ private:
 
 	FTimerHandle BGMStartTimer;
 	bool bBGMFadedOut = false;
+	bool bBGMBoosted = false;
 
 	FDelegateHandle ActorSpawnedHandle;
 
