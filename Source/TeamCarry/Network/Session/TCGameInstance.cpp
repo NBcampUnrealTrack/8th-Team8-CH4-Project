@@ -247,6 +247,15 @@ void UTCGameInstance::JoinFoundSession(int32 SearchResultIndex)
 		return;
 	}
 
+	// 스테이지 진행 중이면 참여 불가
+    const FOnlineSessionSearchResult& Result = SessionSearch->SearchResults[SearchResultIndex];
+    if (!Result.Session.SessionSettings.bAllowJoinInProgress)
+    {
+    	UE_LOG(LogTCNet, Warning, TEXT("JoinFoundSession: 스테이지 진행 중 — 참여 불가"));
+    	OnJoinSessionComplete.Broadcast(false);
+    	return;
+    }
+	
 	JoinSessionCompleteHandle = Sessions->AddOnJoinSessionCompleteDelegate_Handle(
 		FOnJoinSessionCompleteDelegate::CreateUObject(this, &UTCGameInstance::HandleJoinSessionComplete));
 
