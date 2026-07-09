@@ -16,7 +16,8 @@ public class TeamCarry : ModuleRules
             "GeometryCollectionEngine" });   // 세션 인터페이스 타입(IOnlineSessionPtr 등)을 헤더에서 사용
 
         PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore",
-            "OnlineSubsystemUtils" });   // Online::GetSubsystem 헬퍼 (.cpp 전용)
+            "OnlineSubsystemUtils",   // Online::GetSubsystem 헬퍼 (.cpp 전용)
+            "Niagara" });             // 피드백 VFX 스폰 (.cpp 전용)
 
 
         PublicIncludePaths.AddRange(new string[] 

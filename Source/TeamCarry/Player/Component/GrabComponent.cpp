@@ -128,11 +128,12 @@ void UGrabComponent::ScanBestTarget()
 	AActor* OwnerActor = GetOwner();
 	if (!OwnerActor) return;
 
-	// 박스 트레이스 범위 설정 (100cm, 50x50x50)
-	FVector Start = OwnerActor->GetActorLocation();
 	FVector ForwardVector = OwnerActor->GetActorForwardVector();
-	FVector End = Start + (ForwardVector * 100.0f);
-	FVector HalfSize = FVector(50.f, 50.f, 50.f);
+
+	// 박스 트레이스 범위 설정 (50cm, 2525x25)
+	FVector Start = OwnerActor->GetActorLocation() + (ForwardVector * 50.0f);
+	FVector End = Start + (ForwardVector * 1.0f);
+	FVector HalfSize = FVector(40.f, 40.f, 40.f);
 
 	// 충돌 검사 결과를 담기 위한 배열
 	TArray<FHitResult> HitResults;
@@ -246,6 +247,17 @@ void UGrabComponent::ServerTryThrow_Implementation()
 	if (IsGameFinishedAuthoritative())
 	{
 		return;
+	}
+
+	// 서버 측 2명 이상 운반 검증
+	if (GrabbedActor)
+	{
+		UFurnitureGrabSystem* FGS = GrabbedActor->FindComponentByClass<UFurnitureGrabSystem>();
+		// 2명 이상 들고 있으면 가구를 던지지 않고 함수 종료
+		if (FGS && FGS->GetGrabbedPlayers().Num() >= 2)
+		{
+			return;
+		}
 	}
 
 	// 캐릭터가 들고 있는 대상이 있거나 상호작용이 가능한 객체인지 확인

@@ -75,7 +75,7 @@ public:
 
 	// 피동 플레이어를 끌어당기는 최대 속도 (cm/s)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
-	float MaxCorrectionSpeed = 2000.0f;
+	float MaxCorrectionSpeed = 5000.0f;
 
 	// 이보다 작은 위치 오차는 무시 (cm)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
@@ -83,6 +83,14 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
 	float YawCorrectionDeadzone = 0.25f;
+
+	// [서버] 원격 운반자 몸통 Yaw에 대한 서버 개입 허용 오차(도).
+	// 원격 몸통 Yaw는 그 클라가 로컬에서(복제된 가구 Yaw 기준 = 한두 틱 낡음) 돌려서 ServerMove로 올라오는데,
+	// 서버 Step 5가 최신 가구 Yaw로 매 틱 덮어쓰면 '낡은 값 ↔ 최신 값'이 서버 사본에서 매 틱 왕복
+	// → 회전 중에만 뚝뚝 끊김(직진은 두 값이 같아 무증상). 정상 신선도 차(회전속도×지연 ≈ 2~5°)는
+	// 클라 값을 존중하고, 이 값 이상 어긋날 때만 서버가 교정. 호스트는 지연이 없어 기존 정밀 데드존 사용.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
+	float RemoteBodyYawTolerance = 8.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
 	bool bBlockedCarrierStopsFurniture = true;
@@ -92,7 +100,22 @@ public:
 
 	// 가구 최대 회전 속도 (도/초). 빠른 카메라 회전 시 가구 위치 튐 방지.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
-	float FurnYawRotationSpeed = 270.0f;
+	float FurnYawRotationSpeed = 90.0f;
+
+	// 카메라 상하(Pitch) → 가구 높이. 그랩 시점 대비 카메라가 1도 위/아래 볼 때마다 이 cm만큼 가구 높이 변경.
+	// 방향이 반대면(위 보는데 내려감) 부호를 뒤집을 것. 0이면 기능 끔.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
+	float FurnitureHeightPerPitch = 3.f;
+
+	// 가구 높이 조절 범위 (그랩 시점 기준 cm). 최소=아래로 얼마까지, 최대=위로 얼마까지.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
+	float FurnitureHeightMin = -10.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
+	float FurnitureHeightMax = 100.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
+	float FurnitureHeightInterpSpeed = 10.0f;
 
 private:
 	struct FGrabAnchor
@@ -101,6 +124,7 @@ private:
 		float   InitialFurnitureYaw  = 0.0f;
 		float   InitialPlayerYaw     = 0.0f;  // 그랩 시점 캐릭터 몸통 Yaw (GetDesiredYaw 기준, 스냅 방지)
 		float   InitialAimYaw        = 0.0f;  // 그랩 시점 카메라 Yaw (가구 회전 기준)
+		float   InitialAimPitch      = 0.0f;  // 그랩 시점 카메라 Pitch (가구 높이 조절 기준)
 	};
 	TMap<ACharacter*, FGrabAnchor> Anchors;
 
@@ -162,6 +186,9 @@ private:
 
 	// RPC과정에서 타이밍이 어긋나 회전이 제대로 안되는걸 방지를 위한 로컬 회전값
 	float LocalSyncTargetYaw = 0.0f;
+
+	// 현재 보간 적용 중인 가구 높이 오프셋
+	float CurrentHeightOffset = 0.0f;
 
 	void UpdateLocalWalkSpeed();
 	void SetGrabCollisionState(ACharacter* Player, bool bEnable);
