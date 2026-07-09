@@ -3,7 +3,8 @@
 #include "Feedback/TCFeedbackComponent.h"
 #include "Feedback/TCFeedbackOverride.h"
 #include "CatchCharacter/Furniture/FurnitureGrabSystem.h"
-#include "Level/Vehicle/TCMovingTruck.h"
+#include "CatchCharacter/Furniture/FurnitureStat.h"
+#include "Components/StaticMeshComponent.h"
 #include "GameFramework/Actor.h"
 #include "Kismet/GameplayStatics.h"
 #include "NiagaraFunctionLibrary.h"
@@ -15,6 +16,16 @@ namespace
 	// 플레이스홀더 기본 에셋 (정식 에셋 도입 시 여기만 교체하거나 인스턴스에서 오버라이드)
 	const TCHAR* DefaultPickupSound = TEXT("/Game/Developers/goldb/Audio/SW_Pickup.SW_Pickup");
 	const TCHAR* DefaultDropSound = TEXT("/Game/Developers/goldb/Audio/SW_Drop.SW_Drop");
+	const TCHAR* DefaultThrowSound = TEXT("/Game/Developers/goldb/Audio/SW_Throw.SW_Throw");
+
+	// 놓는 순간 이 속도(cm/s) 이상이면 '던지기'로 판정 (던지기 임펄스=1000, 운반 속도≈300)
+	constexpr float ThrowSpeedThreshold = 600.f;
+
+	// 내구도 감소(타격) 시 재생 — 2종 교대 (헤더 무수정을 위해 cpp 로컬 상수)
+	const TCHAR* DefaultHitSounds[] = {
+		TEXT("/Game/Developers/goldb/Audio/SW_Hit01.SW_Hit01"),
+		TEXT("/Game/Developers/goldb/Audio/SW_Hit02.SW_Hit02"),
+	};
 	const TCHAR* DefaultPickupFX = TEXT("/Game/Developers/goldb/VFX/NS_GrabPuff.NS_GrabPuff");
 	const TCHAR* DefaultBreakSound = TEXT("/Game/Developers/goldb/Audio/SW_Impact.SW_Impact");
 	const TCHAR* DefaultBreakFX = TEXT("/Game/Developers/goldb/VFX/NS_ImpactPuff.NS_ImpactPuff");
@@ -58,6 +69,10 @@ void UTCFeedbackComponent::BeginPlay()
 	}
 	bLastGrabbed = ReadGrabbed();
 
+	// 내구도 관찰 (있는 가구만) — 파괴 순간 감지용
+	Stat = Owner->FindComponentByClass<UFurnitureStat>();
+	LastHealth = Stat ? Stat->GetCurrentHealth() : -1.f;
+
 	// 기본 에셋 로드 (인스턴스에서 지정했으면 유지)
 	if (!PickupSound) { PickupSound = LoadObject<USoundBase>(nullptr, DefaultPickupSound); }
 	if (!DropSound) { DropSound = LoadObject<USoundBase>(nullptr, DefaultDropSound); }
@@ -80,7 +95,42 @@ void UTCFeedbackComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 		return;
 	}
 
+	// ── 내구도 관찰: 0 도달 = 파괴(퍼프+파열음), 감소 = 타격음 ──
+	if (Stat)
+	{
+		const float Health = Stat->GetCurrentHealth();
+		if (LastHealth > 0.f && Health <= 0.f)
+		{
+			const FVector Loc = Owner->GetActorLocation();
+			if (BreakSound) { UGameplayStatics::PlaySoundAtLocation(this, BreakSound, Loc); }
+			if (BreakFX) { UNiagaraFunctionLibrary::SpawnSystemAtLocation(this, BreakFX, Loc); }
+		}
+		else if (LastHealth > 0.f && Health < LastHealth - KINDA_SMALL_NUMBER)
+		{
+			// 내구도 깎임 — 소프트 우드 히트 (2종 랜덤 + 피치 흔들림)
+			const int32 HitIdx = FMath::RandRange(0, 1);
+			if (USoundBase* HitS = LoadObject<USoundBase>(nullptr, DefaultHitSounds[HitIdx]))
+			{
+				UGameplayStatics::PlaySoundAtLocation(this, HitS, Owner->GetActorLocation(),
+					1.f, FMath::RandRange(0.9f, 1.1f));
+			}
+		}
+		LastHealth = Health;
+	}
+
 	const bool bGrabbed = ReadGrabbed();
+
+	// ── 운반 하이라이트: 잡혀 있는 동안 스텐실 3(초록 링)을 매 틱 재주장 ──
+	// 포커스 시스템(OnUnfocus)이 커스텀뎁스를 꺼도 다음 틱에 즉시 복구된다.
+	if (bGrabbed)
+	{
+		if (UStaticMeshComponent* MeshC = Owner->FindComponentByClass<UStaticMeshComponent>())
+		{
+			if (MeshC->CustomDepthStencilValue != 3) { MeshC->SetCustomDepthStencilValue(3); }
+			if (!MeshC->bRenderCustomDepth) { MeshC->SetRenderCustomDepth(true); }
+		}
+	}
+
 	if (bGrabbed == bLastGrabbed)
 	{
 		return;
@@ -88,6 +138,16 @@ void UTCFeedbackComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 	bLastGrabbed = bGrabbed;
 	UE_LOG(LogTemp, Log, TEXT("[Feedback] %s 잡힘 전이: %s"), *GetNameSafe(Owner),
 		bGrabbed ? TEXT("잡기") : TEXT("놓기"));
+
+	// 놓는 순간: 포커스 규칙(스텐실 1)으로 복원하고 링은 끈다 (포커스하면 다시 켜짐)
+	if (!bGrabbed)
+	{
+		if (UStaticMeshComponent* MeshC = Owner->FindComponentByClass<UStaticMeshComponent>())
+		{
+			MeshC->SetCustomDepthStencilValue(1);
+			MeshC->SetRenderCustomDepth(false);
+		}
+	}
 
 	// 소유자가 인터페이스로 거부하면 재생하지 않음
 	if (Owner->Implements<UTCFeedbackOverride>() &&
@@ -109,36 +169,23 @@ void UTCFeedbackComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 			UNiagaraFunctionLibrary::SpawnSystemAtLocation(this, PickupFX, Base);
 		}
 	}
-	else if (DropSound)
+	else
 	{
-		UGameplayStatics::PlaySoundAtLocation(this, DropSound, Loc);
+		// 놓기 vs 던지기 — 던지기는 놓는 즉시 임펄스가 실려 속도로 구분된다
+		if (Owner->GetVelocity().Size() > ThrowSpeedThreshold)
+		{
+			if (USoundBase* ThrowS = LoadObject<USoundBase>(nullptr, DefaultThrowSound))
+			{
+				UGameplayStatics::PlaySoundAtLocation(this, ThrowS, Loc);
+			}
+		}
+		else if (DropSound)
+		{
+			UGameplayStatics::PlaySoundAtLocation(this, DropSound, Loc);
+		}
 	}
 }
 
-void UTCFeedbackComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
-{
-	// 파괴 연출 — 액터가 게임 중 명시적으로 제거될 때 그 자리에서 재생.
-	// 레벨 전환/PIE 종료는 제외하고, 트럭 근처 제거는 '적재'이므로 억제한다.
-	AActor* Owner = GetOwner();
-	UWorld* World = GetWorld();
-	if (EndPlayReason == EEndPlayReason::Destroyed && Owner && World && World->IsGameWorld()
-		&& GetNetMode() != NM_DedicatedServer)
-	{
-		bool bNearTruck = false;
-		if (AActor* Truck = UGameplayStatics::GetActorOfClass(World, ATCMovingTruck::StaticClass()))
-		{
-			bNearTruck = FVector::Dist(Truck->GetActorLocation(), Owner->GetActorLocation()) < TruckSuppressRadius;
-		}
-		if (!bNearTruck)
-		{
-			const FVector Loc = Owner->GetActorLocation();
-			if (BreakSound) { UGameplayStatics::PlaySoundAtLocation(World, BreakSound, Loc); }
-			if (BreakFX) { UNiagaraFunctionLibrary::SpawnSystemAtLocation(World, BreakFX, Loc); }
-		}
-	}
-
-	Super::EndPlay(EndPlayReason);
-}
 
 bool UTCFeedbackComponent::ReadGrabbed() const
 {
