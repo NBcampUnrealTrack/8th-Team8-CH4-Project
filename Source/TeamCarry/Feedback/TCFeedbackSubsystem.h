@@ -9,6 +9,7 @@
 
 class USoundBase;
 class UNiagaraSystem;
+class UAudioComponent;
 
 /**
  * 게임 피드백 서브시스템 — 기존 클래스/BP를 수정하지 않고 사운드·이펙트를 얹는다.
@@ -51,8 +52,20 @@ protected:
 	UPROPERTY()
 	TObjectPtr<USoundBase> GoSound;
 
+	// 인게임 BGM — Playing 진입 시 시작음 뒤에 페이드인, 게임 종료 시 페이드아웃
+	UPROPERTY()
+	TObjectPtr<USoundBase> GameBGM;
+
+	UPROPERTY()
+	TObjectPtr<UAudioComponent> BGMComp;
+
 private:
 	void AttachFeedbackIfFurniture(AActor* Actor);
+	void StartBGM();
+	void StopBGM();
+
+	FTimerHandle BGMStartTimer;
+	bool bBGMFadedOut = false;
 
 	FDelegateHandle ActorSpawnedHandle;
 
