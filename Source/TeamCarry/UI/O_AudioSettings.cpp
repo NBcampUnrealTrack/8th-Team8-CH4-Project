@@ -3,38 +3,104 @@
 #include "TeamCarry/UI/O_AudioSettings.h"
 
 #include "Components/Slider.h"
+#include "Kismet/GameplayStatics.h"
+#include "Sound/SoundMix.h"
+#include "Sound/SoundClass.h"
+
+// 클라 로컬 볼륨 설정 — 위젯 인스턴스가 파괴/재생성돼도 세션 동안 유지된다.
+float UO_AudioSettings::CurrentMasterVolume = 1.0f;
+float UO_AudioSettings::CurrentSFXVolume = 1.0f;
+float UO_AudioSettings::CurrentBGMVolume = 1.0f;
+
+namespace
+{
+	// 기본 믹서 에셋 (WBP 에서 오버라이드 가능)
+	const TCHAR* DefaultVolumeMix = TEXT("/Game/Developers/goldb/Audio/SM_Volume.SM_Volume");
+	const TCHAR* DefaultMasterClass = TEXT("/Game/Developers/goldb/Audio/SC_Master.SC_Master");
+	const TCHAR* DefaultSFXClass = TEXT("/Game/Developers/goldb/Audio/SC_SFX.SC_SFX");
+	const TCHAR* DefaultBGMClass = TEXT("/Game/Developers/goldb/Audio/SC_BGM.SC_BGM");
+}
 
 void UO_AudioSettings::NativeConstruct()
 {
 	Super::NativeConstruct();
 
+	// 믹서 에셋 준비 (미지정 시 기본 세트)
+	if (!VolumeMix) { VolumeMix = LoadObject<USoundMix>(nullptr, DefaultVolumeMix); }
+	if (!MasterClass) { MasterClass = LoadObject<USoundClass>(nullptr, DefaultMasterClass); }
+	if (!SFXClass) { SFXClass = LoadObject<USoundClass>(nullptr, DefaultSFXClass); }
+	if (!BGMClass) { BGMClass = LoadObject<USoundClass>(nullptr, DefaultBGMClass); }
+
 	if (MasterVolumeSlider)
 	{
 		MasterVolumeSlider->OnValueChanged.AddUniqueDynamic(this, &UO_AudioSettings::HandleMasterVolumeChanged);
-
-		// 슬라이더 초기값을 현재 보존된 볼륨으로 동기화한다.
 		MasterVolumeSlider->SetValue(CurrentMasterVolume);
 	}
+	if (Slider)
+	{
+		Slider->OnValueChanged.AddUniqueDynamic(this, &UO_AudioSettings::HandleSFXVolumeChanged);
+		Slider->SetValue(CurrentSFXVolume);
+	}
+	if (Slider_B)
+	{
+		Slider_B->OnValueChanged.AddUniqueDynamic(this, &UO_AudioSettings::HandleBGMVolumeChanged);
+		Slider_B->SetValue(CurrentBGMVolume);
+	}
+
+	// 열릴 때 현재 설정값으로 믹스를 활성화해 둔다 (첫 사용 시 기본 1.0 = 변화 없음)
+	ApplyMix();
 }
 
 void UO_AudioSettings::HandleMasterVolumeChanged(float Value)
 {
-	// 드래그 중에는 값만 갱신하고 외부 리스너에게 미리듣기용으로 브로드캐스트한다.
-	// (영속화는 [적용] 시점의 ApplyAudioSettings() 에서만 수행)
 	CurrentMasterVolume = Value;
+	ApplyMix(); // 드래그 중 실시간 미리듣기
 	OnMasterVolumeChanged.Broadcast(Value);
+}
+
+void UO_AudioSettings::HandleSFXVolumeChanged(float Value)
+{
+	CurrentSFXVolume = Value;
+	ApplyMix();
+}
+
+void UO_AudioSettings::HandleBGMVolumeChanged(float Value)
+{
+	CurrentBGMVolume = Value;
+	ApplyMix();
+}
+
+void UO_AudioSettings::ApplyMix()
+{
+	if (!VolumeMix)
+	{
+		return;
+	}
+	// 클래스별 볼륨 오버라이드 — SC_SFX/SC_BGM 은 SC_Master 의 자식이라
+	// 마스터 값이 두 채널에 곱으로 함께 걸린다.
+	if (MasterClass)
+	{
+		UGameplayStatics::SetSoundMixClassOverride(this, VolumeMix, MasterClass, CurrentMasterVolume, 1.0f, 0.1f);
+	}
+	if (SFXClass)
+	{
+		UGameplayStatics::SetSoundMixClassOverride(this, VolumeMix, SFXClass, CurrentSFXVolume, 1.0f, 0.1f);
+	}
+	if (BGMClass)
+	{
+		UGameplayStatics::SetSoundMixClassOverride(this, VolumeMix, BGMClass, CurrentBGMVolume, 1.0f, 0.1f);
+	}
+	UGameplayStatics::PushSoundMixModifier(this, VolumeMix);
 }
 
 void UO_AudioSettings::ApplyAudioSettings()
 {
-	if (MasterVolumeSlider)
-	{
-		CurrentMasterVolume = MasterVolumeSlider->GetValue();
-	}
+	if (MasterVolumeSlider) { CurrentMasterVolume = MasterVolumeSlider->GetValue(); }
+	if (Slider) { CurrentSFXVolume = Slider->GetValue(); }
+	if (Slider_B) { CurrentBGMVolume = Slider_B->GetValue(); }
 
-	// 프로토타입 단계: 마스터 볼륨은 클라이언트별 전역 설정(명세 4. 전역 설정 - MasterVolume)으로 보존된다.
-	// 실제 믹서 반영은 SoundMix/SoundClass 연동 단계에서 이 위치에 구현한다.
-	//   UGameplayStatics::SetSoundMixClassOverride(this, MasterMix, MasterClass, CurrentMasterVolume, 1.0f, 0.0f);
-	//   UGameplayStatics::PushSoundMixModifier(this, MasterMix);
-	UE_LOG(LogTemp, Log, TEXT("[UI Settings|Audio] Master volume applied: %.2f"), CurrentMasterVolume);
+	ApplyMix();
+
+	UE_LOG(LogTemp, Log, TEXT("[UI Settings|Audio] 볼륨 적용 — 전체 %.2f / 효과음 %.2f / 배경음악 %.2f"),
+		CurrentMasterVolume, CurrentSFXVolume, CurrentBGMVolume);
 }
