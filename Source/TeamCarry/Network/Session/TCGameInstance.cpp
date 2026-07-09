@@ -14,7 +14,7 @@ namespace
 	// TeamCarry 세션 식별 키 — 검색 시 우리 게임 세션만 필터링.
 	const FName TC_SESSION_KEY = TEXT("TCGameName");
 	const FString TC_SESSION_VALUE = TEXT("TeamCarry");
-
+	
 	// 방 코드 광고 키 — 클라이언트가 입력한 코드와 매칭.
 	const FName TC_ROOMCODE_KEY = TEXT("TCRoomCode");
 }
@@ -67,7 +67,7 @@ void UTCGameInstance::JoinByAddress(const FString& Address)
 FString UTCGameInstance::GenerateRoomCode()
 {
 	static const TCHAR Alphabet[] = TEXT("ABCDEFGHJKLMNPQRSTUVWXYZ23456789");
-	const int32 AlphabetLen = UE_ARRAY_COUNT(Alphabet) - 1; // 널 종단 제외
+	const int32 AlphabetLen = UE_ARRAY_COUNT(Alphabet) - 1;	// 널 종단 제외
 	FString Code;
 	Code.Reserve(6);
 	for (int32 i = 0; i < 6; ++i)
@@ -85,6 +85,26 @@ IOnlineSessionPtr UTCGameInstance::GetSessionInterface() const
 		return nullptr;
 	}
 	return OSS->GetSessionInterface();
+}
+
+void UTCGameInstance::SetAllowJoinInProgress(bool bAllow)
+{
+	IOnlineSessionPtr Sessions = GetSessionInterface();
+	if (!Sessions.IsValid())
+	{
+		return;
+	}
+
+	FOnlineSessionSettings* Settings = Sessions->GetSessionSettings(NAME_GameSession);
+	if (!Settings)
+	{
+		return;
+	}
+
+	Settings->bAllowJoinInProgress = bAllow;
+	Sessions->UpdateSession(NAME_GameSession, *Settings, true);
+
+	UE_LOG(LogTCNet, Log, TEXT("SetAllowJoinInProgress: %s"), bAllow ? TEXT("true") : TEXT("false"));
 }
 
 void UTCGameInstance::HostSteamSession(const FString& MapName, int32 MaxPlayers, bool bLAN)
@@ -115,11 +135,11 @@ void UTCGameInstance::HostSteamSession(const FString& MapName, int32 MaxPlayers,
 	Settings.bIsLANMatch = bLAN;
 	Settings.NumPublicConnections = FMath::Max(1, MaxPlayers);
 	Settings.NumPrivateConnections = 0;
-	Settings.bShouldAdvertise = true;            // 검색 목록에 노출
-	Settings.bAllowJoinInProgress = true;        // 진행 중 합류 허용
-	Settings.bAllowJoinViaPresence = !bLAN;      // Steam presence 기반 합류
-	Settings.bUsesPresence = !bLAN;              // 친구 합류/초대
-	Settings.bUseLobbiesIfAvailable = !bLAN;     // Steam 로비 API
+	Settings.bShouldAdvertise = true;			 // 검색 목록에 노출
+	Settings.bAllowJoinInProgress = true;        // 로비에서는 참여 허용 (스테이지 시작 시 false로 변경)
+	Settings.bAllowJoinViaPresence = !bLAN;		 // Steam presence 기반 합류
+	Settings.bUsesPresence = !bLAN;				 // 친구 합류/초대
+	Settings.bUseLobbiesIfAvailable = !bLAN;	 // Steam 로비 API
 	Settings.bAllowInvites = true;
 
 	// 식별 키 + 맵 이름 + 방 코드 광고(검색 측에서 필터·표시·매칭)

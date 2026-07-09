@@ -1,28 +1,39 @@
-﻿#include "TeamCarryGameMode.h"
+#include "TeamCarryGameMode.h"
 #include "TeamCarryGameState.h"
 #include "Kismet/GameplayStatics.h"
 #include "TCSaveGame.h"
 #include "Furniture/TCFurnitureActor.h"
 #include "GameFramework/PlayerState.h"
+#include "Network/Session/TCGameInstance.h"
 
 ATeamCarryGameMode::ATeamCarryGameMode()
 {
     PrimaryActorTick.bCanEverTick = true;
     TotalFurnitureCount = 0;
+    AccumulatedScore = 0;
 
     // GameState 클래스 설정
     GameStateClass = ATeamCarryGameState::StaticClass();
 }
 
+ATeamCarryGameState* ATeamCarryGameMode::GetCachedGameState()
+{
+    if (!CachedGameState)
+    {
+        CachedGameState = GetGameState<ATeamCarryGameState>();
+    }
+    return CachedGameState;
+}
+
 void ATeamCarryGameMode::BeginPlay()
 {
     Super::BeginPlay();
-    
+
     TArray<AActor*> FurnitureActors;
     UGameplayStatics::GetAllActorsOfClass(GetWorld(), ATCFurnitureActor::StaticClass(), FurnitureActors);
     SetTotalFurnitureCount(FurnitureActors.Num());
 
-    ATeamCarryGameState* GS = GetGameState<ATeamCarryGameState>();
+    ATeamCarryGameState* GS = GetCachedGameState();
     if (GS)
     {
         GS->ElapsedTime = 0.0f;
@@ -37,7 +48,7 @@ void ATeamCarryGameMode::Tick(float DeltaTime)
 {
     Super::Tick(DeltaTime);
 
-    ATeamCarryGameState* GS = GetGameState<ATeamCarryGameState>();
+    ATeamCarryGameState* GS = GetCachedGameState();
     if (!GS || GS->bIsGameFinished) return;
     
     // Playing 단계일 때만 스톱워치 작동
@@ -51,7 +62,7 @@ void ATeamCarryGameMode::SetTotalFurnitureCount(int32 Count)
 {
     TotalFurnitureCount = Count;
 
-    ATeamCarryGameState* GS = GetGameState<ATeamCarryGameState>();
+    ATeamCarryGameState* GS = GetCachedGameState();
     if (GS)
     {
         GS->RemainingFurniture = Count;
@@ -63,8 +74,7 @@ void ATeamCarryGameMode::SetTotalFurnitureCount(int32 Count)
 
 void ATeamCarryGameMode::Logout(AController* Exiting)
 {
-    // 스테이지 진행 중에 나간 플레이어 ID 저장
-    ATeamCarryGameState* GS = GetGameState<ATeamCarryGameState>();
+    ATeamCarryGameState* GS = GetCachedGameState();
     if (GS && GS->CurrentPhase == EGamePhase::Playing)
     {
         if (APlayerController* PC = Cast<APlayerController>(Exiting))
@@ -72,6 +82,13 @@ void ATeamCarryGameMode::Logout(AController* Exiting)
             if (PC->PlayerState && PC->PlayerState->GetUniqueId().IsValid())
             {
                 DisconnectedPlayerIds.Add(PC->PlayerState->GetUniqueId());
+
+                // 튕긴 플레이어가 있으므로 재접속 허용
+                if (UTCGameInstance* GI = Cast<UTCGameInstance>(GetGameInstance()))
+                {
+                    GI->SetAllowJoinInProgress(true);
+                    UE_LOG(LogTemp, Warning, TEXT("플레이어 이탈 | 재접속 허용 (bAllowJoinInProgress = true)"));
+                }
             }
         }
     }
@@ -92,16 +109,11 @@ void ATeamCarryGameMode::PostLogin(APlayerController* NewPlayer)
 {
     Super::PostLogin(NewPlayer);
 
-    ATeamCarryGameState* GS = GetGameState<ATeamCarryGameState>();
+    ATeamCarryGameState* GS = GetCachedGameState();
     if (!GS) return;
 
-    // 현재 맵이 로비맵인지 확인
-    FString CurrentMap = GetWorld()->GetMapName();
-    bool bIsLobby = CurrentMap.Contains(TEXT("L_Lobby"));
-
-    // 난입 차단은 실제 진행 중(Playing)일 때만 — 시작 전(WaitingToStart/Countdown)이나
-    // 스테이지 맵 직접 실행(에디터 PIE)의 첫 입장은 정상 허용한다
-    if (!bIsLobby && GS->CurrentPhase == EGamePhase::Playing)
+    // 스테이지 진행 중일 때만 재접속 여부 확인
+    if (GS->CurrentPhase == EGamePhase::Playing)
     {
         // 로비가 아닌 경우 (스테이지 진행 중)
         if (NewPlayer->PlayerState && NewPlayer->PlayerState->GetUniqueId().IsValid())
@@ -111,15 +123,19 @@ void ATeamCarryGameMode::PostLogin(APlayerController* NewPlayer)
 
             if (bIsReconnecting)
             {
-                // 튕긴 플레이어 → 재접속 허용
+                // 튕긴 플레이어 → 재접속 허용 후 다시 참여 차단
                 DisconnectedPlayerIds.Remove(NewPlayerId);
                 UE_LOG(LogTemp, Warning, TEXT("플레이어 재접속 | 게임 진행 중 복귀"));
-            }
-            else
-            {
-                // 새 플레이어 → 로비로 킥
-                UE_LOG(LogTemp, Warning, TEXT("새 플레이어 참여 불가 | 스테이지 진행 중"));
-                NewPlayer->ClientTravel(TEXT("/Game/Maps/L_Lobby"), ETravelType::TRAVEL_Absolute);
+
+                // 대기 중인 튕긴 플레이어가 없으면 다시 차단
+                if (DisconnectedPlayerIds.Num() == 0)
+                {
+                    if (UTCGameInstance* GI = Cast<UTCGameInstance>(GetGameInstance()))
+                    {
+                        GI->SetAllowJoinInProgress(false);
+                        UE_LOG(LogTemp, Warning, TEXT("재접속 완료 | 참여 차단 (bAllowJoinInProgress = false)"));
+                    }
+                }
             }
         }
     }
@@ -127,7 +143,7 @@ void ATeamCarryGameMode::PostLogin(APlayerController* NewPlayer)
 
 void ATeamCarryGameMode::SaveGame(const FString& StageName)
 {
-    ATeamCarryGameState* GS = GetGameState<ATeamCarryGameState>();
+    ATeamCarryGameState* GS = GetCachedGameState();
     if (!GS) return;
 
     // 기존 세이브 불러오기 (없으면 새로 생성)
@@ -162,19 +178,35 @@ UTCSaveGame* ATeamCarryGameMode::LoadGame()
 
 void ATeamCarryGameMode::SetGamePhase(EGamePhase NewPhase)
 {
-    ATeamCarryGameState* GS = GetGameState<ATeamCarryGameState>();
+    ATeamCarryGameState* GS = GetCachedGameState();
     if (!GS) return;
 
     GS->CurrentPhase = NewPhase;
 
     // 리슨 서버 호스트는 자기 자신에게 OnRep이 트리거되지 않으므로 수동 호출로 UI를 즉시 갱신한다.
     GS->OnRep_CurrentPhase();
-    
-    // Playing 단계 전환 시 UI 초기값 갱신
+
+    // Playing 단계 전환 시 새 플레이어 참여 차단 + UI 초기값 갱신
     if (NewPhase == EGamePhase::Playing)
     {
+        if (UTCGameInstance* GI = Cast<UTCGameInstance>(GetGameInstance()))
+        {
+            GI->SetAllowJoinInProgress(false);
+            UE_LOG(LogTemp, Warning, TEXT("스테이지 시작 | 참여 차단 (bAllowJoinInProgress = false)"));
+        }
+
         GS->OnRep_RemainingFurniture();
         GS->OnRep_TotalScore();
+    }
+
+    // Result 단계 전환 시 다시 참여 허용
+    if (NewPhase == EGamePhase::Result)
+    {
+        if (UTCGameInstance* GI = Cast<UTCGameInstance>(GetGameInstance()))
+        {
+            GI->SetAllowJoinInProgress(true);
+            UE_LOG(LogTemp, Warning, TEXT("스테이지 종료 | 참여 허용 (bAllowJoinInProgress = true)"));
+        }
     }
 
     UE_LOG(LogTemp, Warning, TEXT("게임 단계 전환: %d"), (int32)NewPhase);
@@ -189,32 +221,25 @@ void ATeamCarryGameMode::StartCountdown()
     TWeakObjectPtr<ATeamCarryGameMode> WeakThis = this;
 
     GetWorldTimerManager().SetTimer(CountdownTimerHandle, [WeakThis]()
+    {
+        if (!WeakThis.IsValid()) return;
+
+        WeakThis->CountdownTime -= 1.0f;
+        UE_LOG(LogTemp, Warning, TEXT("카운트다운: %.0f"), WeakThis->CountdownTime);
+
+        if (WeakThis->CountdownTime <= 0.0f)
         {
-            // 타이머가 실행되는 순간, 게임 모드가 이미 파괴되었다면 즉시 실행을 취소하여 크래시를 방지합니다.
-            if (!WeakThis.IsValid())
-            {
-                return;
-            }
-
-            WeakThis->CountdownTime -= 1.0f;
-
-            UE_LOG(LogTemp, Warning, TEXT("카운트다운: %.0f"), WeakThis->CountdownTime);
-
-            if (WeakThis->CountdownTime <= 0.0f)
-            {
-                // 타이머를 해제하고 게임 상태를 변경합니다.
-                WeakThis->GetWorldTimerManager().ClearTimer(WeakThis->CountdownTimerHandle);
-                WeakThis->SetGamePhase(EGamePhase::Playing);
-            }
-        }, 1.0f, true);
+            // 타이머를 해제하고 게임 상태를 변경합니다.
+            WeakThis->GetWorldTimerManager().ClearTimer(WeakThis->CountdownTimerHandle);
+            WeakThis->SetGamePhase(EGamePhase::Playing);
+        }
+    }, 1.0f, true);
 }
 
 void ATeamCarryGameMode::OnFurnitureEnterTruck(FName RowName, float CurrentHealth, float MaxHealth, int32 BaseScore)
 {
-    ATeamCarryGameState* GS = GetGameState<ATeamCarryGameState>();
-    if (!GS) return;
-    
-    if (GS->bIsGameFinished) return;
+    ATeamCarryGameState* GS = GetCachedGameState();
+    if (!GS || GS->bIsGameFinished) return;
 
     // 트럭 안 가구 목록에 추가
     FTruckFurnitureInfo Info;
@@ -224,12 +249,12 @@ void ATeamCarryGameMode::OnFurnitureEnterTruck(FName RowName, float CurrentHealt
     Info.BaseScore = BaseScore;
     FurnitureInTruck.Add(Info);
 
-    // 남은 가구 차감
+    AccumulatedScore += CalculateScore(CurrentHealth, MaxHealth, BaseScore);
+
     GS->RemainingFurniture--;
     GS->OnRep_RemainingFurniture();
 
-    // 예상 점수 계산 후 GameState에 반영
-    GS->TotalScore = CalculateFinalScore();
+    GS->TotalScore = AccumulatedScore;
     GS->OnRep_TotalScore();
 
     UE_LOG(LogTemp, Warning, TEXT("가구 트럭 진입: %s | 예상 점수: %d | 남은 가구: %d"),
@@ -244,16 +269,18 @@ void ATeamCarryGameMode::OnFurnitureEnterTruck(FName RowName, float CurrentHealt
 
 void ATeamCarryGameMode::OnFurnitureExitTruck(FName RowName)
 {
-    ATeamCarryGameState* GS = GetGameState<ATeamCarryGameState>();
-    if (!GS) return;
-    
-    if (GS->bIsGameFinished) return;
+    ATeamCarryGameState* GS = GetCachedGameState();
+    if (!GS || GS->bIsGameFinished) return;
 
     // 같은 RowName 중 첫 번째 하나만 제거
     for (int32 i = 0; i < FurnitureInTruck.Num(); i++)
     {
         if (FurnitureInTruck[i].RowName == RowName)
         {
+            AccumulatedScore -= CalculateScore(
+                FurnitureInTruck[i].CurrentHealth,
+                FurnitureInTruck[i].MaxHealth,
+                FurnitureInTruck[i].BaseScore);
             FurnitureInTruck.RemoveAt(i);
             break;
         }
@@ -262,7 +289,7 @@ void ATeamCarryGameMode::OnFurnitureExitTruck(FName RowName)
     GS->RemainingFurniture++;
     GS->OnRep_RemainingFurniture();
 
-    GS->TotalScore = CalculateFinalScore();
+    GS->TotalScore = AccumulatedScore;
     GS->OnRep_TotalScore();
 
     UE_LOG(LogTemp, Warning, TEXT("가구 트럭 이탈: %s | 예상 점수: %d | 남은 가구: %d"),
@@ -271,7 +298,7 @@ void ATeamCarryGameMode::OnFurnitureExitTruck(FName RowName)
 
 void ATeamCarryGameMode::OnFurnitureDestroyed()
 {
-    ATeamCarryGameState* GS = GetGameState<ATeamCarryGameState>();
+    ATeamCarryGameState* GS = GetCachedGameState();
     if (!GS || GS->bIsGameFinished) return;
 
     GS->RemainingFurniture--;
@@ -294,12 +321,7 @@ int32 ATeamCarryGameMode::CalculateStar(float ElapsedTime)
 
 int32 ATeamCarryGameMode::CalculateFinalScore()
 {
-    int32 Total = 0;
-    for (const FTruckFurnitureInfo& Info : FurnitureInTruck)
-    {
-        Total += CalculateScore(Info.CurrentHealth, Info.MaxHealth, Info.BaseScore);
-    }
-    return Total;
+    return AccumulatedScore;
 }
 
 int32 ATeamCarryGameMode::CalculateScore(float CurrentHealth, float MaxHealth, int32 BaseScore)
@@ -321,23 +343,19 @@ int32 ATeamCarryGameMode::CalculateScore(float CurrentHealth, float MaxHealth, i
 
 void ATeamCarryGameMode::FinishGame(bool bIsClear)
 {
-    ATeamCarryGameState* GS = GetGameState<ATeamCarryGameState>();
+    ATeamCarryGameState* GS = GetCachedGameState();
     if (!GS) return;
 
-    // 최종 점수 확정
-    GS->TotalScore = CalculateFinalScore();
+    GS->TotalScore = AccumulatedScore;
     GS->OnRep_TotalScore();
 
     GS->StarCount = CalculateStar(GS->ElapsedTime);
-
-    // bIsGameFinished를 true로 만들기 전에 TotalScore/StarCount를 먼저 확정해야 한다.
-    // OnRep_bIsGameFinished()가 TriggerGameResult(TotalScore, StarCount)로 두 값을 함께 읽어가기 때문이다.
+    
     GS->bIsGameFinished = true;
     GS->OnRep_bIsGameFinished();
 
     SetGamePhase(EGamePhase::Result);
 
-    // 명세 4장-8: 로컬 Pause 대신 타이머류도 명시적으로 정지시킨다(카운트다운 중 조기 종료되는 경우 대비).
     GetWorldTimerManager().ClearTimer(CountdownTimerHandle);
 
     if (bIsClear)
