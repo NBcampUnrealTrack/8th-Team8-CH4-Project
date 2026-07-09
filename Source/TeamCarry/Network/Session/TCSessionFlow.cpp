@@ -13,8 +13,29 @@ void UTCSessionFlow::Initialize(FSubsystemCollectionBase& Collection)
 	Super::Initialize(Collection);
 	// DefaultGame.ini [/Script/TeamCarry.TCSessionFlow] 의 맵 경로 오버라이드를 인스턴스에 반영.
 	LoadConfig();
+
+	// DT_Stages 가 맵 경로의 정본(2026-07-09 통합) — RowName "Title"/"Lobby"/"Tutorial" 행이
+	// 있으면 ini 값을 덮어쓴다 (StageId=0 예약행, 스테이지 목록에는 노출되지 않음).
+	// 행이 없거나 DT 미설정이면 기존 ini/기본값 폴백 그대로 동작한다.
+	if (UDataTable* Table = StageDataTable.LoadSynchronous())
+	{
+		auto OverrideFromRow = [Table](const TCHAR* RowName, FString& InOutPath)
+		{
+			if (const FStageInfo* Row = Table->FindRow<FStageInfo>(RowName, TEXT("SessionFlow.MapPaths"), false))
+			{
+				if (!Row->MapPath.IsEmpty())
+				{
+					InOutPath = Row->MapPath;
+				}
+			}
+		};
+		OverrideFromRow(TEXT("Title"), TitleMapPath);
+		OverrideFromRow(TEXT("Lobby"), LobbyMapPath);
+		OverrideFromRow(TEXT("Tutorial"), TutorialMapPath);
+	}
+
 	BindGameInstanceEvents();
-	UE_LOG(LogTCNet, Log, TEXT("UTCSessionFlow Initialized."));
+	UE_LOG(LogTCNet, Log, TEXT("UTCSessionFlow Initialized. (Title=%s Lobby=%s)"), *TitleMapPath, *LobbyMapPath);
 }
 
 void UTCSessionFlow::Deinitialize()
@@ -120,7 +141,8 @@ TArray<FStageInfo> UTCSessionFlow::GetAllStageInfos() const
 		Table->GetAllRows<FStageInfo>(TEXT("GetAllStageInfos"), Rows);
 		for (const FStageInfo* Row : Rows)
 		{
-			if (Row)
+			// StageId<=0 은 맵 경로 예약행(Title/Lobby/Tutorial) — 스테이지 목록에서 제외
+			if (Row && Row->StageId > 0)
 			{
 				Result.Add(*Row);
 			}
@@ -168,8 +190,10 @@ void UTCSessionFlow::HostStartGame()
 		UE_LOG(LogTCNet, Warning, TEXT("[SessionFlow] HostStartGame: 호스트 아님 — 무시"));
 		return;
 	}
-	// 새 게임 → 튜토리얼, 이어하기 → 선택된 스테이지(미선택 시 기본 1스테이지)로 직행.
-	const FString& NextMap = bContinueMode ? GetSelectedStageMapPath() : TutorialMapPath;
+	// [임시 2026-07-09] 튜토리얼 비활성 — 새 게임/이어하기 모두 선택된 스테이지로 직행.
+	// 튜토리얼(S_Tutorial·스킵 UI 포함)을 다시 켜려면 아래 원본 분기로 복원할 것:
+	//   const FString& NextMap = bContinueMode ? GetSelectedStageMapPath() : TutorialMapPath;
+	const FString NextMap = GetSelectedStageMapPath();
 	HostServerTravel(NextMap);
 }
 
