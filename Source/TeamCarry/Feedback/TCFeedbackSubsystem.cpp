@@ -8,6 +8,7 @@
 #include "Components/AudioComponent.h"
 #include "TimerManager.h"
 #include "Core/TeamCarryGameState.h"
+#include "Core/TeamCarryGameMode.h"
 #include "Network/Carry/TCCarriableFurniture.h"
 #include "CatchCharacter/Furniture/FurnitureGrabSystem.h"
 #include "Level/Vehicle/TCMovingTruck.h"
@@ -15,6 +16,8 @@
 #include "NiagaraFunctionLibrary.h"
 #include "NiagaraSystem.h"
 #include "Sound/SoundBase.h"
+#include "Blueprint/UserWidget.h"
+#include "Blueprint/WidgetBlueprintLibrary.h"
 #include "EngineUtils.h"
 
 namespace
@@ -23,8 +26,12 @@ namespace
 	const TCHAR* DefaultTruckInFX = TEXT("/Game/Developers/goldb/VFX/NS_TruckInPop.NS_TruckInPop");
 	const TCHAR* DefaultCountdownSound = TEXT("/Game/Developers/goldb/Audio/SW_CountTick.SW_CountTick");
 	const TCHAR* DefaultGoSound = TEXT("/Game/Developers/goldb/Audio/SW_CountGo.SW_CountGo");
-	const TCHAR* DefaultGameBGM = TEXT("/Game/Developers/goldb/Audio/SW_BGM_Main.SW_BGM_Main");
+	const TCHAR* DefaultBGMTracks[] = {
+		TEXT("/Game/Developers/goldb/Audio/SW_BGM_01.SW_BGM_01"),
+		TEXT("/Game/Developers/goldb/Audio/SW_BGM_02.SW_BGM_02"),
+	};
 	const TCHAR* DefaultGameClear = TEXT("/Game/Developers/goldb/Audio/SW_GameClear.SW_GameClear");
+	const TCHAR* TimeWarningWidgetPath = TEXT("/Game/Developers/goldb/UI/WBP_TimeWarning.WBP_TimeWarning_C");
 }
 
 bool UTCFeedbackSubsystem::ShouldCreateSubsystem(UObject* Outer) const
@@ -52,7 +59,13 @@ void UTCFeedbackSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 	TruckInFX = LoadObject<UNiagaraSystem>(nullptr, DefaultTruckInFX);
 	CountdownSound = LoadObject<USoundBase>(nullptr, DefaultCountdownSound);
 	GoSound = LoadObject<USoundBase>(nullptr, DefaultGoSound);
-	GameBGM = LoadObject<USoundBase>(nullptr, DefaultGameBGM);
+	for (const TCHAR* Path : DefaultBGMTracks)
+	{
+		if (USoundBase* Track = LoadObject<USoundBase>(nullptr, Path))
+		{
+			BGMTracks.Add(Track);
+		}
+	}
 
 	// 레벨에 이미 있는 운반 가구·플레이어에 피드백 컴포넌트 부착
 	for (TActorIterator<AActor> It(&InWorld); It; ++It)
@@ -171,12 +184,45 @@ void UTCFeedbackSubsystem::Tick(float DeltaTime)
 		{
 			if (GoSound) { UGameplayStatics::PlaySound2D(this, GoSound); }
 			// 시작음이 끝난 뒤 BGM 페이드인
+			bBGMBoosted = false;
 			World->GetTimerManager().SetTimer(BGMStartTimer, this,
 				&UTCFeedbackSubsystem::StartBGM, 1.2f, false);
 		}
 	}
 
-	// 게임 종료: BGM 페이드아웃 + 클리어 팡파르
+	// ── 시간 압박 연출: 잔여시간이 임계 이하로 떨어지면 BGM 배속 ──
+	// (제한시간 종료 자체는 ATeamCarryGameMode::Tick 이 처리 — 게임 룰은 게임모드 소관)
+	if (Phase == EGamePhase::Playing && !bBGMBoosted && BGMComp && BGMComp->IsPlaying())
+	{
+		// 제한시간의 정본은 게임모드(BP에서 스테이지별 오버라이드) — 서버/호스트에서 읽고,
+		// 순수 클라이언트는 서브시스템 기본값 폴백 (기본값을 게임모드와 일치시킬 것)
+		float EffectiveLimit = TimeLimitSeconds;
+		if (const ATeamCarryGameMode* GM = World->GetAuthGameMode<ATeamCarryGameMode>())
+		{
+			EffectiveLimit = GM->TimeLimitSeconds;
+		}
+		const float RemainingTime = EffectiveLimit - GS->ElapsedTime;
+		if (RemainingTime <= BGMSpeedupRemaining)
+		{
+			bBGMBoosted = true;
+			BGMComp->SetPitchMultiplier(BGMSpeedupPitch);
+			UE_LOG(LogTemp, Log, TEXT("[Feedback] BGM 배속 x%.2f (잔여 %.0f초)"), BGMSpeedupPitch, RemainingTime);
+
+			// 시간 임박 경고 UI — 붉은 비네트 펄스 + 경고 문구 (뷰포트가 수명 관리)
+			if (UClass* WarnCls = LoadClass<UUserWidget>(nullptr, TimeWarningWidgetPath))
+			{
+				if (APlayerController* PC = UGameplayStatics::GetPlayerController(World, 0))
+				{
+					if (UUserWidget* Warn = CreateWidget<UUserWidget>(PC, WarnCls))
+					{
+						Warn->AddToViewport(50); // HUD 위, 결과창 아래쯤
+					}
+				}
+			}
+		}
+	}
+
+	// 게임 종료: BGM 페이드아웃 + 클리어 팡파르 + 시간 경고 UI 제거
 	if (GS->bIsGameFinished && !bBGMFadedOut)
 	{
 		bBGMFadedOut = true;
@@ -185,20 +231,33 @@ void UTCFeedbackSubsystem::Tick(float DeltaTime)
 		{
 			UGameplayStatics::PlaySound2D(this, Clear);
 		}
+		if (UClass* WarnCls = LoadClass<UUserWidget>(nullptr, TimeWarningWidgetPath))
+		{
+			TArray<UUserWidget*> Warns;
+			UWidgetBlueprintLibrary::GetAllWidgetsOfClass(World, Warns, WarnCls, false);
+			for (UUserWidget* Wg : Warns)
+			{
+				Wg->RemoveFromParent();
+			}
+		}
 	}
 }
 
 void UTCFeedbackSubsystem::StartBGM()
 {
 	UWorld* World = GetWorld();
-	if (!World || !GameBGM || (BGMComp && BGMComp->IsPlaying()))
+	if (!World || BGMTracks.Num() == 0 || (BGMComp && BGMComp->IsPlaying()))
 	{
 		return;
 	}
-	BGMComp = UGameplayStatics::SpawnSound2D(World, GameBGM, 1.f, 1.f, 0.f, nullptr, false, false);
+	// 매 판 랜덤 트랙
+	USoundBase* Track = BGMTracks[FMath::RandRange(0, BGMTracks.Num() - 1)];
+	BGMComp = UGameplayStatics::SpawnSound2D(World, Track, 1.f, 1.f, 0.f, nullptr, false, false);
 	if (BGMComp)
 	{
+		BGMComp->SetPitchMultiplier(1.f);
 		BGMComp->FadeIn(2.0f, 0.35f); // 2초에 걸쳐 볼륨 0.35까지
+		UE_LOG(LogTemp, Log, TEXT("[Feedback] BGM 시작: %s"), *Track->GetName());
 	}
 }
 
@@ -216,22 +275,31 @@ void UTCFeedbackSubsystem::PlayDeposit()
 	if (TruckInSound) { UGameplayStatics::PlaySound2D(this, TruckInSound); }
 	if (TruckInFX && World)
 	{
-		// 트럭 위에서 팝 — 트럭이 없는 맵이면 로컬 플레이어 앞에 폴백
-		FVector Loc;
-		if (AActor* Truck = UGameplayStatics::GetActorOfClass(World, ATCMovingTruck::StaticClass()))
+		// 적재존(트리거) 또는 트럭 위에서 팝. 레벨 트럭은 BP(BP_ToyTruck/BP_TruckTrigger)라
+		// C++ 타입 매칭이 안 됨 — 클래스 이름으로 탐색한다. 못 찾으면 스폰하지 않는다
+		// (플레이어 앞 폴백은 오히려 오답이라 제거).
+		AActor* Anchor = nullptr;
+		for (TActorIterator<AActor> It(World); It; ++It)
 		{
-			Loc = Truck->GetActorLocation() + FVector(0, 0, 250);
+			const FString ClsName = It->GetClass()->GetName();
+			if (ClsName.Contains(TEXT("TruckTrigger")))
+			{
+				Anchor = *It;
+				break; // 적재존이 최우선
+			}
+			if (!Anchor && (ClsName.Contains(TEXT("ToyTruck")) || It->IsA<ATCMovingTruck>()))
+			{
+				Anchor = *It;
+			}
 		}
-		else if (APawn* Pawn = UGameplayStatics::GetPlayerPawn(World, 0))
-		{
-			Loc = Pawn->GetActorLocation() + Pawn->GetActorForwardVector() * 200 + FVector(0, 0, 100);
-		}
-		else
+		if (!Anchor)
 		{
 			return;
 		}
+		// 트리거 액터 위치가 볼륨 중심(공중)이라 +180이면 트럭 지붕 위 — 짐칸 높이로 약간만
+		const FVector Loc = Anchor->GetActorLocation() + FVector(0, 0, 60);
 		UNiagaraFunctionLibrary::SpawnSystemAtLocation(World, TruckInFX, Loc,
 			FRotator::ZeroRotator, FVector(1.5f));
-		UE_LOG(LogTemp, Log, TEXT("[Feedback] 적재 팝 스폰: %s"), *Loc.ToCompactString());
+		UE_LOG(LogTemp, Log, TEXT("[Feedback] 적재 팝 스폰: %s (%s)"), *Loc.ToCompactString(), *Anchor->GetName());
 	}
 }

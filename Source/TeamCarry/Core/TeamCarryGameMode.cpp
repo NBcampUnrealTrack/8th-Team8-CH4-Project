@@ -55,6 +55,13 @@ void ATeamCarryGameMode::Tick(float DeltaTime)
     if (GS->CurrentPhase == EGamePhase::Playing)
     {
         GS->ElapsedTime += DeltaTime;
+
+        // 제한시간 초과 시 실패 종료 (TimeLimitSeconds <= 0 이면 무제한)
+        if (TimeLimitSeconds > 0.0f && GS->ElapsedTime >= TimeLimitSeconds)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("제한시간 %.0f초 초과 — 게임 종료"), TimeLimitSeconds);
+            FinishGame(false);
+        }
     }
 }
 
