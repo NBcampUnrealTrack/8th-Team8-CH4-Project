@@ -19,7 +19,7 @@ void UFurnitureDamage::BeginPlay()
 	// 스폰 직후 낙하/배치 접촉으로 즉시 데미지 입는 것 방지 (서버 전용)
 	if (GetOwner() && GetOwner()->HasAuthority())
 	{
-		SetInvincible(2.f);
+		SetInvincible(3.f);
 	}
 }
 
@@ -46,9 +46,7 @@ void UFurnitureDamage::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, U
 	if (!Owner->HasAuthority() || !FurnitureStat)
 		return;
 
-	// 무적 상태면 충돌 데미지 무시
-	if (bIsInvincible)
-		return;
+	// (무적 체크는 아래로 이동 — 강한 물리 충격은 무적 관통시키기 위해 ImpactSpeed 계산 후 판정)
 
 	FString NetMode = Owner->HasAuthority() ? TEXT("Server") : TEXT("Client");
 
@@ -73,6 +71,7 @@ void UFurnitureDamage::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, U
 
 	// 충돌 세기(cm/s). 질량은 데미지에 영향 없음 — 가구별 위력은 CollisionDamageMultiplier로 조절
 	float ImpactSpeed = 0.f;
+	const bool bPhysicsImpact = (HitComp && HitComp->IsSimulatingPhysics());   // 공중 낙하·던짐 여부
 
 	if (HitComp && HitComp->IsSimulatingPhysics())
 	{
@@ -91,12 +90,27 @@ void UFurnitureDamage::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, U
 		// 접점 속도의 벽 법선 방향 성분 = 실제 충돌 세기 (스치는 방향 성분은 제외)
 		ImpactSpeed = FMath::Max(0.f, FVector::DotProduct(PointVelocity, -Hit.ImpactNormal));
 	}
+
+	// 무적 판정: 무적이어도 '강한 물리 충격'(던짐·큰 낙하)은 관통 → 던짐이 즉시 데미지 등록.
+	// 그 외(살짝 놓기·잔접촉·운반 부딪침)는 무적으로 보호.
+	if (bIsInvincible)
+	{
+		const bool bHardPhysicsHit = bPhysicsImpact && (ImpactSpeed >= InvincibilityBypassSpeed);
+		if (!bHardPhysicsHit)
+			return;
+	}
+
 	// 데미지 = 충돌 속도 × 가구의 데미지 배율
 	float Damage = ImpactSpeed * FurnitureStat->GetCollisionDamageMultiplier();
+
+	// 공중 낙하·던짐 충격만 강화 (운반 중 부딪침은 배율 1 유지)
+	if (bPhysicsImpact)
+		Damage *= PhysicsImpactDamageScale;
 
 	if (MinImpactSpeedForDamage < ImpactSpeed)
 	{
 		Damage *= DamagePerImpactSpeed;
+
 		//GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Red, FString::Printf(TEXT("충격 속도 : %f (최소 요구: %f)"), ImpactSpeed, MinImpactSpeedForDamage));
 		//GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Yellow, FString::Printf(TEXT("피해량 : %f"), Damage));
 		//GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Red, FString::Printf(TEXT("[%s] ApplyDamage 호출! 데미지: %f"), *NetMode, Damage));
@@ -109,8 +123,8 @@ void UFurnitureDamage::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, U
 			UDamageType::StaticClass()		// 데미지 속성 : 기본 데미지
 		);
 
-		// 피해를 입혔으므로 1초 동안 무적 (연쇄 충돌 완충)
-		SetInvincible(1.0f);
+		// 피해를 입혔으므로 0.5초 동안 무적 (연쇄 충돌 완충)
+		SetInvincible(0.5f);
 	}
 }
 
