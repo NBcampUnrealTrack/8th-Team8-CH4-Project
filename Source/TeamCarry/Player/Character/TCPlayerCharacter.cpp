@@ -181,10 +181,6 @@ void ATCPlayerCharacter::StartRun(const FInputActionValue& InValue)
 				// 2명 이상이 가구를 들고 있다면 달리기 불가 처리 후 함수 종료
 				if (GrabberCount >= 2)
 				{
-					if (GEngine)
-					{
-						GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Yellow, TEXT("2명 이상 운반 중: 달리기 불가"));
-					}
 					return;
 				}
 			}
@@ -214,15 +210,6 @@ void ATCPlayerCharacter::Interact(const FInputActionValue& InValue)
 	// 유효성 검사
 	if (GrabComponent)
 	{
-		// 뷰포트에 로그 출력
-		if (GEngine)
-		{
-			GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Green, TEXT("가구 잡기 시도"));
-		}
-
-		// 출력 로그
-		UE_LOG(LogTemp, Warning, TEXT("가구 잡기 시도"));
-
 		// 상호작용 - 잡기 실행 명령을 먼저 호출하고 성공 여부를 반환받음
 		bool bIsGrabSuccess = GrabComponent->TryInteract();
 
@@ -256,22 +243,9 @@ void ATCPlayerCharacter::Throw(const FInputActionValue& InValue)
 			// 2명 이상이면 애니메이션 X 던지기 요청 중단
 			if (FGS && FGS->GetGrabbedPlayers().Num() >= 2)
 			{
-				if (GEngine)
-				{
-					GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Red, TEXT("2명 이상 운반 중: 던지기 불가"));
-				}
 				return;
 			}
 		}
-
-		// 뷰포트에 로그 출력
-		if (GEngine)
-		{
-			GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Cyan, TEXT("가구 던지기 시도"));
-		}
-
-		// 출력 로그
-		UE_LOG(LogTemp, Warning, TEXT("가구 던지기 시도"));
 
 		// 애니메이션 재생
 		if (ThrowMontage)

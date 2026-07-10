@@ -66,14 +66,8 @@ void ATCGoalZone::CheckArrivals()
 		Delivered.Add(Furniture);
 		StageManager->RegisterDelivery(Furniture);
 
-		if (GEngine)
-		{
-			GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Cyan,
-				FString::Printf(TEXT("도착: %s (%d/%d)"),
-					*GetNameSafe(Furniture),
-					StageManager->GetDeliveredCount(),
-					StageManager->GetTargetCount()));
-		}
+		UE_LOG(LogTemp, Log, TEXT("도착: %s (%d/%d)"), *GetNameSafe(Furniture),
+			StageManager->GetDeliveredCount(), StageManager->GetTargetCount());
 	}
 }
 
