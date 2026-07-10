@@ -18,7 +18,9 @@ ATCBatItem::ATCBatItem()
 	Mesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Mesh"));
 	SetRootComponent(Mesh);
 	Mesh->SetCollisionProfileName(TEXT("PhysicsActor"));
-	Mesh->SetSimulatePhysics(true);
+	// 생성자에서 SetSimulatePhysics(true) 금지 — CDO 생성 중 물리 머티리얼 조회 에러로
+	// 쿠킹이 실패한다. 프로퍼티 직접 기록으로 동일 기본값 적용.
+	Mesh->BodyInstance.bSimulatePhysics = true;
 }
 
 void ATCBatItem::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
