@@ -23,9 +23,9 @@ namespace
 	// 놓는 순간 이 속도(cm/s) 이상이면 '던지기'로 판정 (던지기 임펄스=1000, 운반 속도≈300)
 	constexpr float ThrowSpeedThreshold = 600.f;
 
-	// 잔여시간 임박 시 남은 가구 빨간 아웃라인(스텐실 4) — 제한 5분 중 마지막 60초.
+	// 잔여시간 임박 시 남은 가구 빨간 아웃라인(스텐실 4) — 마지막 60초.
 	// BGM 배속(TCFeedbackSubsystem::BGMSpeedupRemaining=60)과 같은 순간에 발동한다.
-	constexpr float UrgentTimeLimit = 300.f;
+	// (RemainingTime 복제값을 직접 비교하므로 제한시간 폴백 상수는 더 이상 필요 없다)
 	constexpr float UrgentRemaining = 60.f;
 
 	// 내구도 감소(타격) 시 재생 — 2종 교대 (헤더 무수정을 위해 cpp 로컬 상수)
@@ -141,20 +141,13 @@ void UTCFeedbackComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 	{
 		// ── 시간 임박: 남아 있는(안 잡힌) 가구에 빨간 링(스텐실 4) 재주장 ──
 		// 남은 시간에 어느 가구를 옮겨야 하는지 한눈에 보이게 한다.
-		// 제한시간 정본은 게임모드(서버) — 클라 폴백은 UrgentTimeLimit 상수.
+		// RemainingTime 은 서버가 차감해 복제하는 '남은 시간' 그 자체이므로 직접 비교한다.
+		// (EffectiveLimit - RemainingTime 은 경과시간이 되어 게임 시작 직후에 켜지는 오동작)
 		UWorld* W = GetWorld();
 		const ATeamCarryGameState* GS = W ? W->GetGameState<ATeamCarryGameState>() : nullptr;
-		float EffectiveLimit = UrgentTimeLimit;
-		if (W)
-		{
-			if (const ATeamCarryGameMode* GM = W->GetAuthGameMode<ATeamCarryGameMode>())
-			{
-				EffectiveLimit = GM->TimeLimitSeconds;
-			}
-		}
 		const bool bUrgent = GS && !GS->bIsGameFinished
 			&& GS->CurrentPhase == EGamePhase::Playing
-			&& (EffectiveLimit - GS->ElapsedTime) <= UrgentRemaining;
+			&& GS->RemainingTime <= UrgentRemaining;
 		if (bUrgent)
 		{
 			if (UStaticMeshComponent* MeshC = Owner->FindComponentByClass<UStaticMeshComponent>())

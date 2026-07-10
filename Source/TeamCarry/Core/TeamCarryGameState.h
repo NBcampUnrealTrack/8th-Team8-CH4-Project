@@ -21,9 +21,9 @@ public:
 	UPROPERTY(ReplicatedUsing = OnRep_RemainingFurniture, BlueprintReadOnly)
 	int32 RemainingFurniture;
 
-	// 스톱워치 경과 시간 (초)
+	// 남은 시간 (초) — UI에 표시되는 카운트다운 값. TimeLimitSeconds 에서 차감된다.
 	UPROPERTY(Replicated, BlueprintReadOnly)
-	float ElapsedTime;
+	float RemainingTime;
 
 	// 게임 종료 여부
 	UPROPERTY(ReplicatedUsing = OnRep_bIsGameFinished, BlueprintReadOnly)

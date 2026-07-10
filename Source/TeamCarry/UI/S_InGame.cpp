@@ -110,7 +110,7 @@ void US_InGame::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 	{
 		if (ATeamCarryGameState* GS = World->GetGameState<ATeamCarryGameState>())
 		{
-			UpdateTimerDisplay(GS->ElapsedTime);
+			UpdateTimerDisplay(GS->RemainingTime);
 		}
 	}
 }
