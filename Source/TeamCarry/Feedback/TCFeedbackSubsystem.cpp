@@ -238,7 +238,7 @@ void UTCFeedbackSubsystem::Tick(float DeltaTime)
 		{
 			EffectiveLimit = GM->TimeLimitSeconds;
 		}
-		const float RemainingTime = EffectiveLimit - GS->ElapsedTime;
+		const float RemainingTime = GS->RemainingTime;
 		if (RemainingTime <= BGMSpeedupRemaining)
 		{
 			bBGMBoosted = true;
