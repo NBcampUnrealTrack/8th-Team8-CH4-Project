@@ -140,6 +140,7 @@ void UFurnitureGrabSystem::Grab(ACharacter* Grabber, FVector height, UPrimitiveC
 		Anchor.InitialFurnitureYaw = Owner->GetActorRotation().Yaw;
 		Anchor.InitialPlayerYaw    = Grabber->GetActorRotation().Yaw;       // 몸통 방향: GetDesiredYaw 기준, 그랩 시 스냅 방지
 		Anchor.InitialAimYaw       = Grabber->GetBaseAimRotation().Yaw;     // 카메라 방향: 가구 회전 기준
+		Anchor.PrevAimYaw          = Anchor.InitialAimYaw;                  // 견인 중 자기 회전 입력 감지 기준
 		Anchor.InitialAimPitch     = Grabber->GetBaseAimRotation().Pitch;   // 카메라 상하: 가구 높이 조절 기준
 		Anchors.Add(Grabber, Anchor);
 		Multicast_SetPlayerAnchor(Grabber, Anchor.InitialFurnitureYaw, Anchor.InitialPlayerYaw, Anchor.InitialAimYaw, Anchor.InitialOffset);
@@ -224,6 +225,9 @@ void UFurnitureGrabSystem::Release(ACharacter* Grabber)
 		FurnitureMesh->SetSimulatePhysics(true);
 		FurnitureMesh->SetCollisionProfileName(TEXT("PhysicsActor"));
 		Owner->SetReplicateMovement(true);
+
+		bYawStalemate = false;            // 다음 그랩에 교착 상태 누출 방지
+		bCarrierBlockedLastTick = false;  // 다음 그랩에 막힘 상태 누출 방지
 	}
 
 	// 놓는 순간 무적: 물리 복원 직후 바닥 낙하 접촉(Hit 이벤트)으로
@@ -405,8 +409,30 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 	}
 
 	// ---- 2. 가구 목표 Yaw + 위치 결정 ----
+	// [회전 교착 판정] 제안 방향들의 합 벡터 크기 R로 "의견 일치도"를 측정.
+	//  - 같은 방향이면 R ≈ WTotal(1.0), 정반대면 R ≈ 0.
+	//  - R이 거의 0인데 Atan2를 쓰면 방향이 정의되지 않아(Atan2(0,0)=0) 가구 Yaw가 엉뚱한 값으로
+	//    붕괴 → 몸통이 가구 Yaw에 종속이라 캐릭터 시선이 수직/반대로 틀어지는 버그의 원인이었음.
+	//  - 의견이 크게 갈리면(줄다리기) 회전하지 않고 현재 Yaw 유지. 경계 팔락임 방지용 히스테리시스.
+	const float AgreementRatio = (WTotal > 0.0)
+		? (float)(FMath::Sqrt(WSumSin * WSumSin + WSumCos * WSumCos) / WTotal)
+		: 1.0f;
+	if (bYawStalemate)
+	{
+		if (AgreementRatio > YawStalemateExitRatio)   { bYawStalemate = false; }
+	}
+	else
+	{
+		if (AgreementRatio < YawStalemateEnterRatio)  { bYawStalemate = true; }
+	}
+
+	// [운반자 막힘 → 회전 보류] 지난 틱 벽에 낀 운반자가 있었으면(Step 4 감지) 회전 정지.
+	// 낀 사람을 두고 가구만 돌면: 낀 사람만 견인/도달 앵커 재기록이 반복 → 두 사람의 기준 시점이
+	// 어긋남 → 제안 방향 불일치 → 원형 평균이 엉뚱한 곳을 가리킴 → 제어불능. 회전을 멈추면 차단됨.
 	// FixedTurn: 한 틱에 FurnYawRotationSpeed*DT 이상 회전 불가 → 빠른 카메라 회전 시 가구 튐 방지
-	const float TargetYawRaw = FMath::RadiansToDegrees(FMath::Atan2(WSumSin, WSumCos));
+	const float TargetYawRaw = (bYawStalemate || bCarrierBlockedLastTick)
+		? CurFurnYaw
+		: FMath::RadiansToDegrees(FMath::Atan2(WSumSin, WSumCos));
 	const float TargetYaw    = FMath::FixedTurn(CurFurnYaw, TargetYawRaw, FurnYawRotationSpeed * DeltaTime);
 
 	FVector WLocSum = FVector::ZeroVector;
@@ -530,6 +556,7 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 	}
 
 	// ---- 4. 벽 막힘 감지 → 가구 후퇴 (플레이어 직접 이동 없음, CMC 충돌 없음) ----
+	bCarrierBlockedLastTick = false;   // 이번 틱 감지 결과로 갱신 (아래에서 막히면 true)
 	if (bBlockedCarrierStopsFurniture)
 	{
 		FVector WorstBlock = FVector::ZeroVector;
@@ -567,8 +594,16 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 			// WorstBlock은 XY 성분만 있음(Shortfall Z=0) → Z는 Step 3 결과를 유지
 			// (CurFurnZ로 되돌리면 Z 추종(낙하 따라가기)을 매번 무효화하게 됨)
 			ActualLoc -= WorstBlock;
-			Owner->SetActorLocation(ActualLoc, false);
-			ActualLoc = Owner->GetActorLocation();
+			// 실제 배치는 카메라 높이 오프셋 포함, 앵커용 ActualLoc은 자연 좌표 유지
+			// (자연 좌표를 그대로 SetActorLocation하면 후퇴할 때마다 높이가 소실되는 버그)
+			Owner->SetActorLocation(ActualLoc + FVector(0.0f, 0.0f, CurrentHeightOffset), false);
+			ActualLoc = Owner->GetActorLocation() - FVector(0.0f, 0.0f, CurrentHeightOffset);
+
+			// [상대좌표 보존] 운반자가 막힌 동안은 회전을 보류(다음 틱)한다.
+			// 회전을 멈추면 가구가 낀 플레이어를 두고 돌지 않으므로 그랩 시점의 상대 위치·방향이
+			// 그대로 유지됨. (앵커를 재기록하지 않는 것이 핵심 — 재기록하면 낀 사람의 틀어진
+			//  위치가 새 기준으로 구워져 상대좌표가 소실되고 캐릭터·가구가 벌어진다.)
+			bCarrierBlockedLastTick = true;
 		}
 	}
 
@@ -647,6 +682,31 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 				Multicast_SetPlayerAnchor(P, ActualYaw, Anc.InitialPlayerYaw, Anc.InitialAimYaw, Anc.InitialOffset);
 			}
 			continue;
+		}
+
+		// [견인 중 회전 기준점 추종] 상대(P1)의 회전으로 이 플레이어가 견인되는 동안,
+		// 자기 카메라를 '안 움직이면' 회전 기준점을 현재 가구로 계속 재정렬해 회전 의도를 0으로 유지.
+		// → 나중에 이 플레이어가 카메라를 돌리면 '그랩 시점'이 아니라 '현재 가구' 기준으로 제안됨
+		//   (기준점이 그랩 시점에 머물러 제안이 크게 튀던 문제 해소).
+		// 자기 카메라를 '움직이면' 재정렬을 건너뛰어 그 입력이 회전 의도로 살아남(주도권 인수).
+		// 위치 상대좌표는 회전을 오프셋에 구워 보존(그랩 관계 유지). 몸통 기준은 현재값으로 연속.
+		{
+			FGrabAnchor& Anc   = Anchors[P];
+			const float  CurAim = P->GetBaseAimRotation().Yaw;
+			const float  AimMoved = FMath::Abs(FMath::FindDeltaAngleDegrees(Anc.PrevAimYaw, CurAim));
+			if (AimMoved < 0.1f)   // 카메라 정지 = 순수 견인 → 기준점 현재로 추종(의도 0)
+			{
+				const float OldYC = FMath::FindDeltaAngleDegrees(Anc.InitialFurnitureYaw, ActualYaw);
+				Anc.InitialOffset       = Anc.InitialOffset.RotateAngleAxis(OldYC, FVector::UpVector);
+				Anc.InitialFurnitureYaw = ActualYaw;
+				Anc.InitialAimYaw       = CurAim;
+				// 몸통 Yaw 기준은 '현재 몸통 대입'이 아니라 회전량(OldYC)만큼 함께 이동시켜
+				// GetDesiredYaw = InitPlayerYaw + (ActualYaw - InitFurnYaw) 결과를 재정렬 전후 '불변'으로 유지.
+				// (현재 몸통을 대입하면 서버 계산값과 클라 로컬 동기화 값의 기준이 어긋나
+				//  원격 클라에서 서버 회전 + 로컬 회전이 이중 적용 → 몸통이 2배로 돌아 뒤를 보게 됨)
+				Anc.InitialPlayerYaw    = FRotator::NormalizeAxis(Anc.InitialPlayerYaw + OldYC);
+			}
+			Anc.PrevAimYaw = CurAim;
 		}
 
 		// !bAtTarget: 피동 → 목표를 향해 끌어당김
