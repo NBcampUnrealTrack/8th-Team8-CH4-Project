@@ -362,6 +362,11 @@ void ATeamCarryGameMode::FinishGame(bool bIsClear)
     ATeamCarryGameState* GS = GetCachedGameState();
     if (!GS) return;
 
+    // 재진입 가드: bIsGameFinished 는 5초 뒤에야 true 가 되므로, 그 사이 Tick 의 시간초과
+    // 조건과 가구 적재 경로가 FinishGame 을 매 프레임 반복 호출해 결과 트리거/세이브가
+    // 수백 번 중복 실행된다. 페이즈를 즉시 Result 로 확정해 두 경로를 모두 차단한다.
+    if (GS->CurrentPhase == EGamePhase::Result) return;
+
     GS->TotalScore = AccumulatedScore;
     GS->OnRep_TotalScore();
 
@@ -370,6 +375,10 @@ void ATeamCarryGameMode::FinishGame(bool bIsClear)
 
     // 명세 4장-8: 로컬 Pause 대신 타이머류도 명시적으로 정지시킨다(카운트다운 중 조기 종료되는 경우 대비).
     GetWorldTimerManager().ClearTimer(CountdownTimerHandle);
+
+    // 페이즈는 즉시 Result 로 전환(위 재진입 가드의 기준). 결과 UI 트리거(bIsGameFinished)만
+    // 5초 뒤에 흘려보내 연출 딜레이를 유지한다. (OnRep_CurrentPhase 는 로그만 찍는 no-op)
+    SetGamePhase(EGamePhase::Result);
 
     // 5초 딜레이 후 결과창 표시
     TWeakObjectPtr<ATeamCarryGameMode> WeakThis = this;
@@ -385,8 +394,6 @@ void ATeamCarryGameMode::FinishGame(bool bIsClear)
         // OnRep_bIsGameFinished()가 TriggerGameResult(TotalScore, StarCount)로 두 값을 함께 읽어가기 때문이다.
         GS->bIsGameFinished = true;
         GS->OnRep_bIsGameFinished();
-
-        WeakThis->SetGamePhase(EGamePhase::Result);
 
         if (bIsClear)
         {
