@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 #include "TeamCarry/UI/S_Lobby.h"
 #include "CommonButtonBase.h"
@@ -37,6 +37,10 @@ void US_Lobby::NativeConstruct()
 	if (Btn_Back)
 	{
 		Btn_Back->OnClicked().AddUObject(this, &US_Lobby::HandleBackClicked);
+	}
+	if (Btn_KeyGuide)
+	{
+		Btn_KeyGuide->OnClicked().AddUObject(this, &US_Lobby::HandleKeyGuideClicked);
 	}
 
 	bLocalPlayerReady = false;
@@ -271,6 +275,16 @@ void US_Lobby::HandleBackClicked()
 				YesAction
 			);
 		}
+	}
+}
+
+void US_Lobby::HandleKeyGuideClicked()
+{
+	// 조작법 팝업을 연다.
+	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
+	{
+		UE_LOG(LogTemp, Log, TEXT("[UI PauseMenu] KeyGuide clicked. Pushing O_KeyGuide overlay."));
+		MockController->PushOverlay(TEXT("O_KeyGuide"));
 	}
 }
 

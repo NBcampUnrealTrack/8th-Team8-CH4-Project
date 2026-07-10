@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 #pragma once
 
@@ -56,6 +56,10 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
 	TObjectPtr<UCommonButtonBase> Btn_Back;
 
+	// '조작법 ' 확인 버튼.
+	UPROPERTY(meta = (BindWidget), BlueprintReadOnly, Category = "UI|Widget")
+	TObjectPtr<UCommonButtonBase> Btn_KeyGuide;
+
 	// --- 방 코드 표시(ATCLobbyGameState::RoomCode 복제값) ---
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
 	TObjectPtr<UTextBlock> Txt_RoomCode;
@@ -100,6 +104,9 @@ private:
 
 	UFUNCTION()
 	void HandleBackClicked();
+
+	UFUNCTION()
+	void HandleKeyGuideClicked();
 
 	// O_Confirm 팝업에서 '확인'을 눌렀을 때 실행될 브릿지 함수(방 나가기 → 타이틀 복귀).
 	UFUNCTION()
