@@ -146,7 +146,7 @@ void UGrabComponent::ScanBestTarget()
 	bool bHit = UKismetSystemLibrary::BoxTraceMulti(
 		this, Start, End, HalfSize, OwnerActor->GetActorRotation(),
 		UEngineTypes::ConvertToTraceType(ECC_Visibility),
-		false, ActorsToIgnore, EDrawDebugTrace::ForOneFrame, // 디버그 선 보려면 수정(None, ForOneFrame)
+		false, ActorsToIgnore, EDrawDebugTrace::None, // 디버그 선 보려면 수정(None, ForOneFrame)
 		HitResults, true
 	);
 
