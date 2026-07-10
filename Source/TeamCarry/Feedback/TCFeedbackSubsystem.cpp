@@ -18,6 +18,7 @@
 #include "Sound/SoundBase.h"
 #include "Blueprint/UserWidget.h"
 #include "Blueprint/WidgetBlueprintLibrary.h"
+#include "Engine/Engine.h"
 #include "EngineUtils.h"
 
 namespace
@@ -190,9 +191,11 @@ void UTCFeedbackSubsystem::Tick(float DeltaTime)
 		}
 	}
 
-	// ── 시간 압박 연출: 잔여시간이 임계 이하로 떨어지면 BGM 배속 ──
+	// ── 시간 압박 연출: 잔여시간이 임계 이하로 떨어지면 경고 UI + BGM 배속 ──
 	// (제한시간 종료 자체는 ATeamCarryGameMode::Tick 이 처리 — 게임 룰은 게임모드 소관)
-	if (Phase == EGamePhase::Playing && !bBGMBoosted && BGMComp && BGMComp->IsPlaying())
+	// 경고 UI는 BGM 재생 여부와 무관하게 떠야 하므로 BGMComp 조건을 게이트에 두지 않는다
+	// (BGM 미로드/정지 시 경고까지 통째로 사라지던 결합 제거).
+	if (Phase == EGamePhase::Playing && !bBGMBoosted)
 	{
 		// 제한시간의 정본은 게임모드(BP에서 스테이지별 오버라이드) — 서버/호스트에서 읽고,
 		// 순수 클라이언트는 서브시스템 기본값 폴백 (기본값을 게임모드와 일치시킬 것)
@@ -205,13 +208,18 @@ void UTCFeedbackSubsystem::Tick(float DeltaTime)
 		if (RemainingTime <= BGMSpeedupRemaining)
 		{
 			bBGMBoosted = true;
-			BGMComp->SetPitchMultiplier(BGMSpeedupPitch);
-			UE_LOG(LogTemp, Log, TEXT("[Feedback] BGM 배속 x%.2f (잔여 %.0f초)"), BGMSpeedupPitch, RemainingTime);
+			if (BGMComp && BGMComp->IsPlaying())
+			{
+				BGMComp->SetPitchMultiplier(BGMSpeedupPitch);
+				UE_LOG(LogTemp, Log, TEXT("[Feedback] BGM 배속 x%.2f (잔여 %.0f초)"), BGMSpeedupPitch, RemainingTime);
+			}
 
 			// 시간 임박 경고 UI — 붉은 비네트 펄스 + 경고 문구 (뷰포트가 수명 관리)
+			// 리슨 서버 월드의 PC 목록은 심리스 트래블 뒤 원격 클라이언트가 0번에 올 수 있어
+			// GetPlayerController(0) 대신 '로컬' 컨트롤러를 명시적으로 찾는다 (호스트에서 경고 미표시 원인).
 			if (UClass* WarnCls = LoadClass<UUserWidget>(nullptr, TimeWarningWidgetPath))
 			{
-				if (APlayerController* PC = UGameplayStatics::GetPlayerController(World, 0))
+				if (APlayerController* PC = GEngine ? GEngine->GetFirstLocalPlayerController(World) : nullptr)
 				{
 					if (UUserWidget* Warn = CreateWidget<UUserWidget>(PC, WarnCls))
 					{
