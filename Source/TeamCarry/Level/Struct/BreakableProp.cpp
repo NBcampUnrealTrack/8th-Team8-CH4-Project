@@ -16,7 +16,9 @@ ABreakableProp::ABreakableProp()
 
 	Mesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Mesh"));
 	SetRootComponent(Mesh);
-	Mesh->SetSimulatePhysics(false);
+	// 생성자에서 SetSimulatePhysics 금지(끄는 방향도 동일) — CDO 생성 중 물리 머티리얼
+	// 조회 에러로 쿠킹이 실패한다. 프로퍼티 직접 기록으로 대체.
+	Mesh->BodyInstance.bSimulatePhysics = false;
 	Mesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 	Mesh->SetNotifyRigidBodyCollision(true);
 }
