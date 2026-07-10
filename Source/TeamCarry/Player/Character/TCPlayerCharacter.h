@@ -116,6 +116,10 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TCPlayerCharacter|Input")
 	TObjectPtr<UInputAction> RotateYAction;
 
+	// 카메라 줌 액션 (마우스 휠)
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TCPlayerCharacter|Input")
+	TObjectPtr<UInputAction> ZoomAction;
+
 private:
 	// 달리기 시작/종료 처리
 	void StartRun(const FInputActionValue& InValue);
@@ -147,6 +151,9 @@ private:
 	// 가구 회전 입력 처리
 	void RotateZ(const FInputActionValue& InValue);
 	void RotateY(const FInputActionValue& InValue);
+
+	// 마우스 휠 줌 처리
+	void HandleZoomInput(const FInputActionValue& InValue);
 
 #pragma endregion
 
