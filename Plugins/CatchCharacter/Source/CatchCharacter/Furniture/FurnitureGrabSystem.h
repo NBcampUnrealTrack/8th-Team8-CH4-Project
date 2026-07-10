@@ -102,6 +102,15 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
 	float FurnYawRotationSpeed = 90.0f;
 
+	// [회전 교착] 제안 방향 일치도(0~1)가 이 값 미만이면 줄다리기로 보고 회전 정지.
+	// 등가중치 2인 기준 일치도 = cos(의견차/2) → 0.3 ≈ 의견차 145° 이상일 때 교착.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
+	float YawStalemateEnterRatio = 0.3f;
+
+	// [회전 교착] 일치도가 이 값을 넘어야 교착 해제 (진입값보다 크게 → 경계 팔락임 방지)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
+	float YawStalemateExitRatio = 0.4f;
+
 	// 카메라 상하(Pitch) → 가구 높이. 그랩 시점 대비 카메라가 1도 위/아래 볼 때마다 이 cm만큼 가구 높이 변경.
 	// 방향이 반대면(위 보는데 내려감) 부호를 뒤집을 것. 0이면 기능 끔.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
@@ -124,6 +133,7 @@ private:
 		float   InitialFurnitureYaw  = 0.0f;
 		float   InitialPlayerYaw     = 0.0f;  // 그랩 시점 캐릭터 몸통 Yaw (GetDesiredYaw 기준, 스냅 방지)
 		float   InitialAimYaw        = 0.0f;  // 그랩 시점 카메라 Yaw (가구 회전 기준)
+		float   PrevAimYaw           = 0.0f;  // 직전 틱 카메라 Yaw (견인 중 자기 회전 입력 감지용)
 		float   InitialAimPitch      = 0.0f;  // 그랩 시점 카메라 Pitch (가구 높이 조절 기준)
 	};
 	TMap<ACharacter*, FGrabAnchor> Anchors;
@@ -133,6 +143,12 @@ private:
 
 	// 이전 틱에 피동(끌어당김) 상태였던 플레이어 집합
 	TSet<ACharacter*> DraggedLastTick;
+
+	// [서버] 회전 교착(줄다리기) 상태. 히스테리시스로 관리 (Enter/ExitRatio 참고)
+	bool bYawStalemate = false;
+
+	// [서버] 지난 틱에 운반자가 벽에 막혔는가 (Step 4 감지 → 다음 틱 Step 2에서 회전 보류)
+	bool bCarrierBlockedLastTick = false;
 
 	// 이전 틱에 "피동→도달" 전환(bAtTarget && bWasDragged)이었던 플레이어 집합.
 	// 이 틱의 Step 1에서 가중치=0으로 처리해 역방향 견인력을 방지하되,
