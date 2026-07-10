@@ -36,7 +36,8 @@ void ATeamCarryGameMode::BeginPlay()
     ATeamCarryGameState* GS = GetCachedGameState();
     if (GS)
     {
-        GS->ElapsedTime = 0.0f;
+        // 남은 시간을 제한시간으로 초기화
+        GS->RemainingTime = TimeLimitSeconds;
     }
 
     // 게임 시작 시 카운트다운 시작
@@ -51,16 +52,18 @@ void ATeamCarryGameMode::Tick(float DeltaTime)
     ATeamCarryGameState* GS = GetCachedGameState();
     if (!GS || GS->bIsGameFinished) return;
     
-    // Playing 단계일 때만 스톱워치 작동
+    // Playing 단계일 때만 타이머 작동
     if (GS->CurrentPhase == EGamePhase::Playing)
     {
-        GS->ElapsedTime += DeltaTime;
+        // 남은 시간 차감
+        GS->RemainingTime -= DeltaTime;
 
-        // 제한시간 초과 시 실패 종료 (TimeLimitSeconds <= 0 이면 무제한)
-        if (TimeLimitSeconds > 0.0f && GS->ElapsedTime >= TimeLimitSeconds)
+        // 제한시간 초과 시 게임 종료 (TimeLimitSeconds <= 0 이면 무제한)
+        if (TimeLimitSeconds > 0.0f && GS->RemainingTime <= 0.0f)
         {
-            UE_LOG(LogTemp, Warning, TEXT("제한시간 %.0f초 초과 — 게임 종료"), TimeLimitSeconds);
-            FinishGame(false);
+            GS->RemainingTime = 0.0f;
+            UE_LOG(LogTemp, Warning, TEXT("제한시간 초과 — 게임 종료"));
+            FinishGame(true);
         }
     }
 }
@@ -229,6 +232,7 @@ void ATeamCarryGameMode::StartCountdown()
 
     GetWorldTimerManager().SetTimer(CountdownTimerHandle, [WeakThis]()
     {
+        // 타이머가 실행되는 순간, 게임 모드가 이미 파괴되었다면 즉시 실행을 취소하여 크래시를 방지합니다.
         if (!WeakThis.IsValid()) return;
 
         WeakThis->CountdownTime -= 1.0f;
@@ -256,8 +260,10 @@ void ATeamCarryGameMode::OnFurnitureEnterTruck(FName RowName, float CurrentHealt
     Info.BaseScore = BaseScore;
     FurnitureInTruck.Add(Info);
 
+    // 누적 점수 갱신 (전체 순회 대신 추가분만 계산)
     AccumulatedScore += CalculateScore(CurrentHealth, MaxHealth, BaseScore);
 
+    // 남은 가구 차감
     GS->RemainingFurniture--;
     GS->OnRep_RemainingFurniture();
 
@@ -284,6 +290,7 @@ void ATeamCarryGameMode::OnFurnitureExitTruck(FName RowName)
     {
         if (FurnitureInTruck[i].RowName == RowName)
         {
+            // 누적 점수에서 해당 가구 점수 차감
             AccumulatedScore -= CalculateScore(
                 FurnitureInTruck[i].CurrentHealth,
                 FurnitureInTruck[i].MaxHealth,
@@ -319,15 +326,17 @@ void ATeamCarryGameMode::OnFurnitureDestroyed()
     }
 }
 
-int32 ATeamCarryGameMode::CalculateStar(float ElapsedTime)
+int32 ATeamCarryGameMode::CalculateStar(float RemainingTime)
 {
-    if (ElapsedTime <= StarThreeTime) return 3;
-    if (ElapsedTime <= StarTwoTime)  return 2;
-    return 1;
+    // 남은 시간 기준 별 판정
+    if (RemainingTime >= StarThreeTime) return 3; // 4분 이상 남으면 별 3개
+    if (RemainingTime >= StarTwoTime)  return 2;  // 2분 이상 남으면 별 2개
+    return 1;                                     // 그 이하는 별 1개
 }
 
 int32 ATeamCarryGameMode::CalculateFinalScore()
 {
+    // 누적 점수 방식으로 최적화 (전체 순회 제거)
     return AccumulatedScore;
 }
 
@@ -356,26 +365,43 @@ void ATeamCarryGameMode::FinishGame(bool bIsClear)
     GS->TotalScore = AccumulatedScore;
     GS->OnRep_TotalScore();
 
-    GS->StarCount = CalculateStar(GS->ElapsedTime);
-    
-    GS->bIsGameFinished = true;
-    GS->OnRep_bIsGameFinished();
+    // 남은 시간 기준으로 별 판정
+    GS->StarCount = CalculateStar(GS->RemainingTime);
 
-    SetGamePhase(EGamePhase::Result);
-
+    // 명세 4장-8: 로컬 Pause 대신 타이머류도 명시적으로 정지시킨다(카운트다운 중 조기 종료되는 경우 대비).
     GetWorldTimerManager().ClearTimer(CountdownTimerHandle);
 
-    if (bIsClear)
+    // 5초 딜레이 후 결과창 표시
+    TWeakObjectPtr<ATeamCarryGameMode> WeakThis = this;
+    FTimerHandle FinishTimerHandle;
+    GetWorldTimerManager().SetTimer(FinishTimerHandle, [WeakThis, bIsClear]()
     {
-        SaveGame(GetWorld()->GetMapName());
-    }
+        if (!WeakThis.IsValid()) return;
 
-    UE_LOG(LogTemp, Warning, TEXT("게임 종료 | 최종 점수: %d | 별: %d개 | 소요 시간: %.1f초"),
-        GS->TotalScore, GS->StarCount, GS->ElapsedTime);
+        ATeamCarryGameState* GS = WeakThis->GetCachedGameState();
+        if (!GS) return;
+
+        // bIsGameFinished를 true로 만들기 전에 TotalScore/StarCount를 먼저 확정해야 한다.
+        // OnRep_bIsGameFinished()가 TriggerGameResult(TotalScore, StarCount)로 두 값을 함께 읽어가기 때문이다.
+        GS->bIsGameFinished = true;
+        GS->OnRep_bIsGameFinished();
+
+        WeakThis->SetGamePhase(EGamePhase::Result);
+
+        if (bIsClear)
+        {
+            WeakThis->SaveGame(WeakThis->GetWorld()->GetMapName());
+        }
+
+        UE_LOG(LogTemp, Warning, TEXT("게임 종료 | 최종 점수: %d | 별: %d개 | 남은 시간: %.1f초"),
+            GS->TotalScore, GS->StarCount, GS->RemainingTime);
+
+    }, 5.0f, false);
 }
 
 bool ATeamCarryGameMode::IsStageCleared() const
 {
+    // const 함수라 CachedGameState를 직접 쓸 수 없으므로 GetGameState 사용
     ATeamCarryGameState* GS = GetGameState<ATeamCarryGameState>();
     if (!GS) return false;
     return GS->bIsGameFinished;

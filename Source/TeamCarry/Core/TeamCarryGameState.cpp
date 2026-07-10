@@ -8,7 +8,7 @@ ATeamCarryGameState::ATeamCarryGameState()
 {
 	TotalScore = 0;
 	RemainingFurniture = 0;
-	ElapsedTime = 0.0f;
+	RemainingTime = 0.0f;
 	bIsGameFinished = false;
 	StarCount = 0;
 	CurrentPhase = EGamePhase::WaitingToStart;
@@ -20,7 +20,7 @@ void ATeamCarryGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 
 	DOREPLIFETIME(ATeamCarryGameState, TotalScore);
 	DOREPLIFETIME(ATeamCarryGameState, RemainingFurniture);
-	DOREPLIFETIME(ATeamCarryGameState, ElapsedTime);
+	DOREPLIFETIME(ATeamCarryGameState, RemainingTime);
 	DOREPLIFETIME(ATeamCarryGameState, bIsGameFinished);
 	DOREPLIFETIME(ATeamCarryGameState, StarCount);
 	DOREPLIFETIME(ATeamCarryGameState, CurrentPhase);
@@ -71,7 +71,7 @@ void ATeamCarryGameState::OnRep_bIsGameFinished()
 		if (UMockUIController* MockController = GetCachedMockController())
 		{
 			UE_LOG(LogTemp, Log, TEXT("[GameState] 게임 종료 확인. Result 화면 호출 (Score: %d, Star: %d)"), TotalScore, StarCount);
-			MockController->TriggerGameResult(TotalScore, StarCount, ElapsedTime);
+			MockController->TriggerGameResult(TotalScore, StarCount, RemainingTime);
 		}
 	}
 }

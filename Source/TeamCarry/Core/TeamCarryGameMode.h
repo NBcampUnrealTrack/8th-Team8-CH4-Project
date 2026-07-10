@@ -75,15 +75,17 @@ public:
 	// 카운트다운 시작
 	void StartCountdown();
 
-	// 별 3개 기준 시간 (블루프린트에서 스테이지마다 수정 가능)
+	// 별 3개 기준 남은 시간 (블루프린트에서 스테이지마다 수정 가능)
+	// 남은 시간이 이 값 이상이면 별 3개
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite)
-	float StarThreeTime = 180.0f; // 기본 3분
+	float StarThreeTime = 240.0f; // 기본 4분 이상 남으면 별 3개
 
-	// 별 2개 기준 시간
+	// 별 2개 기준 남은 시간
+	// 남은 시간이 이 값 이상이면 별 2개
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite)
-	float StarTwoTime = 600.0f; // 기본 10분
+	float StarTwoTime = 120.0f; // 기본 2분 이상 남으면 별 2개
 
-	// 게임 제한시간(초). 경과 시 실패로 종료. 0 이하 = 무제한
+	// 게임 제한시간(초). 경과 시 게임 종료. 0 이하 = 무제한
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite)
 	float TimeLimitSeconds = 300.0f; // 기본 5분
 
@@ -94,8 +96,8 @@ protected:
 	// 게임 종료 처리
 	void FinishGame(bool bIsClear);
 	
-	// 별 개수 판정
-	int32 CalculateStar(float ElapsedTime);
+	// 별 개수 판정 (남은 시간 기준)
+	int32 CalculateStar(float RemainingTime);
 
 private:
 	// 총 옮겨야 할 가구 개수

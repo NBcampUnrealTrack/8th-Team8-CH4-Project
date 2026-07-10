@@ -154,7 +154,7 @@ void UTCFeedbackComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 		}
 		const bool bUrgent = GS && !GS->bIsGameFinished
 			&& GS->CurrentPhase == EGamePhase::Playing
-			&& (EffectiveLimit - GS->ElapsedTime) <= UrgentRemaining;
+			&& (EffectiveLimit - GS->RemainingTime) <= UrgentRemaining;
 		if (bUrgent)
 		{
 			if (UStaticMeshComponent* MeshC = Owner->FindComponentByClass<UStaticMeshComponent>())
