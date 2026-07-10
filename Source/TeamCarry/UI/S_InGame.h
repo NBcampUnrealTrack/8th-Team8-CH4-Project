@@ -53,9 +53,10 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
 	TObjectPtr<UTextBlock> Txt_RemainingFurniture;
 
-	//부서진 정도 알려줌
-	//UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
-	//TObjectPtr<UTextBlock> TextBlock_WarnPlayers
+	// 부서진 정도 경고용(기능 미구현) — WBP에 위젯은 존재하므로 바인딩해서
+	// 기본값 "Text Block" 노출만 막는다. 경고 기능 구현 시 이 위젯을 사용할 것.
+	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
+	TObjectPtr<UTextBlock> TextBlock_WarnPlayers;
 
 private:
 	// --- Delegate Listeners ---

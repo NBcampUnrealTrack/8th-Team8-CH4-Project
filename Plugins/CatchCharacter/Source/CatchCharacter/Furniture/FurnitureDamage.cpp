@@ -46,6 +46,10 @@ void UFurnitureDamage::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, U
 	if (!Owner->HasAuthority() || !FurnitureStat)
 		return;
 
+	// 완전무적상태 확인
+	if (bIsSuperInvincible)
+		return;
+
 	// (무적 체크는 아래로 이동 — 강한 물리 충격은 무적 관통시키기 위해 ImpactSpeed 계산 후 판정)
 
 	FString NetMode = Owner->HasAuthority() ? TEXT("Server") : TEXT("Client");
@@ -156,6 +160,14 @@ void UFurnitureDamage::SetInvincible(float Duration)
 			false
 		);
 	}
+}
+
+void UFurnitureDamage::SetSuperInvincible(bool Active)
+{
+	if (GetOwner() && !GetOwner()->HasAuthority())
+		return;
+
+	bIsSuperInvincible = Active;
 }
 
 void UFurnitureDamage::DisableInvincible()

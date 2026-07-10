@@ -32,6 +32,22 @@ ATCPlayerCharacter::ATCPlayerCharacter()
 	SpringArm = CreateDefaultSubobject<USpringArmComponent>(TEXT("SpringArm"));
 	SpringArm->TargetArmLength = 400.f;
 	SpringArm->bUsePawnControlRotation = true;
+	
+	// 카메라가 벽에 부딪히도록 충돌 활설화
+	SpringArm->bDoCollisionTest = true;
+	
+	// 카메라가 몸통을 뚫지 않도록 스프링 암의 기준점을 펭귄 머리 높이로 올림
+	SpringArm->TargetOffset = FVector(0.f, 0.f, 80.f); 
+
+	// 카메라 충돌 구체의 크기를 키워 벽에 너무 깊이 파고들기 전에 미리 멈추게 방어
+	SpringArm->ProbeSize = 24.f;
+
+	// 카메라가 부드럽게 지연되며 따라오게 수정
+	SpringArm->bEnableCameraLag = true;
+	SpringArm->CameraLagSpeed = 15.0f;
+	SpringArm->bEnableCameraRotationLag = true;
+	SpringArm->CameraRotationLagSpeed = 10.0f;
+	
 	SpringArm->SetupAttachment(GetRootComponent());
 
 	// 카메라 컴포넌트 생성 및 스프링 암에 부착
@@ -69,6 +85,8 @@ void ATCPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 	EIC->BindAction(ToggleViewAction, ETriggerEvent::Started, this, &ThisClass::ToggleView);
 	EIC->BindAction(RotateZAction, ETriggerEvent::Triggered, this, &ThisClass::RotateZ);
 	EIC->BindAction(RotateYAction, ETriggerEvent::Triggered, this, &ThisClass::RotateY);
+	EIC->BindAction(ZoomAction, ETriggerEvent::Triggered, this, &ThisClass::HandleZoomInput);
+
 }
 
 // 게임 시작 시 수행
@@ -163,10 +181,6 @@ void ATCPlayerCharacter::StartRun(const FInputActionValue& InValue)
 				// 2명 이상이 가구를 들고 있다면 달리기 불가 처리 후 함수 종료
 				if (GrabberCount >= 2)
 				{
-					if (GEngine)
-					{
-						GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Yellow, TEXT("2명 이상 운반 중: 달리기 불가"));
-					}
 					return;
 				}
 			}
@@ -196,15 +210,6 @@ void ATCPlayerCharacter::Interact(const FInputActionValue& InValue)
 	// 유효성 검사
 	if (GrabComponent)
 	{
-		// 뷰포트에 로그 출력
-		if (GEngine)
-		{
-			GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Green, TEXT("가구 잡기 시도"));
-		}
-
-		// 출력 로그
-		UE_LOG(LogTemp, Warning, TEXT("가구 잡기 시도"));
-
 		// 상호작용 - 잡기 실행 명령을 먼저 호출하고 성공 여부를 반환받음
 		bool bIsGrabSuccess = GrabComponent->TryInteract();
 
@@ -238,22 +243,9 @@ void ATCPlayerCharacter::Throw(const FInputActionValue& InValue)
 			// 2명 이상이면 애니메이션 X 던지기 요청 중단
 			if (FGS && FGS->GetGrabbedPlayers().Num() >= 2)
 			{
-				if (GEngine)
-				{
-					GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Red, TEXT("2명 이상 운반 중: 던지기 불가"));
-				}
 				return;
 			}
 		}
-
-		// 뷰포트에 로그 출력
-		if (GEngine)
-		{
-			GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Cyan, TEXT("가구 던지기 시도"));
-		}
-
-		// 출력 로그
-		UE_LOG(LogTemp, Warning, TEXT("가구 던지기 시도"));
 
 		// 애니메이션 재생
 		if (ThrowMontage)
@@ -326,6 +318,27 @@ void ATCPlayerCharacter::RotateY(const FInputActionValue& InValue)
 		float DeltaTime = GetWorld()->GetDeltaSeconds();
 		GrabComponent->TryRotateFurniture(FRotator(135.0f * DeltaTime, 0.0f, 0.0f));
 	}
+}
+
+// 카메라 마우스 휠 줌 처리 함수
+void ATCPlayerCharacter::HandleZoomInput(const FInputActionValue& InValue)
+{
+	if (!SpringArm) return;
+
+	// 1인칭 상태일 때는 줌 조절을 제한
+	if (bIsFirstPerson) return;
+
+	// 마우스 휠 입력값 가져오기 (보통 위로 굴리면 1, 아래로 굴리면 -1)
+	const float ZoomValue = InValue.Get<float>();
+
+	// 한 번 휠을 굴릴 때 변하는 거리 (수치를 올려 속도 조절 가능)
+	const float ZoomStep = 40.0f;
+
+	// 마우스 휠을 위로 굴릴 때 줌 인(가까워짐) 마이너스
+	float NewArmLength = SpringArm->TargetArmLength - (ZoomValue * ZoomStep);
+
+	// 카메라가 캐릭터 내부로 파고들거나 너무 멀어지지 않게 최소/최대치 설정
+	SpringArm->TargetArmLength = FMath::Clamp(NewArmLength, 150.0f, 1000.0f);
 }
 
 // 애니메이션 전체 클라이언트 동기화

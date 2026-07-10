@@ -256,7 +256,7 @@ void UTCFeedbackSubsystem::StartBGM()
 	if (BGMComp)
 	{
 		BGMComp->SetPitchMultiplier(1.f);
-		BGMComp->FadeIn(2.0f, 0.35f); // 2초에 걸쳐 볼륨 0.35까지
+		BGMComp->FadeIn(2.0f, 0.22f); // 2초에 걸쳐 볼륨 0.22까지 — 조작음(픽업/드롭)이 묻히지 않게
 		UE_LOG(LogTemp, Log, TEXT("[Feedback] BGM 시작: %s"), *Track->GetName());
 	}
 }
@@ -296,8 +296,18 @@ void UTCFeedbackSubsystem::PlayDeposit()
 		{
 			return;
 		}
-		// 트리거 액터 위치가 볼륨 중심(공중)이라 +180이면 트럭 지붕 위 — 짐칸 높이로 약간만
-		const FVector Loc = Anchor->GetActorLocation() + FVector(0, 0, 60);
+		// 트리거 액터 위치는 볼륨 중심(공중) — 이펙트가 바닥에서 재생되도록 지면으로 내린다.
+		// 존 안의 가구/트럭(무버블)에 걸리지 않게 WorldStatic 오브젝트 타입만 트레이스.
+		FVector Loc = Anchor->GetActorLocation();
+		FHitResult Hit;
+		FCollisionObjectQueryParams ObjParams(ECC_WorldStatic);
+		FCollisionQueryParams QueryParams;
+		QueryParams.bTraceComplex = true;
+		QueryParams.AddIgnoredActor(Anchor); // 트리거 박스 자신에 걸리면 시작점이 그대로 반환된다
+		if (World->LineTraceSingleByObjectType(Hit, Loc + FVector(0, 0, 100), Loc - FVector(0, 0, 1000), ObjParams, QueryParams))
+		{
+			Loc.Z = Hit.Location.Z + 8.f;
+		}
 		UNiagaraFunctionLibrary::SpawnSystemAtLocation(World, TruckInFX, Loc,
 			FRotator::ZeroRotator, FVector(1.5f));
 		UE_LOG(LogTemp, Log, TEXT("[Feedback] 적재 팝 스폰: %s (%s)"), *Loc.ToCompactString(), *Anchor->GetName());

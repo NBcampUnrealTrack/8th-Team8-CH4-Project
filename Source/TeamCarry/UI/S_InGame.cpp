@@ -34,6 +34,12 @@ void US_InGame::NativeConstruct()
 	{
 		TextBlock_InteractPrompt->SetText(FText::GetEmpty());
 	}
+	if (TextBlock_WarnPlayers)
+	{
+		// 경고 기능 미구현 — WBP 기본값 "Text Block" 노출 방지
+		TextBlock_WarnPlayers->SetText(FText::GetEmpty());
+		TextBlock_WarnPlayers->SetVisibility(ESlateVisibility::Collapsed);
+	}
 	if (Image_Map)
 	{
 		if (MapTexture)
