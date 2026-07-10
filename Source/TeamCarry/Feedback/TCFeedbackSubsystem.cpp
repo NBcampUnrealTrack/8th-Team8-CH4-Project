@@ -12,6 +12,7 @@
 #include "Network/Carry/TCCarriableFurniture.h"
 #include "CatchCharacter/Furniture/FurnitureGrabSystem.h"
 #include "Level/Vehicle/TCMovingTruck.h"
+#include "Network/Session/TCSessionFlow.h"
 #include "Kismet/GameplayStatics.h"
 #include "NiagaraFunctionLibrary.h"
 #include "NiagaraSystem.h"
@@ -31,6 +32,9 @@ namespace
 		TEXT("/Game/Developers/goldb/Audio/SW_BGM_01.SW_BGM_01"),
 		TEXT("/Game/Developers/goldb/Audio/SW_BGM_02.SW_BGM_02"),
 	};
+	// 타이틀/로비 BGM — 인게임 BGM(페이즈 전환 트리거)과 달리 맵 진입 즉시 재생
+	const TCHAR* DefaultTitleBGM = TEXT("/Game/Developers/goldb/Audio/SW_BGM_Title.SW_BGM_Title");
+	const TCHAR* DefaultLobbyBGM = TEXT("/Game/Developers/goldb/Audio/SW_BGM_Lobby.SW_BGM_Lobby");
 	const TCHAR* DefaultGameClear = TEXT("/Game/Developers/goldb/Audio/SW_GameClear.SW_GameClear");
 	const TCHAR* TimeWarningWidgetPath = TEXT("/Game/Developers/goldb/UI/WBP_TimeWarning.WBP_TimeWarning_C");
 }
@@ -65,6 +69,36 @@ void UTCFeedbackSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 		if (USoundBase* Track = LoadObject<USoundBase>(nullptr, Path))
 		{
 			BGMTracks.Add(Track);
+		}
+	}
+
+	// ── 타이틀/로비 BGM: 맵 진입 즉시 재생 ──
+	// 맵 판별은 ATCPlayerController::BeginPlay 와 동일하게 SessionFlow 설정 경로와 비교한다
+	// (맵 이름 하드코딩 금지 — ini 로 경로를 바꿔도 계속 맞아떨어지도록).
+	const FString MapPath = UWorld::RemovePIEPrefix(InWorld.GetOutermost()->GetName());
+	const UTCSessionFlow* Flow = InWorld.GetGameInstance()
+		? InWorld.GetGameInstance()->GetSubsystem<UTCSessionFlow>() : nullptr;
+	const TCHAR* MenuBGMPath = nullptr;
+	if (Flow && MapPath.Equals(Flow->GetTitleMapPath(), ESearchCase::IgnoreCase))
+	{
+		MenuBGMPath = DefaultTitleBGM;
+	}
+	else if (Flow && MapPath.Equals(Flow->GetLobbyMapPath(), ESearchCase::IgnoreCase))
+	{
+		MenuBGMPath = DefaultLobbyBGM;
+	}
+	if (MenuBGMPath)
+	{
+		if (USoundBase* MenuTrack = LoadObject<USoundBase>(nullptr, MenuBGMPath))
+		{
+			BGMComp = UGameplayStatics::SpawnSound2D(&InWorld, MenuTrack, 1.f, 1.f, 0.f, nullptr, false, false);
+			if (BGMComp)
+			{
+				// 인게임 BGM(0.22)보다 높게 잡는다 — 메뉴 트랙은 편곡이 성겨서 같은 레벨이면
+				// 훨씬 작게 들리고(체감 음량), 메뉴에는 경쟁하는 조작음도 없다.
+				BGMComp->FadeIn(1.5f, 0.5f);
+				UE_LOG(LogTemp, Log, TEXT("[Feedback] 메뉴 BGM 시작: %s"), *MenuTrack->GetName());
+			}
 		}
 	}
 
