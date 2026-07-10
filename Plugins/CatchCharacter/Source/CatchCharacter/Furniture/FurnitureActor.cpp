@@ -23,10 +23,13 @@ AFurnitureActor::AFurnitureActor()
 
 
 	// 데이터 테이블의 Mass를 실제 물리 바디에 반영.
+	// 주의: 생성자(CDO 포함)에서 SetMassOverrideInKg를 부르면 질량 재계산이 물리 머티리얼을
+	// 조회(GEngine 미초기화)해 에러가 찍히고 쿠킹이 실패한다. BodyInstance에 직접 기록하면
+	// 바디 초기화 시점에 같은 값이 적용된다.
 	const float StatMass = GetFurnitureStat()->GetMass();
 	if (FurnitureMesh && StatMass > 0.f)
 	{
-		FurnitureMesh->SetMassOverrideInKg(NAME_None, StatMass, true);
+		FurnitureMesh->BodyInstance.SetMassOverride(StatMass, true);
 	}
 
 
