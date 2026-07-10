@@ -34,6 +34,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Furniture|Damage")
 	void SetInvincible(float Duration);
 
+	UFUNCTION(BlueprintCallable, Category = "Furniture|Damage")
+	void SetSuperInvincible(bool Active);
+
 	// 무적 즉시 해제 (서버 전용)
 	UFUNCTION(BlueprintCallable, Category = "Furniture|Damage")
 	void DisableInvincible();
@@ -78,6 +81,7 @@ protected:
 
 	// --- 무적 상태 (서버에서만 판정하므로 복제 불필요) ---
 	bool bIsInvincible = false;
+	bool bIsSuperInvincible = false;
 
 	FTimerHandle InvincibilityTimerHandle;
 
