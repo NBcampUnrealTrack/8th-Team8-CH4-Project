@@ -40,7 +40,9 @@ ATCFurnitureActor::ATCFurnitureActor()
 
     // 초기에는 보이지 않고, 물리도 꺼진 상태로 설정
     GeometryCollectionComp->SetVisibility(false);
-    GeometryCollectionComp->SetSimulatePhysics(false);
+    // 생성자에서 SetSimulatePhysics 금지 — CDO 생성 중 물리 머티리얼 조회 에러로 쿠킹 실패.
+    // 프로퍼티 직접 기록으로 대체 (파괴 시 SetSimulatePhysics(true) 런타임 호출은 그대로 유효).
+    GeometryCollectionComp->BodyInstance.bSimulatePhysics = false;
     GeometryCollectionComp->SetCollisionProfileName(TEXT("NoCollision"));
 
     // 클러스터 레벨별 파괴 임계값
