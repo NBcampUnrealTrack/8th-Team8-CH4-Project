@@ -119,11 +119,15 @@ void UFurnitureGrabSystem::Grab(ACharacter* Grabber, FVector height, UPrimitiveC
 		CurrentHeightOffset = 0.0f;
 
 		// 들어올릴 시 높이를 잡은 플레이어 기준 [FurnitureHeightMin, FurnitureHeightMax] 범위로 제한.
-		// (운반 중 매 틱 제약과 동일 기준 → 그랩 순간과 이후가 일관됨. 잡은 사람 1명이 기준)
+		// [피벗 오프셋 보정] 메쉬 중심축(피벗)이 실제 메쉬와 멀리 떨어진 가구는 피벗 Z로 제약하면
+		// 시각 메쉬가 엉뚱한 높이(천장/바닥)에 감. Bounds에서 피벗→메쉬중심 Z오프셋을 구해
+		// '메쉬 중심'이 범위에 오도록 클램프한 뒤 피벗으로 역산 (메쉬 무수정 해결).
+		const float MeshCenterOffZ = FurnitureMesh->Bounds.Origin.Z - Owner->GetActorLocation().Z;
 		FVector sumLocation = Owner->GetActorLocation() + height;
-		sumLocation.Z = FMath::Clamp(sumLocation.Z,
+		const float ClampedCenterZ = FMath::Clamp(sumLocation.Z + MeshCenterOffZ,
 			Grabber->GetActorLocation().Z + FurnitureHeightMin,
 			Grabber->GetActorLocation().Z + FurnitureHeightMax);
+		sumLocation.Z = ClampedCenterZ - MeshCenterOffZ;
 
 		Owner->SetActorLocation(sumLocation, false, nullptr, ETeleportType::TeleportPhysics);
 		Owner->SetReplicateMovement(false);
@@ -166,18 +170,14 @@ void UFurnitureGrabSystem::Grab(ACharacter* Grabber, FVector height, UPrimitiveC
 	if (UFurnitureDamage* DamageComp = Owner->FindComponentByClass<UFurnitureDamage>())
 		DamageComp->SetInvincible(0.5f);
 
-	// 모든 현재 그랩 플레이어 이동속도 = BaseSpeed * (현재인원 / 필요인원)
+	// 모든 현재 그랩 플레이어 이동속도 갱신 (필요 인원 미달이면 대폭 감속)
 	if (FurnitureStat)
 	{
-		const int32 Required = FurnitureStat->GetRequiredPlayer();
-		if (Required > 0)
+		const float NewSpeed = ComputeCarrySpeed();
+		for (ACharacter* P : GrabbedPlayers)
 		{
-			const float NewSpeed = FurnitureStat->GetBaseSpeed() * (float)GrabbedPlayers.Num() / (float)Required;
-			for (ACharacter* P : GrabbedPlayers)
-			{
-				if (UCharacterMovementComponent* PCMC = P->GetCharacterMovement())
-					PCMC->MaxWalkSpeed = NewSpeed;
-			}
+			if (UCharacterMovementComponent* PCMC = P->GetCharacterMovement())
+				PCMC->MaxWalkSpeed = NewSpeed;
 		}
 		FurnitureStat->UpdateGrabbedPlayers(GrabbedPlayers.Num());
 	}
@@ -205,18 +205,14 @@ void UFurnitureGrabSystem::Release(ACharacter* Grabber)
 	Anchors.Remove(Grabber);
 	DraggedLastTick.Remove(Grabber);
 
-	// 남은 그랩 플레이어 이동속도 재계산
+	// 남은 그랩 플레이어 이동속도 재계산 (필요 인원 미달이면 대폭 감속)
 	if (FurnitureStat && GrabbedPlayers.Num() > 0)
 	{
-		const int32 Required = FurnitureStat->GetRequiredPlayer();
-		if (Required > 0)
+		const float NewSpeed = ComputeCarrySpeed();
+		for (ACharacter* P : GrabbedPlayers)
 		{
-			const float NewSpeed = FurnitureStat->GetBaseSpeed() * (float)GrabbedPlayers.Num() / (float)Required;
-			for (ACharacter* P : GrabbedPlayers)
-			{
-				if (UCharacterMovementComponent* PCMC = P->GetCharacterMovement())
-					PCMC->MaxWalkSpeed = NewSpeed;
-			}
+			if (UCharacterMovementComponent* PCMC = P->GetCharacterMovement())
+				PCMC->MaxWalkSpeed = NewSpeed;
 		}
 	}
 
@@ -238,6 +234,22 @@ void UFurnitureGrabSystem::Release(ACharacter* Grabber)
 	if (FurnitureStat)
 		FurnitureStat->UpdateGrabbedPlayers(GrabbedPlayers.Num());
 }
+float UFurnitureGrabSystem::ComputeCarrySpeed() const
+{
+	if (!FurnitureStat)
+		return 0.0f;
+
+	const float Base     = FurnitureStat->GetBaseSpeed();
+	const int32 Required = FurnitureStat->GetRequiredPlayer();
+
+	// 필요 인원 미달 → 기본속도의 UnderMannedSpeedFactor배로 대폭 감속 (기본 1/10)
+	// 충족(초과 포함) → 기본속도 그대로
+	if (Required > 0 && GrabbedPlayers.Num() < Required)
+		return Base * UnderMannedSpeedFactor;
+
+	return Base;
+}
+
 void UFurnitureGrabSystem::AllRelease()
 {
 	TArray<ACharacter*> PlayersToRelease = GrabbedPlayers;
@@ -474,10 +486,13 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 			AvgPlayerZ += Players[i]->GetActorLocation().Z;
 		AvgPlayerZ /= (float)N;
 
-		const float DesiredZ = TargetLoc.Z + CurrentHeightOffset;
-		const float ClampedZ = FMath::Clamp(DesiredZ, AvgPlayerZ + FurnitureHeightMin, AvgPlayerZ + FurnitureHeightMax);
+		// [피벗 오프셋 보정] 제약을 피벗이 아니라 '메쉬 중심' 기준으로 → 피벗이 메쉬와 떨어진 가구도
+		// 시각 위치가 범위 안에 맞음(천장/바닥 관통 방지, 위치 일관).
+		const float MeshCenterOffZ = FurnitureMesh ? (FurnitureMesh->Bounds.Origin.Z - Owner->GetActorLocation().Z) : 0.0f;
+		const float DesiredCenterZ = TargetLoc.Z + CurrentHeightOffset + MeshCenterOffZ;
+		const float ClampedCenterZ = FMath::Clamp(DesiredCenterZ, AvgPlayerZ + FurnitureHeightMin, AvgPlayerZ + FurnitureHeightMax);
 		// 윈드업 방지: 범위 밖 입력이 계속 쌓이지 않도록, 실제 적용 가능한 오프셋으로 되돌려 저장
-		CurrentHeightOffset = ClampedZ - TargetLoc.Z;
+		CurrentHeightOffset = (ClampedCenterZ - MeshCenterOffZ) - TargetLoc.Z;
 	}
 
 	// ---- 3. 가구 이동 (sweep=true, 가구 자체 충돌) ----
@@ -1005,9 +1020,9 @@ void UFurnitureGrabSystem::UpdateLocalWalkSpeed()
 			LocalOriginalMaxWalkSpeed = CMC->MaxWalkSpeed;
 			bLocalSpeedReduced = true;
 		}
-		// OnRep는 인원이 바뀔 때마다 호출되므로 매번 이속을 재계산한다
-		if (FurnitureStat && FurnitureStat->GetRequiredPlayer() > 0)
-			CMC->MaxWalkSpeed = FurnitureStat->GetBaseSpeed() * (float)GrabbedPlayers.Num() / (float)FurnitureStat->GetRequiredPlayer();
+		// OnRep는 인원이 바뀔 때마다 호출되므로 매번 이속을 재계산한다 (서버와 동일 규칙)
+		if (FurnitureStat)
+			CMC->MaxWalkSpeed = ComputeCarrySpeed();
 	}
 	else if (bLocalSpeedReduced)
 	{

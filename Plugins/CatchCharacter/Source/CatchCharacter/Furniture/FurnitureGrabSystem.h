@@ -102,6 +102,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
 	float FurnYawRotationSpeed = 90.0f;
 
+	// 필요 인원 미달 시 이동속도 배율 (기본속도 대비). 0.1 = 1/10로 대폭 감속.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
+	float UnderMannedSpeedFactor = 0.1f;
+
 	// [회전 교착] 제안 방향 일치도(0~1)가 이 값 미만이면 줄다리기로 보고 회전 정지.
 	// 등가중치 2인 기준 일치도 = cos(의견차/2) → 0.3 ≈ 의견차 145° 이상일 때 교착.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
@@ -208,4 +212,7 @@ private:
 
 	void UpdateLocalWalkSpeed();
 	void SetGrabCollisionState(ACharacter* Player, bool bEnable);
+
+	// 운반 이동속도 계산: 필요 인원 미달이면 UnderMannedSpeedFactor배로 대폭 감속, 충족이면 기본속도
+	float ComputeCarrySpeed() const;
 };
