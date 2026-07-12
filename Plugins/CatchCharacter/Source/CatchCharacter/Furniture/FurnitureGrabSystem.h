@@ -84,6 +84,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
 	float YawCorrectionDeadzone = 0.25f;
 
+	// 캐릭터 몸통 Yaw 보간 속도. 목표(DesiredYaw)로 즉시 스냅하지 않고 이 속도로 부드럽게 회전.
+	// 낮을수록 부드럽지만 굼뜸, 높을수록 즉시에 가까움. 0 이하면 즉시 스냅.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
+	float BodyYawInterpSpeed = 12.0f;
+
 	// [서버] 원격 운반자 몸통 Yaw에 대한 서버 개입 허용 오차(도).
 	// 원격 몸통 Yaw는 그 클라가 로컬에서(복제된 가구 Yaw 기준 = 한두 틱 낡음) 돌려서 ServerMove로 올라오는데,
 	// 서버 Step 5가 최신 가구 Yaw로 매 틱 덮어쓰면 '낡은 값 ↔ 최신 값'이 서버 사본에서 매 틱 왕복
@@ -102,9 +107,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
 	float FurnYawRotationSpeed = 90.0f;
 
-	// 필요 인원 미달 시 이동속도 배율 (기본속도 대비). 0.1 = 1/10로 대폭 감속.
+	// 인원 미달 시 '1인당' 이동속도 기여분 (기본속도 대비). 0.2 = 1/5.
+	//   속도 = Base × min(1, 인원수 × 이 값). 예) 필요3인에 2명 = 2×0.2 = 2/5.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
-	float UnderMannedSpeedFactor = 0.1f;
+	float UnderMannedSpeedFactor = 0.2f;
 
 	// [회전 교착] 제안 방향 일치도(0~1)가 이 값 미만이면 줄다리기로 보고 회전 정지.
 	// 등가중치 2인 기준 일치도 = cos(의견차/2) → 0.3 ≈ 의견차 145° 이상일 때 교착.
@@ -213,6 +219,9 @@ private:
 	void UpdateLocalWalkSpeed();
 	void SetGrabCollisionState(ACharacter* Player, bool bEnable);
 
-	// 운반 이동속도 계산: 필요 인원 미달이면 UnderMannedSpeedFactor배로 대폭 감속, 충족이면 기본속도
+	// 운반 이동속도 계산: 필요 인원 미달이면 부족 정도만큼 극단적으로 감속, 충족이면 기본속도
 	float ComputeCarrySpeed() const;
+
+	// 몸통 Yaw를 DesiredYaw로 즉시 스냅하지 않고 BodyYawInterpSpeed로 보간해 적용 (부드러운 회전)
+	void ApplyBodyYaw(ACharacter* P, float DesiredYaw, float DeltaTime) const;
 };
