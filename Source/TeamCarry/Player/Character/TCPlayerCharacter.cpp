@@ -86,6 +86,13 @@ void ATCPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 	EIC->BindAction(RotateZAction, ETriggerEvent::Triggered, this, &ThisClass::RotateZ);
 	EIC->BindAction(RotateYAction, ETriggerEvent::Triggered, this, &ThisClass::RotateY);
 	EIC->BindAction(ZoomAction, ETriggerEvent::Triggered, this, &ThisClass::HandleZoomInput);
+	EIC->BindAction(Emote1Action, ETriggerEvent::Started, this, &ThisClass::Emote1);
+	EIC->BindAction(Emote2Action, ETriggerEvent::Started, this, &ThisClass::Emote2);
+	EIC->BindAction(Emote3Action, ETriggerEvent::Started, this, &ThisClass::Emote3);
+	EIC->BindAction(Emote4Action, ETriggerEvent::Started, this, &ThisClass::Emote4);
+	EIC->BindAction(MoveAction, ETriggerEvent::Started, this, &ThisClass::CancelEmote);
+	EIC->BindAction(JumpAction, ETriggerEvent::Started, this, &ThisClass::CancelEmote);
+	EIC->BindAction(RunAction, ETriggerEvent::Started, this, &ThisClass::CancelEmote);
 
 }
 
@@ -116,6 +123,17 @@ void ATCPlayerCharacter::HandleMoveInput(const FInputActionValue& InValue)
 	if (IsValid(Controller) == false)
 	{
 		UE_LOG(LogTemp, Error, TEXT("Controller is invalid."));
+		return;
+	}
+
+	// 이모트(춤)이 재생 중일 때는 이동 입력을 무시하여 미끄러짐 방지
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if (AnimInstance && (
+		AnimInstance->Montage_IsPlaying(Emote1Montage) ||
+		AnimInstance->Montage_IsPlaying(Emote2Montage) ||
+		AnimInstance->Montage_IsPlaying(Emote3Montage) ||
+		AnimInstance->Montage_IsPlaying(Emote4Montage)))
+	{
 		return;
 	}
 
@@ -341,6 +359,107 @@ void ATCPlayerCharacter::HandleZoomInput(const FInputActionValue& InValue)
 	SpringArm->TargetArmLength = FMath::Clamp(NewArmLength, 150.0f, 1000.0f);
 }
 
+// 이모트(춤) 처리 함수
+void ATCPlayerCharacter::Emote1(const FInputActionValue& InValue)
+{
+	if (Emote1Montage)
+	{
+		// 춤 시작 시 캐릭터의 현재 이동 속도를 강제로 0(즉시 정지) 설정
+		GetCharacterMovement()->StopMovementImmediately();
+
+		// 로컬 화면에서 먼저 춤 재생
+		PlayAnimMontage(Emote1Montage);
+
+		// 서버에 춤 재생 요청 (ActionID 2번)
+		ServerPlayActionMontage(2);
+	}
+}
+
+// 이모트(춤) 처리 함수
+void ATCPlayerCharacter::Emote2(const FInputActionValue& InValue)
+{
+	if (Emote2Montage)
+	{
+		GetCharacterMovement()->StopMovementImmediately();
+		PlayAnimMontage(Emote2Montage);
+		ServerPlayActionMontage(3);
+	}
+}
+
+// 이모트(춤) 처리 함수
+void ATCPlayerCharacter::Emote3(const FInputActionValue& InValue)
+{
+	if (Emote3Montage)
+	{
+		GetCharacterMovement()->StopMovementImmediately();
+		PlayAnimMontage(Emote3Montage);
+		ServerPlayActionMontage(4);
+	}
+}
+
+// 이모트(춤) 처리 함수
+void ATCPlayerCharacter::Emote4(const FInputActionValue& InValue)
+{
+	if (Emote4Montage)
+	{
+		GetCharacterMovement()->StopMovementImmediately();
+		PlayAnimMontage(Emote4Montage);
+		ServerPlayActionMontage(5);
+	}
+}
+
+// 이모트(춤) 취소 판정
+void ATCPlayerCharacter::CancelEmote(const FInputActionValue& InValue)
+{
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+
+	if (!AnimInstance) return;
+
+	// 현재 이모트 몽타주가 재생 중이라면
+	if (AnimInstance && AnimInstance->Montage_IsPlaying(Emote1Montage))
+	{
+		// 로컬 화면에서 몽타주 재생 중지
+		StopAnimMontage(Emote1Montage);
+
+		// 다른 플레이어들 화면에서도 중지되도록 서버에 요청
+		ServerStopActionMontage(2);
+	}
+	else if (Emote2Montage && AnimInstance->Montage_IsPlaying(Emote2Montage))
+	{
+		StopAnimMontage(Emote2Montage);
+		ServerStopActionMontage(3);
+	}
+	else if (Emote3Montage && AnimInstance->Montage_IsPlaying(Emote3Montage))
+	{
+		StopAnimMontage(Emote3Montage);
+		ServerStopActionMontage(4);
+	}
+	else if (Emote4Montage && AnimInstance->Montage_IsPlaying(Emote4Montage))
+	{
+		StopAnimMontage(Emote4Montage);
+		ServerStopActionMontage(5);
+	}
+}
+
+// Multicast - 애니메이션 중지 전체 클라이언트 동기화
+void ATCPlayerCharacter::MulticastStopActionMontage_Implementation(int32 ActionID)
+{
+	// 내 캐릭터가 아닌 다른 플레이어의 캐릭터일 때만 애니메이션 강제 중지
+	if (!IsLocallyControlled())
+	{
+		if (ActionID == 2 && Emote1Montage) StopAnimMontage(Emote1Montage);
+		else if (ActionID == 3 && Emote2Montage) StopAnimMontage(Emote2Montage);
+		else if (ActionID == 4 && Emote3Montage) StopAnimMontage(Emote3Montage);
+		else if (ActionID == 5 && Emote4Montage) StopAnimMontage(Emote4Montage);
+	}
+}
+
+// Server - 애니메이션 중지 요청 수신
+void ATCPlayerCharacter::ServerStopActionMontage_Implementation(int32 ActionID)
+{
+	MulticastStopActionMontage(ActionID);
+}
+
 // 애니메이션 전체 클라이언트 동기화
 void ATCPlayerCharacter::MulticastPlayActionMontage_Implementation(int32 ActionID)
 {
@@ -349,14 +468,12 @@ void ATCPlayerCharacter::MulticastPlayActionMontage_Implementation(int32 ActionI
 	if (!IsLocallyControlled())
 	{
 		// 전달받은 ID에 따라 각자의 PC에 세팅된 몽타주를 안전하게 재생
-		if (ActionID == 0 && GrabMontage)
-		{
-			PlayAnimMontage(GrabMontage);
-		}
-		else if (ActionID == 1 && ThrowMontage)
-		{
-			PlayAnimMontage(ThrowMontage);
-		}
+		if (ActionID == 0 && GrabMontage) PlayAnimMontage(GrabMontage);
+		else if (ActionID == 1 && ThrowMontage) PlayAnimMontage(ThrowMontage);
+		else if (ActionID == 2 && Emote1Montage) PlayAnimMontage(Emote1Montage);
+		else if (ActionID == 3 && Emote2Montage) PlayAnimMontage(Emote2Montage);
+		else if (ActionID == 4 && Emote3Montage) PlayAnimMontage(Emote3Montage);
+		else if (ActionID == 5 && Emote4Montage) PlayAnimMontage(Emote4Montage);
 	}
 }
 
