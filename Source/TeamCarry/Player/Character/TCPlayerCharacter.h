@@ -120,6 +120,19 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TCPlayerCharacter|Input")
 	TObjectPtr<UInputAction> ZoomAction;
 
+	// 이모트(춤) 1~4 입력 처리
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TCPlayerCharacter|Input")
+	TObjectPtr<UInputAction> Emote1Action;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TCPlayerCharacter|Input")
+	TObjectPtr<UInputAction> Emote2Action;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TCPlayerCharacter|Input")
+	TObjectPtr<UInputAction> Emote3Action;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TCPlayerCharacter|Input")
+	TObjectPtr<UInputAction> Emote4Action;
+
 private:
 	// 달리기 시작/종료 처리
 	void StartRun(const FInputActionValue& InValue);
@@ -155,6 +168,15 @@ private:
 	// 마우스 휠 줌 처리
 	void HandleZoomInput(const FInputActionValue& InValue);
 
+	// 이모트(춤) 1~4 입력 처리 함수
+	void Emote1(const FInputActionValue& InValue);
+	void Emote2(const FInputActionValue& InValue);
+	void Emote3(const FInputActionValue& InValue);
+	void Emote4(const FInputActionValue& InValue);
+
+	// 이모트(춤) 취소 입력 처리 함수
+	void CancelEmote(const FInputActionValue& InValue);
+
 #pragma endregion
 
 #pragma region Animation
@@ -168,6 +190,19 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TCPlayerCharacter|Animation")
 	TObjectPtr<UAnimMontage> ThrowMontage;
 
+	// 이모트 애니메니션 몽타주(1~4)
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TCPlayerCharacter|Animation")
+	TObjectPtr<UAnimMontage> Emote1Montage;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TCPlayerCharacter|Animation")
+	TObjectPtr<UAnimMontage> Emote2Montage;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TCPlayerCharacter|Animation")
+	TObjectPtr<UAnimMontage> Emote3Montage;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TCPlayerCharacter|Animation")
+	TObjectPtr<UAnimMontage> Emote4Montage;
+
 	// 서버에게 애니메이션 재생을 요청하는 RPC 함수
 	UFUNCTION(Server, Reliable)
 	void ServerPlayActionMontage(int32 ActionID);
@@ -176,6 +211,13 @@ protected:
 	UFUNCTION(NetMulticast, Reliable)
 	void MulticastPlayActionMontage(int32 ActionID);
 
+	// 서버에게 애니메이션 중지를 요청하는 RPC 함수
+	UFUNCTION(Server, Reliable)
+	void ServerStopActionMontage(int32 ActionID);
+
+	// 서버가 클라이언트에게 애니메이션 중지를 방송하는 RPC 함수
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastStopActionMontage(int32 ActionID);
 
 #pragma endregion
 };
