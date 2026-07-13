@@ -9,6 +9,29 @@
 #include "Net/UnrealNetwork.h"
 #include "CatchCharacter/Furniture/FurnitureGrabSystem.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "Engine/World.h"
+
+namespace
+{
+	// 벽 너머(가시선 차단) 대상 판정.
+	// 탐색용 박스 트레이스는 부피가 있어 얇은 벽 반대편 가구까지 히트로 돌려주므로,
+	// 시작점→대상 라인 트레이스가 대상이 아닌 다른 물체(벽)에 먼저 막히면 잡기 불가로 처리한다.
+	bool HasGrabLineOfSight(UWorld* World, AActor* OwnerActor, AActor* Target, const FVector& Start)
+	{
+		if (!World || !Target)
+		{
+			return false;
+		}
+		FHitResult Hit;
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(GrabLOS), /*bTraceComplex=*/false);
+		Params.AddIgnoredActor(OwnerActor);
+		if (!World->LineTraceSingleByChannel(Hit, Start, Target->GetActorLocation(), ECC_Visibility, Params))
+		{
+			return true; // 중간에 막는 것 없음
+		}
+		return Hit.GetActor() == Target; // 첫 차단물이 대상 자신이면 가시선 확보
+	}
+}
 
 // 틱 활성화 여부 및 초기화
 UGrabComponent::UGrabComponent()
@@ -162,6 +185,12 @@ void UGrabComponent::ScanBestTarget()
 			// 대상이 Interactable 인터페이스를 상속받았는지 확인
 			if (HitActor && HitActor->Implements<UTCInteractable>())
 			{
+				// 벽 너머 가구 차단: 박스에는 걸렸어도 가시선이 벽에 막히면 후보에서 제외
+				if (!HasGrabLineOfSight(GetWorld(), OwnerActor, HitActor, Start))
+				{
+					continue;
+				}
+
 				// 대상까지의 방향과 거리 계산
 				FVector DirectionToTarget = (HitActor->GetActorLocation() - Start).GetSafeNormal();
 				float Distance = FVector::Distance(Start, HitActor->GetActorLocation());
@@ -314,6 +343,18 @@ void UGrabComponent::ServerTryInteract_Implementation(AActor* TargetActor)
 	else if (TargetActor && TargetActor->Implements<UTCInteractable>())
 	{
 		ATCPlayerCharacter* OwnerCharacter = Cast<ATCPlayerCharacter>(GetOwner());
+
+		// 서버 측 가시선 재검증 — 클라이언트 스캔 시점과 서버 상태가 다르거나
+		// 조작된 요청이 와도 벽 너머 가구는 잡을 수 없게 막는다.
+		if (OwnerCharacter)
+		{
+			const FVector GrabOrigin = OwnerCharacter->GetActorLocation()
+				+ OwnerCharacter->GetActorForwardVector() * 50.0f;
+			if (!HasGrabLineOfSight(GetWorld(), OwnerCharacter, TargetActor, GrabOrigin))
+			{
+				return;
+			}
+		}
 
 		// 대상 가구가 지금 잡을 수 있는 상태인지 검증 (정원 초과 등 확인)
 		if (ITCInteractable::Execute_CanInteract(TargetActor, OwnerCharacter))

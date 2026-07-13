@@ -7,6 +7,7 @@
 #include "GameFramework/Controller.h"
 #include "Components/CapsuleComponent.h"
 #include "Net/UnrealNetwork.h"
+#include "Engine/OverlapResult.h"
 #include "CatchCharacter/Furniture/FurnitureStat.h"
 #include "CatchCharacter/Furniture/FurnitureDamage.h"
 
@@ -294,6 +295,7 @@ void UFurnitureGrabSystem::AddFurnitureOffset(FVector LocationOffset, float YawO
 	// 이동/회전 적용 전의 트랜스폼 기록
 	FVector OldLoc = Owner->GetActorLocation();
 	float OldYaw = Owner->GetActorRotation().Yaw;
+	const FTransform PreOffsetTransform = Owner->GetActorTransform();
 
 	// 가구 단독 이동 및 회전 적용
 	// Pitch(기울이기)는 HandleMovement가 매 틱 현재값을 유지하므로 여기서 바꾸면 그대로 운반됨
@@ -304,6 +306,34 @@ void UFurnitureGrabSystem::AddFurnitureOffset(FVector LocationOffset, float YawO
 	//Owner->SetActorLocationAndRotation(NewLoc, NewRot, true);
 	Owner->AddActorLocalRotation(FRotator(PitchOffset, YawOffset, 0.0f), true);
 	Owner->AddActorLocalOffset(LocationOffset, true);
+
+	// [벽 관통 방지] UE 의 스윕은 '이동'만 검사하고 회전에는 적용되지 않아, 긴 가구를
+	// 벽 옆에서 돌리면 벽에 파묻힌다. 한번 파묻히면 이후 스윕이 관통 방향으로 풀리면서
+	// 벽을 통과해 버리므로, 적용 결과가 정적 지오메트리(벽·바닥)와 겹치면 이번 오프셋을
+	// 통째로 되돌린다. (플레이어·다른 가구와의 겹침은 허용 — 정적만 검사)
+	if (FurnitureMesh && GetWorld())
+	{
+		FComponentQueryParams OverlapParams(SCENE_QUERY_STAT(FurnitureOffsetOverlap), Owner);
+		for (ACharacter* P : GrabbedPlayers)
+		{
+			OverlapParams.AddIgnoredActor(P);
+		}
+		FCollisionObjectQueryParams StaticOnly(ECC_WorldStatic);
+		TArray<FOverlapResult> Overlaps;
+		// 테스트 포즈를 3uu 올려서 검사 — 바닥에 닿아 있는(접촉 수준) 가구가
+		// 항상 '겹침'으로 오탐되어 회전이 전부 거부되는 것을 막는다.
+		// 벽 관통은 측면 겹침이라 3uu 상승과 무관하게 그대로 검출된다.
+		const FVector OverlapTestLoc = FurnitureMesh->GetComponentLocation() + FVector(0.f, 0.f, 3.f);
+		const bool bPenetratesStatic = GetWorld()->ComponentOverlapMulti(
+			Overlaps, FurnitureMesh,
+			OverlapTestLoc, FurnitureMesh->GetComponentQuat(),
+			OverlapParams, StaticOnly);
+		if (bPenetratesStatic)
+		{
+			Owner->SetActorTransform(PreOffsetTransform, false, nullptr, ETeleportType::TeleportPhysics);
+			return; // 변화 없음 — 앵커 갱신·클라 통지 생략
+		}
+	}
 
 	// 위치 이동
 	//Owner->SetActorLocation(NewLoc, true);
