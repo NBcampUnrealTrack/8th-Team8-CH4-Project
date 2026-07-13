@@ -101,6 +101,16 @@ void ATCPlayerCharacter::BeginPlay()
 {
 	Super::BeginPlay();
 
+	// 마우스 조작감 — 카메라 회전 랙을 줄여 시선이 '확확' 따라오게 한다.
+	// (랙 10.0은 카메라가 마우스를 눈에 띄게 뒤따라와 조작이 둔하게 느껴지던 원인)
+	// 생성자 기본값 대신 여기서 덮어쓰는 것은 Live Coding 호환용 런타임 튜닝 지점 —
+	// 값 확정 후 생성자 기본값으로 옮겨도 된다.
+	if (SpringArm)
+	{
+		SpringArm->CameraRotationLagSpeed = 25.f;
+		SpringArm->CameraLagSpeed = 20.f;
+	}
+
 	// 로컬 플레이어가 조종하는 캐릭터인지 확인
 	if (IsLocallyControlled() == true)
 	{
@@ -181,28 +191,13 @@ float ATCPlayerCharacter::GetAimPitch() const
 // 플레이어 달리기 시작
 void ATCPlayerCharacter::StartRun(const FInputActionValue& InValue)
 {
-	// 가구를 들고 있는지 확인
+	// 운반 중에는 인원수와 무관하게 달리기가 MaxWalkSpeed를 건드리지 않는다.
+	// 운반 속도는 GrabSystem(ComputeCarrySpeed)이 서버·클라 양쪽에서 관리하는데,
+	// 여기서 500으로 덮어쓰면 서버 운반 속도와 어긋나 클라 예측 이동이 매 move마다
+	// 보정(ClientAdjustPosition)되며 러버밴딩이 남 — 1인 운반도 동일.
 	if (GrabComponent && GrabComponent->GetGrabbedActor())
 	{
-		ATCFurnitureActor* Furniture = Cast<ATCFurnitureActor>(GrabComponent->GetGrabbedActor());
-
-		if (Furniture)
-		{
-			// 가구의 GrabSystem을 통해 가구를 들고 있는 플레이어 인원수 조회
-			UFurnitureGrabSystem* FGS = Furniture->GetGrabSystem();
-
-			if (FGS)
-			{
-				// 팀원 코드에 맞춰 잡고 있는 인원수를 가져오는 함수로 수정 필요
-				int32 GrabberCount = FGS->GetGrabbedPlayers().Num();
-
-				// 2명 이상이 가구를 들고 있다면 달리기 불가 처리 후 함수 종료
-				if (GrabberCount >= 2)
-				{
-					return;
-				}
-			}
-		}
+		return;
 	}
 
 	// 달리기 최대 속도 500
@@ -215,6 +210,12 @@ void ATCPlayerCharacter::StartRun(const FInputActionValue& InValue)
 // 플레이어 달리기 종료 -> 걷기
 void ATCPlayerCharacter::StopRun(const FInputActionValue& InValue)
 {
+	// 운반 중이면 속도 복원도 건너뜀 — 250 하드코딩이 운반 속도를 덮어쓰는 것 방지 (StartRun과 대칭)
+	if (GrabComponent && GrabComponent->GetGrabbedActor())
+	{
+		return;
+	}
+
 	// 걷기 속도 250
 	GetCharacterMovement()->MaxWalkSpeed = 250.f;
 
@@ -487,11 +488,20 @@ void ATCPlayerCharacter::ServerPlayActionMontage_Implementation(int32 ActionID)
 // Server - 달리기 종료
 void ATCPlayerCharacter::ServerStopRun_Implementation()
 {
+	// 운반 중 도착한 낡은 RPC(그랩 직전 발사) 무시 — 서버 운반 속도 덮어쓰기 방지
+	if (GrabComponent && GrabComponent->GetGrabbedActor())
+	{
+		return;
+	}
 	GetCharacterMovement()->MaxWalkSpeed = 250.f;
 }
 
 // Server - 달리기 시작
 void ATCPlayerCharacter::ServerStartRun_Implementation()
 {
+	if (GrabComponent && GrabComponent->GetGrabbedActor())
+	{
+		return;
+	}
 	GetCharacterMovement()->MaxWalkSpeed = 500.f;
 }
