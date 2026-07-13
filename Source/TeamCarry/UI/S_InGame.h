@@ -30,6 +30,11 @@ protected:
 	virtual TOptional<FUIInputConfig> GetDesiredInputConfig() const override;
 
 	// --- HUD Bound Widgets ---
+	// 팀 값어치 게이지(진행도). 기존 텍스트 전용 점수판을 대체한다(UI_Technical_Spec.md 4장-7).
+	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
+	TObjectPtr<UProgressBar> PB_TeamMoney;
+
+	// PB_TeamMoney 내부에 겹쳐 표시되는 "현재 값어치 / 전체 목표 값어치" 텍스트.
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
 	TObjectPtr<UTextBlock> TextBlock_Score;
 
@@ -84,4 +89,7 @@ private:
 
 	// 불필요한 문자열 재생성을 막기 위해 마지막으로 표시한 '초' 단위 값을 캐시한다.
 	int32 LastDisplayedSeconds = -1;
+
+	// 팀 값어치 게이지의 Max 값(전체 목표 값어치). 스테이지 중 불변이므로 NativeConstruct에서 1회만 조회한다.
+	int32 CachedTotalLevelValue = 0;
 };

@@ -89,6 +89,13 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite)
 	float TimeLimitSeconds = 300.0f; // 기본 5분
 
+	// 이 스테이지에서 획득 가능한 전체 목표 값어치. 가구별 BaseScore가 블루프린트 이벤트 그래프에서만
+	// 관리되어(C++/DataTable에 없음) 자동 합산이 불가능하므로, 다른 스테이지별 상수(TimeLimitSeconds 등)와
+	// 같은 방식으로 디자이너가 스테이지마다 직접 설정한다. S_InGame 팀 값어치 게이지(PB_TeamMoney)의
+	// Max 값으로 쓰인다(UI_Technical_Spec.md 4장-7).
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite)
+	int32 TotalLevelValue = 10000;
+
 protected:
 	// 점수 계산
 	int32 CalculateScore(float CurrentHealth, float MaxHealth, int32 BaseScore);
