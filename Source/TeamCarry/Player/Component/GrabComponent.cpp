@@ -15,21 +15,37 @@ namespace
 {
 	// 벽 너머(가시선 차단) 대상 판정.
 	// 탐색용 박스 트레이스는 부피가 있어 얇은 벽 반대편 가구까지 히트로 돌려주므로,
-	// 시작점→대상 라인 트레이스가 대상이 아닌 다른 물체(벽)에 먼저 막히면 잡기 불가로 처리한다.
+	// 시작점→대상 라인 트레이스가 '벽 등 비상호작용 차단물'에 먼저 막히면 잡기 불가로 본다.
+	// 도중의 다른 가구(Interactable)는 시야 차단으로 치지 않는다 — 가구 무더기 뒤의
+	// 가구도 잡을 수 있어야 하므로, 가구 히트는 무시 목록에 넣고 재시도한다(최대 4겹).
 	bool HasGrabLineOfSight(UWorld* World, AActor* OwnerActor, AActor* Target, const FVector& Start)
 	{
 		if (!World || !Target)
 		{
 			return false;
 		}
-		FHitResult Hit;
 		FCollisionQueryParams Params(SCENE_QUERY_STAT(GrabLOS), /*bTraceComplex=*/false);
 		Params.AddIgnoredActor(OwnerActor);
-		if (!World->LineTraceSingleByChannel(Hit, Start, Target->GetActorLocation(), ECC_Visibility, Params))
+		for (int32 Depth = 0; Depth < 4; ++Depth)
 		{
-			return true; // 중간에 막는 것 없음
+			FHitResult Hit;
+			if (!World->LineTraceSingleByChannel(Hit, Start, Target->GetActorLocation(), ECC_Visibility, Params))
+			{
+				return true; // 아무것도 안 막힘
+			}
+			AActor* HitActor = Hit.GetActor();
+			if (HitActor == Target)
+			{
+				return true; // 대상 도달
+			}
+			if (HitActor && HitActor->Implements<UTCInteractable>())
+			{
+				Params.AddIgnoredActor(HitActor); // 가구는 통과 — 다음 겹 검사
+				continue;
+			}
+			return false; // 벽 등 비상호작용 차단물
 		}
-		return Hit.GetActor() == Target; // 첫 차단물이 대상 자신이면 가시선 확보
+		return false; // 4겹 이상 가려짐 — 사실상 도달 불가로 간주
 	}
 }
 
