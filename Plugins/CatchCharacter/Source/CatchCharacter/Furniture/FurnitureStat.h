@@ -45,11 +45,13 @@ public:
 	int32 GetCurrentGrabbedPlayer() const { return CurrentGrabbedPlayer; }
 	float GetBaseSpeed() const { return BaseSpeed; }
 	float GetCurrentHealth() const { return CurrentHealth; }
+	float GetMaxHealth() const { return MaxHealth; }
 	int32 GetGrabbedPlayerNum() const { return CurrentGrabbedPlayer; }
 	int32 GetRequiredPlayer() const { return RequiredPlayer; }
 	float GetCollisionDamageMultiplier() const { return CollisionDamageMultiplier; }
 	float GetMass() const { return Mass; }
 	float GetFriction() const { return Friction; }
+	float GetPrice() const { return Price; }
 
 	UPROPERTY(BlueprintAssignable)
 	FOnFurnitureDamage OnFurnitureDamage;
@@ -60,13 +62,23 @@ public:
 protected:
 	virtual void BeginPlay() override;
 
+	// CurrentHealth 복제 콜백: 클라에서도 체력 변화를 감지해 OnFurnitureDamage를 브로드캐스트
+	// (금 표시 등 시각 처리를 모든 머신에서 하기 위함). OldHealth = 복제 직전 값.
+	UFUNCTION()
+	void OnRep_CurrentHealth(float OldHealth);
+
 	// --- 설정값 (서버에서 데이터 테이블로부터 주입받음) ---
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Furniture|State")
 	FFurnitureData DefaultStats;
 
 	// --- 런타임 상태 (Replicated) ---
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Replicated, Category = "Furniture|State")
+	// ReplicatedUsing: 체력이 바뀌면 서버·클라 모두 콜백이 돌아 시각 처리를 통일
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, ReplicatedUsing = OnRep_CurrentHealth, Category = "Furniture|State")
 	float CurrentHealth;
+
+	// 최대 체력. 금 표시 %(CurrentHealth/MaxHealth) 계산에 클라에서도 필요하므로 복제.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Replicated, Category = "Furniture|State")
+	float MaxHealth;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Replicated, Category = "Furniture|State")
 	int32 RequiredPlayer;
@@ -85,5 +97,8 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Replicated, Category = "Furniture|State")
 	float Friction;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Replicated, Category = "Furniture|State")
+	int32 Price;
 
 };
