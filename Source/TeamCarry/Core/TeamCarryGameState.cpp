@@ -9,7 +9,9 @@ ATeamCarryGameState::ATeamCarryGameState()
 	TotalScore = 0;
 	TotalLevelValue = 0;
 	RemainingFurniture = 0;
-	RemainingTime = 0.0f;
+	ElapsedTime = 0.0f;
+	DestroyedFurnitureCount = 0;
+	bIsHotTime = false;
 	bIsGameFinished = false;
 	StarCount = 0;
 	CurrentPhase = EGamePhase::WaitingToStart;
@@ -22,7 +24,9 @@ void ATeamCarryGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 	DOREPLIFETIME(ATeamCarryGameState, TotalScore);
 	DOREPLIFETIME(ATeamCarryGameState, TotalLevelValue);
 	DOREPLIFETIME(ATeamCarryGameState, RemainingFurniture);
-	DOREPLIFETIME(ATeamCarryGameState, RemainingTime);
+	DOREPLIFETIME(ATeamCarryGameState, ElapsedTime);
+	DOREPLIFETIME(ATeamCarryGameState, DestroyedFurnitureCount);
+	DOREPLIFETIME(ATeamCarryGameState, bIsHotTime);
 	DOREPLIFETIME(ATeamCarryGameState, bIsGameFinished);
 	DOREPLIFETIME(ATeamCarryGameState, StarCount);
 	DOREPLIFETIME(ATeamCarryGameState, CurrentPhase);
@@ -64,6 +68,12 @@ void ATeamCarryGameState::OnRep_RemainingFurniture()
 	}
 }
 
+void ATeamCarryGameState::OnRep_bIsHotTime()
+{
+	// 핫타임 상태 변경 시 UI 갱신 (필요 시 조민기님 UI 연동)
+	UE_LOG(LogTemp, Log, TEXT("[GameState] 핫타임 상태 변경: %s"), bIsHotTime ? TEXT("ON") : TEXT("OFF"));
+}
+
 void ATeamCarryGameState::OnRep_bIsGameFinished()
 {
 	// 게임이 종료되었다면 최종 점수/별 개수를 전달하며 Result 화면으로 강제 전환합니다.
@@ -73,7 +83,7 @@ void ATeamCarryGameState::OnRep_bIsGameFinished()
 		if (UMockUIController* MockController = GetCachedMockController())
 		{
 			UE_LOG(LogTemp, Log, TEXT("[GameState] 게임 종료 확인. Result 화면 호출 (Score: %d, Star: %d)"), TotalScore, StarCount);
-			MockController->TriggerGameResult(TotalScore, StarCount, RemainingTime);
+			MockController->TriggerGameResult(TotalScore, StarCount, ElapsedTime);
 		}
 	}
 }
