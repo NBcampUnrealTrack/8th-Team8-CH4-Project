@@ -1,4 +1,4 @@
-﻿# UI_Technical_Spec_v2.md
+﻿# UI_Technical_Spec_v3.md
 # 이사 협동 게임 UI 최종 기획 및 기술 명세서 (개정판: S_Lobby 중심 구조)
 
 > **개정 요약 (v1 → v2)**
@@ -9,6 +9,12 @@
 > * **S_Loading 신설:** 모든 레벨 트래블 구간에 표시되는 로딩 화면.
 > * **접속 로그 위젯(W_SessionLog):** S_Lobby와 S_InGame에 공통 배치.
 > * **레벨 구성 확정:** L_Title, L_Lobby, L_Tutorial, 스테이지 맵(L_LevelProto 등)만 레벨로 유지. 그 외 화면은 전부 오버레이.
+
+> **개정 요약 (v2 → v3, 회의 반영)**
+> * **인게임 HUD 게이지화:** 점수판(HUD_Score) 텍스트 표기를 팀 값어치 게이지(PB_TeamMoney)로 전환. 게이지 내부 텍스트로 "현재 옮긴 값어치 / 레벨 전체 목표 값어치"를 표시.
+> * **W_HelpPanel 신설 (구 O_KeyGuide 팝업 폐기):** S_InGame 화면 우측 중단~하단에 상시 노출되는 세로형 패널로 전환. 조작 키 안내 + 게임 진행에 유용한 팁 문구를 함께 표시.
+> * **O_PauseMenu 재구성:** Btn_KeyGuide(조작법), Btn_ToTitle(타이틀로) 제거. 그 자리에 방장 전용 **Btn_ToLobby(로비 복귀)**, **Btn_Reset(리셋)** 신설 — 둘 다 O_Confirm 재확인 필수.
+> * **RestartStage() 신규:** UTCSessionFlow에 스테이지 재시작 의도 함수 추가. 현재 선택된 스테이지 맵으로 재트래블(S_Loading 경유)하여 인게임 상태를 초기화.
 
 ---
 
@@ -72,11 +78,11 @@ UI State는 단일 맵 안에서만 전환되지 않는다. 화면 전환은 두
 [L_Tutorial: S_Tutorial] ──마지막 Step 완료/건너뛰기──▶ HostReturnToLobby()
                                         ══▶ [S_Loading] ══▶ [L_Lobby: S_Lobby]
 
-[스테이지 맵: S_InGame] 인게임 HUD (+ 접속 로그 W_SessionLog)
-   │            ──ESC──▶ (O_PauseMenu) ──[수동 저장]──▶ (O_SaveLoad)
+[스테이지 맵: S_InGame] 인게임 HUD (+ 접속 로그 W_SessionLog + W_HelpPanel 상시 표시)
+   │            ──ESC──▶ (O_PauseMenu) ──[수동 저장](방장 전용)──▶ (O_SaveLoad)
    │                       ├─[설정]──▶ (O_Settings)
-   │                       ├─[조작법]──▶ (O_KeyGuide)
-   │                       ├─[게임 종료] ─▶ (O_Confirm: 방 종료) ══LeaveToTitle()══▶ [S_MainMenu]
+   │                       ├─[로비 복귀](방장 전용) ─▶ (O_Confirm: 로비로 복귀) ══HostReturnToLobby()══▶ [S_Loading] ══▶ [L_Lobby: S_Lobby]
+   │                       ├─[리셋](방장 전용) ─▶ (O_Confirm: 스테이지 초기화) ══RestartStage()══▶ [S_Loading] ══▶ [선택 스테이지 맵: S_InGame] (재진입)
    │                       └─ESC (O_PauseMenu 닫기)──▶ 인게임 HUD 복귀
    └─ 게임 시간 종료 / 가구 전량 운반 완료
         │
@@ -102,7 +108,8 @@ UI와 Steam 세션(UTCGameInstance) 사이의 단일 바인딩 계층(GameInstan
 | `HostCreateRoom()` | S_SlotSelect | 세션 생성 → 성공 콜백에서 L_Lobby로 ServerTravel |
 | `JoinRoomByCode(RoomCode)` | O_JoinRoom | 세션 검색 → 조인. 성공 시 L_Lobby 합류 |
 | `HostStartGame()` **(동작 변경)** | S_Lobby | 새 게임=L_Tutorial로 ServerTravel / 이어하기=**선택된 스테이지 맵**(미선택 시 1스테이지)으로 직행 ServerTravel |
-| `HostReturnToLobby()` **(역할 확대)** | S_Tutorial 완료, O_Result | 세션 유지한 채 L_Lobby(S_Lobby)로 복귀 (호스트 전용) |
+| `HostReturnToLobby()` **(역할 확대)** | S_Tutorial 완료, O_Result, **O_PauseMenu(Btn_ToLobby, 신규)** | 세션 유지한 채 L_Lobby(S_Lobby)로 복귀 (호스트 전용). O_PauseMenu 경유 시에는 `bIsGameFinished` 여부와 무관하게 진행 중인 스테이지를 즉시 이탈한다 |
+| `RestartStage()` **(신규)** | O_PauseMenu(Btn_Reset, 방장 전용) | 세션 유지한 채 현재 선택된 스테이지 맵으로 재트래블(ServerTravel) — 가구 배치·팀 값어치·타이머 등 인게임 상태 초기화 (호스트 전용) |
 | `LeaveToTitle()` | 각 O_Confirm, O_Result | 세션 파기 후 L_Title 복귀 (호스트/클라 공통) |
 
 **제거된 함수:** `HostTravelToStage()`(HostStartGame에 흡수), `HostReturnToStageSelect()`(L_StageSelect 삭제로 폐기).
@@ -149,13 +156,16 @@ UI와 Steam 세션(UTCGameInstance) 사이의 단일 바인딩 계층(GameInstan
 * **O_Confirm:** 강제 모달 팝업. 기본 포커스는 '아니오'에 위치하여 오조작 방지.
 * **O_Settings:** 오디오, 비디오, 키보드/패드 설정. 비디오 변경 시 15초 카운트다운 복구 로직.
 * **O_PauseMenu:** S_InGame, S_Tutorial에서 ESC로 호출.
-  * 항목: [계속하기], [설정], [수동 저장], [타이틀로 돌아가기]
-  * 권한: 멀티플레이 동기화를 위해 [수동 저장]은 호스트(방장) 전용. 튜토리얼 맵에서는 강제 비활성화.
+  * 항목: [계속하기], [설정], [수동 저장], **[로비 복귀]**, **[리셋]** (v3 개정 — [조작법], [타이틀로 돌아가기] 제거, 4장-12 참고)
+  * 권한: 멀티플레이 동기화를 위해 [수동 저장]·[로비 복귀]·[리셋]은 호스트(방장) 전용. 튜토리얼 맵에서는 [수동 저장] 강제 비활성화, [로비 복귀]·[리셋]은 노출하지 않음.
+  * [로비 복귀]·[리셋]은 클릭 시 반드시 O_Confirm 재확인 후 실행된다(오조작 방지).
 * **O_SaveLoad:** O_PauseMenu에서 [수동 저장] 선택 시 호출. 현재 상태를 슬롯에 덮어쓰거나 빈 슬롯에 기록.
-* **O_KeyGuide:** 조작법 안내 오버레이.
+
+**제거된 오버레이:** O_KeyGuide(구 조작법 안내 팝업) — S_InGame에 상시 노출되는 **W_HelpPanel**(아래) 하위 위젯으로 대체되어 Push/Pop 방식의 팝업 자체가 폐기되었다.
 
 ### 공통 하위 위젯 (신규)
 * **W_SessionLog (접속 로그 텍스트 칸):** 방에 접속/이탈한 유저 등 세션 이벤트 로그를 표시하는 단순 텍스트 위젯(버튼과 같은 급의 단순 위젯, `UCommonUserWidget` 상속). **S_Lobby와 S_InGame에 동일하게 배치**한다. UMockUIController의 `OnSessionLogAdded` 델리게이트를 구독하여 줄 단위로 누적 표시(최대 N줄 유지, 오래된 줄 제거).
+* **W_HelpPanel (인게임 도움말/조작 팁 패널 — 신규, 구 O_KeyGuide 대체):** S_InGame 화면 우측 중단부터 하단까지 세로로 배치되어 상시 노출되는 목록형 위젯(`UCommonUserWidget` 상속). 조작 키 안내와 게임 진행에 유용한 팁 문구를 줄 단위로 표시한다. 팝업이 아니므로 게임 입력을 차단하지 않으며 열고 닫는 개념이 없다. 콘텐츠는 정적이므로 델리게이트 구독 없이 위젯 내부(Blueprint)에 직접 목록을 구성한다(4장-7 참고).
 
 ---
 
@@ -176,7 +186,7 @@ UI와 Steam 세션(UTCGameInstance) 사이의 단일 바인딩 계층(GameInstan
   * 방 생성 성공 시 세션 계층이 L_Lobby로 ServerTravel한다 (구간 중 S_Loading 표시).
 * **삭제 로직:** [ X ] 클릭 시 O_Confirm 호출 후 데이터 삭제.
 
-### 3) S_Lobby (플레이어블 로비) — 신규
+### 3) S_Lobby (플레이어블 로비)
 * **역할:** 모든 플레이어의 집결지(L_Lobby)이자 게임 준비의 허브. **S_InGame처럼 캐릭터를 직접 조작하며 돌아다닐 수 있다.**
 * **구성:**
   * **로비 버튼 (호스트 = 4개 / 일반 클라이언트 = 2개):**
@@ -200,7 +210,7 @@ UI와 Steam 세션(UTCGameInstance) 사이의 단일 바인딩 계층(GameInstan
   * 새 게임 방 → L_Tutorial. / 이어하기 방 → O_StageSelect에서 선택한 스테이지 맵(미선택 시 기본 1스테이지 = L_LevelProto).
 * **뒤로가기:** ESC(또는 나가기 버튼) → O_Confirm(방 나가기) → 확인 시 `LeaveToTitle()`.
 
-### 4) O_CharacterSelect (캐릭터 외형 선택 오버레이) — 구 S_CharacterSelect
+### 4) O_CharacterSelect (캐릭터 외형 선택 오버레이)
 * **역할:** **캐릭터의 외형을 변경하는 기능만** 가진 오버레이. 준비/시작 기능은 S_Lobby로 이관되어 이 오버레이에는 없다.
 * **호출:** S_Lobby의 Btn_CharacterSelect 클릭 시 PushOverlay.
 * **구성:** 외형(캐릭터/스킨) 목록, 미리보기, Btn_Close(닫기).
@@ -209,7 +219,7 @@ UI와 Steam 세션(UTCGameInstance) 사이의 단일 바인딩 계층(GameInstan
   * **닫기:** Btn_Close 또는 ESC → `PopCurrentOverlay()`로 S_Lobby 복귀. (선택은 즉시 적용 방식이므로 별도 확인 버튼 없음.)
   * 활성화 중에는 GetDesiredInputConfig로 게임 입력 차단(UI 전용 입력).
 
-### 5) O_StageSelect (스테이지 선택 오버레이) — 구 S_StageSelect, 방장 전용
+### 5) O_StageSelect (스테이지 선택 오버레이) — 방장 전용
 * **역할:** 플레이할 스테이지를 고르는 오버레이. **방장만 열 수 있다.**
 * **호출:** S_Lobby의 Btn_StageSelect(방장 전용) 클릭 시 PushOverlay.
 * **구성:** 스테이지 목록(FStageInfo 기반 리스트/카드), 선택 하이라이트, Btn_Confirm(확인), Btn_Cancel(취소).
@@ -228,18 +238,20 @@ UI와 Steam 세션(UTCGameInstance) 사이의 단일 바인딩 계층(GameInstan
 
 ### 7) S_InGame (인게임 HUD)
 * **역할:** 가구 운반 코어 루프 진행 및 실시간 정보 제공.
-* **구성:** 점수판(HUD_Score), 남은 가구 개수 표시(Txt_RemainingFurniture), **W_SessionLog(접속 로그 텍스트 칸 — S_Lobby와 동일 위젯 재사용)**.
+* **구성:** 팀 값어치 게이지(PB_TeamMoney — **개정:** 기존 점수판(HUD_Score) 텍스트 표기를 대체. ProgressBar 형태로 진행도를 보여주며, 내부 텍스트로 "현재 옮긴 값어치 / 레벨 전체 목표 값어치"를 표시), 남은 가구 개수 표시(Txt_RemainingFurniture), **W_SessionLog(접속 로그 텍스트 칸 — S_Lobby와 동일 위젯 재사용)**, **W_HelpPanel(우측 중단~하단 상시 노출 조작 키·팁 패널, 3장 참고)**.
 * **하위 컴포넌트 (Sub-Widgets):**
   * **W_FurnitureStatus (가구 상태창 UI):** 화면 중앙의 크로스헤어 또는 커서가 가구에 올라갔을 때(Hover) 나타나는 툴팁 위젯. 가구 이름, 내구도 게이지를 표시.
   * **W_SessionLog:** 인게임 중 유저 입퇴장 등의 세션 로그 표시(3장).
+  * **W_HelpPanel:** 조작 키 안내 + 게임 팁을 상시 표시(3장). 정적 콘텐츠이므로 별도 델리게이트 연동 없음.
 * **연동 로직 (이벤트 주도):**
   * 크로스헤어/커서가 상호작용 대상에 올라가거나 벗어날 때, UMockUIController의 `OnInteractTargetChanged(Target, Key)` 델리게이트를 Broadcast하여 W_FurnitureStatus의 표시/숨김을 전환하고, 내구도 게이지는 `OnDurabilityChanged(Current, Max)`로 갱신한다.
   * 가구가 트럭에 실리거나/내려지거나/파괴될 때 GameMode → GameState(RemainingFurniture, RepNotify) → UMockUIController의 `OnRemainingFurnitureUpdated` 델리게이트를 거쳐 `Txt_RemainingFurniture`를 갱신.
+  * 팀 값어치가 갱신될 때 GameMode → GameState(TotalScore, RepNotify) → UMockUIController의 `OnTeamMoneyUpdated(NewTotalMoney)` 델리게이트를 거쳐 PB_TeamMoney의 채움 비율과 내부 텍스트를 갱신한다. 채움 비율 = `NewTotalMoney / TotalLevelValue`. `TotalLevelValue`(레벨 전체 목표 값어치)는 스테이지 시작 시 GameMode가 레벨 내 전체 가구 값어치 합으로 1회 산정해 GameState에 복제하며, 스테이지 중 불변이므로 위젯은 `NativeConstruct` 시점에 1회 조회해 게이지의 Max 값으로 사용한다(5장 참고).
   * 유저 입퇴장 시 GameMode → GameState 로그 복제 → `OnSessionLogAdded`로 W_SessionLog 갱신.
 * **저장:** 게임 중 ESC를 눌러 호스트 권한으로 수동 저장 (O_PauseMenu 호출).
 * **종료:** 게임 시간 종료/가구 전량 운반 완료 시 **O_Result가 Push된다** (아래 8항).
 
-### 8) O_Result (최종 결과 오버레이) — 구 S_Result
+### 8) O_Result (최종 결과 오버레이)
 * **역할:** 게임 종료 시 **인게임 레벨 위에 뜨는 전체화면 오버레이.** 정산 기능은 v1의 S_Result와 동일.
 * **정산:** 남은 내구도에 따라 0~5 등급. 점수 산정 후 Team_Money 표기.
 * **구성:** 최종 점수(Txt_Score), 세부 통계(Txt_Stats), 획득한 별 개수(Txt_StarCount, 0~3개), 소요 시간, **Btn_ToLobby(로비로 가기), Btn_ToTitle(메인 화면으로 가기)**.
@@ -253,7 +265,7 @@ UI와 Steam 세션(UTCGameInstance) 사이의 단일 바인딩 계층(GameInstan
   * **Btn_ToLobby(로비로 가기):** `HostReturnToLobby()` — **세션을 유지한 채 L_Lobby(S_Lobby)로 복귀.** (v1에서 S_StageSelect로 복귀하던 것과 기능적으로 동일한 "세션 유지 복귀"이며, 목적지만 로비로 변경. 호스트 전용 트래블이므로 클라이언트의 버튼 클릭은 Server RPC로 호스트에 위임하거나 호스트만 활성화 — 프로토타입에서는 호스트 전용 활성화를 기본으로 한다.)
   * **Btn_ToTitle(메인 화면으로 가기):** `LeaveToTitle()` — 세션 파기 후 S_MainMenu 복귀 (v1 기능 그대로).
 
-### 9) S_Loading (로딩 화면) — 신규
+### 9) S_Loading (로딩 화면)
 * **역할:** 모든 레벨 트래블(L_Title ↔ L_Lobby ↔ L_Tutorial ↔ 스테이지 맵) 구간에 표시되는 전환 화면.
 * **구성 (딱 3개 요소):**
   1. **Img_Background:** 기본 배경 사진 (전체 화면).
@@ -281,11 +293,14 @@ UI와 Steam 세션(UTCGameInstance) 사이의 단일 바인딩 계층(GameInstan
 * **동작 로직:** 생성 시 강제 모달(Modal). Btn_No에 기본 포커스. Btn_Yes 클릭 시 전달받은 콜백(Delegate) 실행 후 스택에서 Pop.
 
 ### 12) O_PauseMenu (인게임 메뉴)
-* **구성:** Btn_Resume(계속하기), Btn_KeyGuide(조작법), Btn_Settings(설정), Btn_Save(수동 저장), Btn_ToTitle(타이틀로).
+* **구성:** Btn_Resume(계속하기), Btn_Settings(설정), Btn_Save(수동 저장, 방장 전용), **Btn_ToLobby(로비 복귀, 방장 전용, 신규)**, **Btn_Reset(리셋, 방장 전용, 신규)**.
+  * **제거:** Btn_KeyGuide(조작법) — S_InGame에 상시 노출되는 W_HelpPanel로 대체(4장-7, 4장-15). Btn_ToTitle(타이틀로) — 인게임 중 타이틀 이탈 경로 자체를 폐기(오조작 방지 목적. 타이틀로의 이탈은 O_Result의 Btn_ToTitle에서만 가능).
 * **입력 라우팅:**
-  * Btn_KeyGuide 클릭 시 O_KeyGuide를 Push.
   * Btn_Settings 클릭 시 O_Settings를 Push.
-  * Btn_ToTitle 클릭 시 O_Confirm 호출. 확인 시 `LeaveToTitle()`로 세션 파기 후 타이틀 복귀.
+  * Btn_ToLobby 클릭 시 O_Confirm(로비로 복귀 확인) 호출. 확인 시 `HostReturnToLobby()` — 세션을 유지한 채 진행 중인 스테이지를 즉시 이탈해 [S_Loading]을 거쳐 L_Lobby(S_Lobby)로 복귀한다(O_Result의 [로비로 가기]와 동일한 의도 함수를 게임 진행 중에도 사용 — `bIsGameFinished` 여부와 무관하게 즉시 트래블).
+  * Btn_Reset 클릭 시 O_Confirm(스테이지 초기화 확인) 호출. 확인 시 `RestartStage()`(2장 신규 의도 함수) — 현재 선택된 스테이지 맵으로 재트래블([S_Loading] 경유)하여 가구 배치·팀 값어치·타이머 등 인게임 상태를 초기화한다.
+* **권한:** Btn_Save·Btn_ToLobby·Btn_Reset은 멀티플레이 동기화를 위해 호스트(방장) 전용이며, `UTCSessionFlow::IsHost()`로 판정해 일반 클라이언트에게는 Collapsed 처리한다(6장-8 규칙과 동일). 노출 분기는 편의일 뿐이므로 실제 트래블/저장/리셋 실행은 서버 측에서 재검증한다.
+* **S_Tutorial에서 호출될 때:** Btn_Save는 강제 비활성화(기존 규칙 유지), Btn_ToLobby·Btn_Reset은 노출하지 않는다 — 튜토리얼은 `CompleteTutorial()` 단일 경로로만 로비 복귀한다(4장-6 참고).
 
 ### 13) O_Settings (설정 창)
 * **구성:** 하위 탭은 별도 서브 위젯 클래스로 분리 — **O_AudioSettings**(오디오), **O_GraphicsSettings**(비디오). 하위 탭은 UCommonUserWidget 상속(6장 규칙).
@@ -294,12 +309,13 @@ UI와 Steam 세션(UTCGameInstance) 사이의 단일 바인딩 계층(GameInstan
 ### 14) O_SaveLoad (저장/불러오기 창)
 * **동작 로직:** 인게임 메뉴에서 호출되며, 현재 진행도의 덮어쓰기 및 빈 슬롯 기록 역할만 수행.
 
-### 15) O_KeyGuide (조작법 가이드 창)
-* **역할:** 플레이어의 기본 조작법(키보드/마우스/패드) 및 상황별 단축키를 안내하는 오버레이 팝업.
-* **구성:** 조작법 안내 그래픽 또는 텍스트 리스트, Btn_Back(닫기).
+### 15) W_HelpPanel (인게임 도움말/조작 팁 패널) — 신규, 구 O_KeyGuide 대체
+* **역할:** S_InGame 화면 우측 중단부터 하단까지 세로로 배치되어 **상시 노출**되는 도움말 패널. 기존 O_PauseMenu → O_KeyGuide 팝업 경로를 대체한다. 조작 키 안내뿐 아니라 게임 진행에 유용한 팁 문구도 함께 표시한다.
+* **구성:** 세로 목록(라인 단위) — 조작 키 바인딩 안내 + 게임 팁 텍스트. 팝업이 아니므로 제목/닫기 버튼이 없다.
 * **동작 로직:**
-  * O_PauseMenu에서 호출되며, 생성 시 강제로 게임 입력을 차단하고 UI 전용 입력으로 전환합니다(GetDesiredInputConfig 오버라이드).
-  * Btn_Back 버튼 또는 ESC 키 입력 시 UMockUIController의 PopCurrentOverlay()를 호출하여 O_PauseMenu로 복귀합니다.
+  * S_InGame 진입과 동시에 항상 노출되며 게임 입력을 차단하지 않는다. `UCommonUserWidget` 하위 위젯이므로 GetDesiredInputConfig 오버라이드가 불필요하다.
+  * 콘텐츠는 정적이므로 델리게이트 구독 없이 위젯 내부(Blueprint)에 직접 목록을 구성한다. 추후 상황별 팁(예: 도둑 AI 출현 경고와 연동한 강조 표시 등)이 필요해지면 델리게이트 연동을 확장 포인트로 고려한다.
+* **제거된 것:** 기존 O_KeyGuide의 팝업 형태(Push/Pop, Btn_Back, GetDesiredInputConfig 입력 차단)와 O_PauseMenu의 Btn_KeyGuide 항목은 폐기되었다(4장-12).
 
 ---
 
@@ -314,7 +330,7 @@ UI와 Steam 세션(UTCGameInstance) 사이의 단일 바인딩 계층(GameInstan
 | **스테이지 정의 (정적, 도입 예정)** | 에셋/Config | `DT_Stages` (FStageInfo: StageId, DisplayName, MapPath, …). 현재는 1스테이지(L_LevelProto) 단일 기본 항목 |
 | **가구/운반 (액터)** | 스테이지 내 유지 | MaxHealth, CurrentHealth, RequiredPlayer, CurrentGrabbedPlayer, BaseScore |
 | **전역 설정 (로컬)** | 클라이언트별 | MasterVolume, GraphicsQuality, InputBindings |
-| **게임 진행 (GameState, 복제)** | 스테이지 내 유지 | TotalScore, RemainingFurniture, ElapsedTime, bIsGameFinished, CurrentPhase, StarCount, **(신규) SessionLogEntries** |
+| **게임 진행 (GameState, 복제)** | 스테이지 내 유지 | TotalScore, RemainingFurniture, ElapsedTime, bIsGameFinished, CurrentPhase, StarCount, SessionLogEntries, **(v3 신규) TotalLevelValue** (스테이지 시작 시 GameMode가 전체 가구 값어치 합으로 1회 산정, 스테이지 중 불변 — PB_TeamMoney 게이지의 Max 값, 4장-7) |
 
 **세이브 스키마 미구현 요구사항:** S_SlotSelect의 슬롯 카드 UI가 요구하는 메타데이터(맵 썸네일, 진행도 요약, LastPlayedDate, CurrentTeamMoney, SaveSlotIndex)는 현재 UTCSaveGame에 없다. 슬롯 UI 완성 단계에서 스키마 확장이 필요하다. **추가로, 튜토리얼 완료 후 로비 복귀 흐름(4장-6)을 위해 bTutorialCompleted 플래그 확장이 필요하다.**
 
@@ -326,7 +342,7 @@ UI와 Steam 세션(UTCGameInstance) 사이의 단일 바인딩 계층(GameInstan
 
 1. **Common UI 상속의 엄격한 분리:**
    * **최상위 화면 및 팝업:** 화면 전체를 덮는 State(S_ 계열 — S_Lobby, S_Loading 포함)와 Overlay(O_ 계열 — O_CharacterSelect, O_StageSelect, O_Result 포함)의 메인 클래스는 반드시 `UCommonActivatableWidget`을 상속받아야 합니다.
-   * **하위 컴포넌트:** 설정 창 내부의 서브 탭(O_AudioSettings, O_GraphicsSettings 등)이나 리스트 내부의 슬롯 아이템, HUD 하위 위젯(W_FurnitureStatus, **W_SessionLog**, O_StageSelect의 스테이지 카드 아이템 등)은 UUserWidget이 아닌 `UCommonUserWidget`을 상속받아야 합니다.
+   * **하위 컴포넌트:** 설정 창 내부의 서브 탭(O_AudioSettings, O_GraphicsSettings 등)이나 리스트 내부의 슬롯 아이템, HUD 하위 위젯(W_FurnitureStatus, **W_SessionLog**, **W_HelpPanel**, O_StageSelect의 스테이지 카드 아이템 등)은 UUserWidget이 아닌 `UCommonUserWidget`을 상속받아야 합니다.
 2. **입력 라우팅 (Input Config) 관리:**
    * 오버레이 위젯은 GetDesiredInputConfig()를 오버라이드하여, 활성화 시 게임 입력을 막고 UI 전용 입력(Menu)으로 전환되도록 설정해야 합니다.
    * **예외 규정 — S_Lobby / S_InGame:** 이 두 State는 캐릭터 조작이 살아 있어야 하므로 게임 입력을 차단하지 않습니다(Game 또는 GameAndMenu). 그 위에 Push되는 오버레이(O_CharacterSelect, O_StageSelect, O_PauseMenu, **O_Result** 등)가 활성화되는 동안에만 UI 전용 입력으로 전환됩니다.
@@ -348,7 +364,7 @@ UI와 Steam 세션(UTCGameInstance) 사이의 단일 바인딩 계층(GameInstan
    * 모든 UI 구성요소(버튼, 텍스트 등)는 헤더 파일에서 `UPROPERTY(meta = (BindWidget))`로 선언합니다.
    * 버튼 클래스는 `UCommonButtonBase`로 통일하여 선언하십시오.
 8. **호스트 전용 UI 분기 (신규 명문화):**
-   * 방장 전용 버튼(S_Lobby의 Btn_StageSelect·Btn_Start, O_Result의 Btn_ToLobby, O_PauseMenu의 Btn_Save)의 노출/활성 분기는 `UTCSessionFlow::IsHost()`로 판정합니다. 단, 노출 분기는 편의일 뿐 권위가 아니므로, 실제 트래블/저장 실행은 서버(호스트) 측에서 재검증합니다.
+   * 방장 전용 버튼(S_Lobby의 Btn_StageSelect·Btn_Start, O_Result의 Btn_ToLobby, O_PauseMenu의 Btn_Save·**Btn_ToLobby·Btn_Reset**)의 노출/활성 분기는 `UTCSessionFlow::IsHost()`로 판정합니다. 단, 노출 분기는 편의일 뿐 권위가 아니므로, 실제 트래블/저장/리셋 실행은 서버(호스트) 측에서 재검증합니다.
 
 ---
 
@@ -390,7 +406,7 @@ O_StageSelect 목록과 HostStartGame 트래블 대상 해석에 사용할 정�
 UI 위젯의 NativeConstruct에서 `AddDynamic`을 통해 이벤트를 수신할 수 있도록, UMockUIController에 선언되는 모든 델리게이트는 반드시 `DECLARE_DYNAMIC_MULTICAST_DELEGATE` 계열의 매크로를 사용하여 선언해야 합니다.
 
 **UMockUIController 델리게이트 목록 (개정 기준):**
-1. `OnTeamMoneyUpdated(int32 NewTotalMoney)`: 팀 보유 금액 변경.
+1. `OnTeamMoneyUpdated(int32 NewTotalMoney)`: 팀 보유 값어치 변경. **(v3)** S_InGame의 PB_TeamMoney 게이지 채움 비율(`NewTotalMoney / TotalLevelValue`)과 내부 텍스트("현재/전체") 갱신에 사용(4장-7).
 2. `OnFurnitureSettled(int32 AddedMoney, int32 Grade)`: 가구 정착 및 정산.
 3. `OnInteractTargetChanged(AActor* Target, FString Key)`: 상호작용 대상 변경. W_FurnitureStatus의 표시/숨김 전환에 사용.
 4. `OnDurabilityChanged(float Current, float Max)`: 가구 내구도 변경. W_FurnitureStatus 게이지 갱신에 사용.
@@ -442,3 +458,14 @@ UI 위젯의 NativeConstruct에서 `AddDynamic`을 통해 이벤트를 수신할
 8. W_SessionLog 신규 작성, GameMode PostLogin/Logout → GameState 로그 복제 → OnSessionLogAdded 경로 구축, S_Lobby·S_InGame에 배치.
 9. 튜토리얼 완료 라우팅을 HostReturnToLobby()로 변경 + 세이브에 bTutorialCompleted 기록.
 10. L_StageSelect 맵 및 관련 에셋/참조 제거.
+
+---
+
+## 10. v2 → v3 마이그레이션 체크리스트 (회의 반영, 구현 순서 가이드)
+
+1. GameState에 `TotalLevelValue` 필드 추가. 스테이지 시작 시 GameMode가 레벨 내 전체 가구 값어치 합으로 1회 산정해 복제(5장).
+2. S_InGame: 기존 HUD_Score 텍스트 위젯을 PB_TeamMoney(ProgressBar) + 내부 텍스트("현재/전체")로 교체. `OnTeamMoneyUpdated` 델리게이트 바인딩을 채움 비율 계산 로직으로 갱신(4장-7).
+3. W_HelpPanel 신규 작성(`UCommonUserWidget`). S_InGame 화면 우측 중단~하단에 배치하고 조작 키·게임 팁 콘텐츠 구성(3장, 4장-15).
+4. O_KeyGuide 오버레이 클래스 및 Push/Pop 경로 제거, O_PauseMenu의 Btn_KeyGuide 제거.
+5. O_PauseMenu에서 Btn_ToTitle 제거. 방장 전용 Btn_ToLobby·Btn_Reset 신규 추가(각각 O_Confirm 경유, `IsHost()` 노출 분기).
+6. UTCSessionFlow에 `RestartStage()` 의도 함수 추가 — `GetSelectedStageMapPath()`로 현재 스테이지 맵에 재트래블(2장).

@@ -62,6 +62,9 @@ void ATeamCarryGameMode::BeginPlay()
     {
         // 남은 시간을 제한시간으로 초기화
         GS->RemainingTime = TimeLimitSeconds;
+
+        // 팀 값어치 게이지의 Max 값(전체 목표 값어치)을 스테이지 시작 시 1회 복제한다. 스테이지 중 불변.
+        GS->TotalLevelValue = TotalLevelValue;
     }
 
     // 게임 시작 시 카운트다운 시작

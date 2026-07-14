@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameStateBase.h"
@@ -16,6 +16,12 @@ public:
 	// 팀 누적 점수
 	UPROPERTY(ReplicatedUsing = OnRep_TotalScore, BlueprintReadOnly)
 	int32 TotalScore;
+
+	// 이 스테이지에서 획득 가능한 전체 목표 값어치(가구 BaseScore 합산). 스테이지 시작 시
+	// GameMode가 1회 산정해 복제하며, 스테이지 중 불변이다. S_InGame의 팀 값어치 게이지(PB_TeamMoney)의
+	// Max 값으로 쓰인다(UI_Technical_Spec.md 4장-7).
+	UPROPERTY(Replicated, BlueprintReadOnly)
+	int32 TotalLevelValue;
 
 	// 남은 가구 개수
 	UPROPERTY(ReplicatedUsing = OnRep_RemainingFurniture, BlueprintReadOnly)

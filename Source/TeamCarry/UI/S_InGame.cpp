@@ -22,9 +22,13 @@ void US_InGame::NativeConstruct()
 	// 포커스를 넘긴다(O_PauseMenu 등 다른 위젯이 이미 그렇게 동작하는 것과 동일한 경로).
 
 	// Setup initial placeholder values
+	if (PB_TeamMoney)
+	{
+		PB_TeamMoney->SetPercent(0.0f);
+	}
 	if (TextBlock_Score)
 	{
-		TextBlock_Score->SetText(FText::FromString(TEXT("$100")));
+		TextBlock_Score->SetText(FText::FromString(TEXT("0 / 0")));
 	}
 	if (TextBlock_Timer)
 	{
@@ -66,6 +70,9 @@ void US_InGame::NativeConstruct()
 	{
 		if (ATeamCarryGameState* GS = World->GetGameState<ATeamCarryGameState>())
 		{
+			// 팀 값어치 게이지의 Max 값은 스테이지 중 불변이므로 여기서 1회만 캐시한다.
+			CachedTotalLevelValue = GS->TotalLevelValue;
+
 			// 게임이 시작될 때 GameState에 이미 들어있는 돈과 가구 수를 HUD에 즉시 반영합니다.
 			HandleTeamMoneyUpdated(GS->TotalScore);
 			HandleRemainingFurnitureUpdated(GS->RemainingFurniture);
@@ -123,10 +130,17 @@ TOptional<FUIInputConfig> US_InGame::GetDesiredInputConfig() const
 
 void US_InGame::HandleTeamMoneyUpdated(int32 NewTotalMoney)
 {
-	UE_LOG(LogTemp, Log, TEXT("[UI InGameHUD] HUD Received Team Money Update: $%d"), NewTotalMoney);
+	UE_LOG(LogTemp, Log, TEXT("[UI InGameHUD] HUD Received Team Money Update: $%d / $%d"), NewTotalMoney, CachedTotalLevelValue);
+
+	if (PB_TeamMoney)
+	{
+		const float Percent = CachedTotalLevelValue > 0 ? static_cast<float>(NewTotalMoney) / static_cast<float>(CachedTotalLevelValue) : 0.0f;
+		PB_TeamMoney->SetPercent(FMath::Clamp(Percent, 0.0f, 1.0f));
+	}
 	if (TextBlock_Score)
 	{
-		TextBlock_Score->SetText(FText::Format(NSLOCTEXT("InGameUI", "MoneyFormat", "${0}"), FText::AsNumber(NewTotalMoney)));
+		TextBlock_Score->SetText(FText::Format(NSLOCTEXT("InGameUI", "MoneyGaugeFormat", "{0} / {1}"),
+			FText::AsNumber(NewTotalMoney), FText::AsNumber(CachedTotalLevelValue)));
 	}
 }
 
