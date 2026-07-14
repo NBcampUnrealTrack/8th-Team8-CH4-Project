@@ -109,6 +109,8 @@ void UFurnitureGrabSystem::Grab(ACharacter* Grabber, FVector height, UPrimitiveC
 	if (FurnitureStat && GrabbedPlayers.Num() >= FurnitureStat->GetRequiredPlayer())
 		return;
 
+	SetGrabCollisionState(Grabber, true);
+
 	// 첫 번째 그랩: 물리 끄기 + 들어올리기 + 이동복제 단일화
 	if (GrabbedPlayers.Num() == 0 && FurnitureMesh)
 	{
@@ -159,8 +161,6 @@ void UFurnitureGrabSystem::Grab(ACharacter* Grabber, FVector height, UPrimitiveC
 			LocalSyncTargetYaw = Anchor.InitialFurnitureYaw;
 		}
 	}
-
-	SetGrabCollisionState(Grabber, true);
 
 	if (UCharacterMovementComponent* CMC = Grabber->GetCharacterMovement())
 	{
