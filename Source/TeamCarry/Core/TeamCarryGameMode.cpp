@@ -5,6 +5,30 @@
 #include "Furniture/TCFurnitureActor.h"
 #include "GameFramework/PlayerState.h"
 #include "Network/Session/TCGameInstance.h"
+#include "Engine/Engine.h"
+#include "HAL/IConsoleManager.h"
+
+namespace
+{
+	// 디버그: 제한시간 타이머 정지. 콘솔 "TC.TimerPause 1" 또는 "TC.TimerPauseToggle"(F10 바인딩).
+	// 타이머는 서버(GameMode)에서만 차감되므로 호스트 쪽에서 켜야 적용된다.
+	TAutoConsoleVariable<int32> CVarTimerPause(
+		TEXT("TC.TimerPause"), 0,
+		TEXT("디버그: 게임 제한시간 타이머 정지 (0=진행, 1=정지)"));
+	FAutoConsoleCommand CmdTimerPauseToggle(
+		TEXT("TC.TimerPauseToggle"),
+		TEXT("디버그: 제한시간 타이머 정지 토글 (F10)"),
+		FConsoleCommandDelegate::CreateLambda([]()
+		{
+			const int32 NewVal = CVarTimerPause.GetValueOnGameThread() ? 0 : 1;
+			CVarTimerPause->Set(NewVal, ECVF_SetByConsole);
+			if (GEngine)
+			{
+				GEngine->AddOnScreenDebugMessage(9102, 2.f, FColor::Yellow,
+					FString::Printf(TEXT("[타이머 디버그] %s"), NewVal ? TEXT("정지") : TEXT("재개")));
+			}
+		}));
+}
 
 ATeamCarryGameMode::ATeamCarryGameMode()
 {
@@ -38,6 +62,9 @@ void ATeamCarryGameMode::BeginPlay()
     {
         // 남은 시간을 제한시간으로 초기화
         GS->RemainingTime = TimeLimitSeconds;
+
+        // 팀 값어치 게이지의 Max 값(전체 목표 값어치)을 스테이지 시작 시 1회 복제한다. 스테이지 중 불변.
+        GS->TotalLevelValue = TotalLevelValue;
     }
 
     // 게임 시작 시 카운트다운 시작
@@ -52,8 +79,8 @@ void ATeamCarryGameMode::Tick(float DeltaTime)
     ATeamCarryGameState* GS = GetCachedGameState();
     if (!GS || GS->bIsGameFinished) return;
     
-    // Playing 단계일 때만 타이머 작동
-    if (GS->CurrentPhase == EGamePhase::Playing)
+    // Playing 단계일 때만 타이머 작동 (디버그 정지 CVar가 켜져 있으면 차감 보류)
+    if (GS->CurrentPhase == EGamePhase::Playing && CVarTimerPause.GetValueOnGameThread() == 0)
     {
         // 남은 시간 차감
         GS->RemainingTime -= DeltaTime;

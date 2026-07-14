@@ -7,6 +7,7 @@
 #include "GameFramework/Controller.h"
 #include "Components/CapsuleComponent.h"
 #include "Net/UnrealNetwork.h"
+#include "Engine/OverlapResult.h"
 #include "CatchCharacter/Furniture/FurnitureStat.h"
 #include "CatchCharacter/Furniture/FurnitureDamage.h"
 
@@ -89,9 +90,7 @@ void UFurnitureGrabSystem::TickComponent(float DeltaTime, ELevelTick TickType, F
 			const float DesiredYaw = GetDesiredYaw(LocalChar, LocalSyncTargetYaw);
 			if (FMath::Abs(FMath::FindDeltaAngleDegrees(LocalChar->GetActorRotation().Yaw, DesiredYaw)) > YawCorrectionDeadzone)
 			{
-				FRotator NewRot = LocalChar->GetActorRotation();
-				NewRot.Yaw      = DesiredYaw;
-				LocalChar->SetActorRotation(NewRot);
+				ApplyBodyYaw(LocalChar, DesiredYaw, DeltaTime);   // 즉시 스냅 대신 보간
 			}
 
 		}
@@ -115,17 +114,25 @@ void UFurnitureGrabSystem::Grab(ACharacter* Grabber, FVector height, UPrimitiveC
 	{
 		FurnitureMesh->SetSimulatePhysics(false);
 		FurnitureMesh->SetCollisionProfileName(TEXT("BlockAllDynamic"));
+		// [시야] 운반 중 가구가 스프링암 카메라 프로브를 밀어내 큰 가구를 들면 화면이
+		// 가구 안으로 처박히는 문제 — 잡혀 있는 동안만 카메라 채널을 무시한다.
+		// 놓을 때 PhysicsActor 프로파일 복원이 응답을 원상복구하므로 별도 처리 불필요.
+		FurnitureMesh->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
 
 		CurrentHeightOffset = 0.0f;
 
 		// 들어올릴 시 높이를 잡은 플레이어 기준 [FurnitureHeightMin, FurnitureHeightMax] 범위로 제한.
-		// (운반 중 매 틱 제약과 동일 기준 → 그랩 순간과 이후가 일관됨. 잡은 사람 1명이 기준)
+		// [피벗 오프셋 보정] 메쉬 중심축(피벗)이 실제 메쉬와 멀리 떨어진 가구는 피벗 Z로 제약하면
+		// 시각 메쉬가 엉뚱한 높이(천장/바닥)에 감. Bounds에서 피벗→메쉬중심 Z오프셋을 구해
+		// '메쉬 중심'이 범위에 오도록 클램프한 뒤 피벗으로 역산 (메쉬 무수정 해결).
+		const float MeshCenterOffZ = FurnitureMesh->Bounds.Origin.Z - Owner->GetActorLocation().Z;
 		FVector sumLocation = Owner->GetActorLocation() + height;
-		sumLocation.Z = FMath::Clamp(sumLocation.Z,
+		const float ClampedCenterZ = FMath::Clamp(sumLocation.Z + MeshCenterOffZ,
 			Grabber->GetActorLocation().Z + FurnitureHeightMin,
 			Grabber->GetActorLocation().Z + FurnitureHeightMax);
+		sumLocation.Z = ClampedCenterZ - MeshCenterOffZ;
 
-		Owner->SetActorLocation(sumLocation, false, nullptr, ETeleportType::TeleportPhysics);
+		Owner->SetActorLocation(sumLocation, true, nullptr, ETeleportType::ResetPhysics);
 		Owner->SetReplicateMovement(false);
 		ServerLocation = Owner->GetActorLocation();
 		ServerRotation = Owner->GetActorRotation();
@@ -166,18 +173,14 @@ void UFurnitureGrabSystem::Grab(ACharacter* Grabber, FVector height, UPrimitiveC
 	if (UFurnitureDamage* DamageComp = Owner->FindComponentByClass<UFurnitureDamage>())
 		DamageComp->SetInvincible(0.5f);
 
-	// 모든 현재 그랩 플레이어 이동속도 = BaseSpeed * (현재인원 / 필요인원)
+	// 모든 현재 그랩 플레이어 이동속도 갱신 (필요 인원 미달이면 대폭 감속)
 	if (FurnitureStat)
 	{
-		const int32 Required = FurnitureStat->GetRequiredPlayer();
-		if (Required > 0)
+		const float NewSpeed = ComputeCarrySpeed();
+		for (ACharacter* P : GrabbedPlayers)
 		{
-			const float NewSpeed = FurnitureStat->GetBaseSpeed() * (float)GrabbedPlayers.Num() / (float)Required;
-			for (ACharacter* P : GrabbedPlayers)
-			{
-				if (UCharacterMovementComponent* PCMC = P->GetCharacterMovement())
-					PCMC->MaxWalkSpeed = NewSpeed;
-			}
+			if (UCharacterMovementComponent* PCMC = P->GetCharacterMovement())
+				PCMC->MaxWalkSpeed = NewSpeed;
 		}
 		FurnitureStat->UpdateGrabbedPlayers(GrabbedPlayers.Num());
 	}
@@ -205,23 +208,43 @@ void UFurnitureGrabSystem::Release(ACharacter* Grabber)
 	Anchors.Remove(Grabber);
 	DraggedLastTick.Remove(Grabber);
 
-	// 남은 그랩 플레이어 이동속도 재계산
+	// 남은 그랩 플레이어 이동속도 재계산 (필요 인원 미달이면 대폭 감속)
 	if (FurnitureStat && GrabbedPlayers.Num() > 0)
 	{
-		const int32 Required = FurnitureStat->GetRequiredPlayer();
-		if (Required > 0)
+		const float NewSpeed = ComputeCarrySpeed();
+		for (ACharacter* P : GrabbedPlayers)
 		{
-			const float NewSpeed = FurnitureStat->GetBaseSpeed() * (float)GrabbedPlayers.Num() / (float)Required;
-			for (ACharacter* P : GrabbedPlayers)
-			{
-				if (UCharacterMovementComponent* PCMC = P->GetCharacterMovement())
-					PCMC->MaxWalkSpeed = NewSpeed;
-			}
+			if (UCharacterMovementComponent* PCMC = P->GetCharacterMovement())
+				PCMC->MaxWalkSpeed = NewSpeed;
 		}
 	}
 
 	if (GrabbedPlayers.Num() == 0 && FurnitureMesh)
 	{
+		// [관통 복구] 인원미달 끌림 자세는 바닥에 닿아 있고, 회전은 스윕 보정이 없어
+		// 모서리가 지면에 박혀 있을 수 있음 → 물리 켜기 전에 겹침이 풀릴 때까지 들어올린다.
+		// (박힌 채 물리를 켜면 그대로 잠기거나 튕겨나감)
+		if (UWorld* World = GetWorld())
+		{
+			FComponentQueryParams DepenParams(SCENE_QUERY_STAT(ReleaseDepenetrate), Owner);
+			FCollisionObjectQueryParams StaticOnly(ECC_WorldStatic);
+			TArray<FOverlapResult> Overlaps;
+			for (int32 Step = 0; Step < 10; ++Step)
+			{
+				Overlaps.Reset();
+				// +2: 바닥 정상 접촉을 겹침으로 오탐하지 않도록 살짝 띄운 위치에서 검사
+				const bool bPenetrating = World->ComponentOverlapMulti(
+					Overlaps, FurnitureMesh,
+					FurnitureMesh->GetComponentLocation() + FVector(0.f, 0.f, 2.f),
+					FurnitureMesh->GetComponentQuat(), DepenParams, StaticOnly);
+				if (!bPenetrating)
+				{
+					break;
+				}
+				Owner->AddActorWorldOffset(FVector(0.f, 0.f, 3.f), false);
+			}
+		}
+
 		FurnitureMesh->SetSimulatePhysics(true);
 		FurnitureMesh->SetCollisionProfileName(TEXT("PhysicsActor"));
 		Owner->SetReplicateMovement(true);
@@ -238,6 +261,46 @@ void UFurnitureGrabSystem::Release(ACharacter* Grabber)
 	if (FurnitureStat)
 		FurnitureStat->UpdateGrabbedPlayers(GrabbedPlayers.Num());
 }
+float UFurnitureGrabSystem::ComputeCarrySpeed() const
+{
+	if (!FurnitureStat)
+		return 0.0f;
+
+	const float Base     = FurnitureStat->GetBaseSpeed();
+	const int32 Required = FurnitureStat->GetRequiredPlayer();
+	const int32 Num      = GrabbedPlayers.Num();
+
+	// 인원 충족(초과 포함) → 기본속도 그대로
+	if (Required <= 0 || Num >= Required)
+		return Base;
+
+	// 인원 미달 → 1인당 UnderMannedSpeedFactor(기본 1/5)씩만 반영해 극단적으로 감속. Base 상한.
+	//   예) 필요3인: 1명 → 1×0.2 = 1/5, 2명 → 2×0.2 = 2/5 (요구사항과 일치)
+	return Base * FMath::Min(1.0f, (float)Num * UnderMannedSpeedFactor);
+}
+
+void UFurnitureGrabSystem::ApplyBodyYaw(ACharacter* P, float DesiredYaw, float DeltaTime) const
+{
+	if (!P) return;
+	const float CurYaw = P->GetActorRotation().Yaw;
+
+	float NewYaw;
+	if (BodyYawInterpSpeed > 0.0f)
+	{
+		// 최단각 보간(래핑 안전): 현재 → 목표를 BodyYawInterpSpeed로 부드럽게 접근
+		const float Delta = FMath::FindDeltaAngleDegrees(CurYaw, DesiredYaw);
+		NewYaw = CurYaw + Delta * FMath::Clamp(DeltaTime * BodyYawInterpSpeed, 0.0f, 1.0f);
+	}
+	else
+	{
+		NewYaw = DesiredYaw;   // 보간 끔 → 즉시 스냅(기존 동작)
+	}
+
+	FRotator NewRot = P->GetActorRotation();
+	NewRot.Yaw = NewYaw;
+	P->SetActorRotation(NewRot);
+}
+
 void UFurnitureGrabSystem::AllRelease()
 {
 	TArray<ACharacter*> PlayersToRelease = GrabbedPlayers;
@@ -260,6 +323,7 @@ void UFurnitureGrabSystem::AddFurnitureOffset(FVector LocationOffset, float YawO
 	// 이동/회전 적용 전의 트랜스폼 기록
 	FVector OldLoc = Owner->GetActorLocation();
 	float OldYaw = Owner->GetActorRotation().Yaw;
+	const FTransform PreOffsetTransform = Owner->GetActorTransform();
 
 	// 가구 단독 이동 및 회전 적용
 	// Pitch(기울이기)는 HandleMovement가 매 틱 현재값을 유지하므로 여기서 바꾸면 그대로 운반됨
@@ -270,6 +334,34 @@ void UFurnitureGrabSystem::AddFurnitureOffset(FVector LocationOffset, float YawO
 	//Owner->SetActorLocationAndRotation(NewLoc, NewRot, true);
 	Owner->AddActorLocalRotation(FRotator(PitchOffset, YawOffset, 0.0f), true);
 	Owner->AddActorLocalOffset(LocationOffset, true);
+
+	// [벽 관통 방지] UE 의 스윕은 '이동'만 검사하고 회전에는 적용되지 않아, 긴 가구를
+	// 벽 옆에서 돌리면 벽에 파묻힌다. 한번 파묻히면 이후 스윕이 관통 방향으로 풀리면서
+	// 벽을 통과해 버리므로, 적용 결과가 정적 지오메트리(벽·바닥)와 겹치면 이번 오프셋을
+	// 통째로 되돌린다. (플레이어·다른 가구와의 겹침은 허용 — 정적만 검사)
+	if (FurnitureMesh && GetWorld())
+	{
+		FComponentQueryParams OverlapParams(SCENE_QUERY_STAT(FurnitureOffsetOverlap), Owner);
+		for (ACharacter* P : GrabbedPlayers)
+		{
+			OverlapParams.AddIgnoredActor(P);
+		}
+		FCollisionObjectQueryParams StaticOnly(ECC_WorldStatic);
+		TArray<FOverlapResult> Overlaps;
+		// 테스트 포즈를 3uu 올려서 검사 — 바닥에 닿아 있는(접촉 수준) 가구가
+		// 항상 '겹침'으로 오탐되어 회전이 전부 거부되는 것을 막는다.
+		// 벽 관통은 측면 겹침이라 3uu 상승과 무관하게 그대로 검출된다.
+		const FVector OverlapTestLoc = FurnitureMesh->GetComponentLocation() + FVector(0.f, 0.f, 3.f);
+		const bool bPenetratesStatic = GetWorld()->ComponentOverlapMulti(
+			Overlaps, FurnitureMesh,
+			OverlapTestLoc, FurnitureMesh->GetComponentQuat(),
+			OverlapParams, StaticOnly);
+		if (bPenetratesStatic)
+		{
+			Owner->SetActorTransform(PreOffsetTransform, false, nullptr, ETeleportType::TeleportPhysics);
+			return; // 변화 없음 — 앵커 갱신·클라 통지 생략
+		}
+	}
 
 	// 위치 이동
 	//Owner->SetActorLocation(NewLoc, true);
@@ -301,6 +393,11 @@ void UFurnitureGrabSystem::AddFurnitureOffset(FVector LocationOffset, float YawO
 			Anchors[P].InitialFurnitureYaw += ActualYawDelta;
 		}
 	}
+
+	// [들것 회전] 수동 회전(키 입력)으로 가구 Yaw가 밀린 만큼 의도 누적치도 함께 이동
+	// → 다음 틱 선 회전 계산이 수동 회전을 되돌리지 않는다
+	if (bPairLineValid)
+		PairLineTargetYaw = FRotator::NormalizeAxis(PairLineTargetYaw + ActualYawDelta);
 
 	DraggedLastTick.Empty();
 	StoppedDraggingLastTick.Empty();
@@ -356,6 +453,59 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 	const FVector CurFurnLoc   = Owner->GetActorLocation();
 	const float   CurFurnYaw   = Owner->GetActorRotation().Yaw;
 
+	// ---- 0.5. [들것 회전] 2인 이상: 가구 목표 Yaw = '두 운반자를 잇는 선'의 회전 ----
+	// 카메라를 돌려도 가구는 돌지 않고, 한 사람이 상대를 축으로 걸어 돌면 가구가 따라 돈다.
+	// 매 틱 선 Yaw 변화량을 'A만 움직였을 때 / B만 움직였을 때'로 분해해, 능동(직접 걷는)
+	// 플레이어의 기여만 회전 의도로 누적한다. 피동(견인) 이동까지 포함하면 회전→견인→
+	// 선 회전→재회전의 폭주 피드백이 생기므로 제외. 3인 이상은 앞의 두 명이 기준선.
+	const bool bPairLine = bPairLineRotation && N >= 2;
+	if (bPairLine)
+	{
+		ACharacter*  A    = Players[0];
+		ACharacter*  B    = Players[1];
+		const FVector PosA = A->GetActorLocation();
+		const FVector PosB = B->GetActorLocation();
+
+		if (!bPairLineValid || PairLineA != A || PairLineB != B)
+		{
+			// 첫 진입 또는 페어 구성 변경(그랩/해제) → 현재 가구 Yaw 기준 재설정 (스냅 없음)
+			bPairLineValid    = true;
+			PairLineA         = A;
+			PairLineB         = B;
+			PairLineTargetYaw = CurFurnYaw;
+		}
+		else if (FVector::DistSquared2D(PosA, PosB) >= FMath::Square(PairLineMinDistance))
+		{
+			auto LineYaw = [](const FVector& From, const FVector& To)
+			{
+				return FMath::RadiansToDegrees(FMath::Atan2(To.Y - From.Y, To.X - From.X));
+			};
+			const float PrevYaw    = LineYaw(PairLinePrevPosA, PairLinePrevPosB);
+			const float DeltaFromA = FMath::FindDeltaAngleDegrees(PrevYaw, LineYaw(PosA, PairLinePrevPosB));
+			const float DeltaFromB = FMath::FindDeltaAngleDegrees(PrevYaw, LineYaw(PairLinePrevPosA, PosB));
+
+			float IntentDelta = 0.0f;
+			if (!DraggedLastTick.Contains(A) && !StoppedDraggingLastTick.Contains(A))
+				IntentDelta += DeltaFromA;
+			if (!DraggedLastTick.Contains(B) && !StoppedDraggingLastTick.Contains(B))
+				IntentDelta += DeltaFromB;
+
+			PairLineTargetYaw = FRotator::NormalizeAxis(PairLineTargetYaw + IntentDelta);
+			// 윈드업 방지: 실제 가구 Yaw보다 45° 이상 앞서 누적하지 않는다
+			// (빠르게 빙글 돈 뒤 가구 혼자 한참 도는 현상 차단)
+			const float Lead = FMath::FindDeltaAngleDegrees(CurFurnYaw, PairLineTargetYaw);
+			PairLineTargetYaw = FRotator::NormalizeAxis(CurFurnYaw + FMath::Clamp(Lead, -45.0f, 45.0f));
+		}
+		// 두 사람이 너무 가까우면 선 방향이 불안정 → 이번 틱은 의도 누적 없이 유지
+
+		PairLinePrevPosA = PosA;
+		PairLinePrevPosB = PosB;
+	}
+	else
+	{
+		bPairLineValid = false;
+	}
+
 	// ---- 1. 각 플레이어의 "내가 주도한다면 가구는 여기" 제안 + 활동량 가중치 계산 ----
 	//   활동량 = 현재 가구 위치에서 제안 위치까지의 거리. 더 많이 움직인 사람이 더 큰 가중치.
 	//   피동(끌려가는) 플레이어는 가중치 0: 뒤처진 피동 플레이어의 제안이 가구를 역방향으로 당기는 것을 방지.
@@ -372,10 +522,18 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 
 		const FGrabAnchor& Anc           = Anchors[P];
 		const float        PlayerAimYaw   = P->GetBaseAimRotation().Yaw;
-		const float        PlayerYawDelta = FMath::FindDeltaAngleDegrees(Anc.InitialAimYaw, PlayerAimYaw);
+		// [들것 회전] 2인 이상이면 카메라 델타 대신 선 회전 누적치 기준 → 전원의 ProposalYaw가
+		// PairLineTargetYaw로 일치(일치도 1)해 아래 원형 평균·교착 파이프라인을 그대로 통과한다.
+		const float        PlayerYawDelta = bPairLine
+			? FMath::FindDeltaAngleDegrees(Anc.InitialFurnitureYaw, PairLineTargetYaw)
+			: FMath::FindDeltaAngleDegrees(Anc.InitialAimYaw, PlayerAimYaw);
 		const float        ProposalYaw   = Anc.InitialFurnitureYaw + PlayerYawDelta;
 		const FVector      ProposalLoc   = P->GetActorLocation() + Anc.InitialOffset.RotateAngleAxis(PlayerYawDelta, FVector::UpVector);
-		const float        Demand        = FVector(ProposalLoc.X - CurFurnLoc.X, ProposalLoc.Y - CurFurnLoc.Y, 0.0f).Size();
+		float              Demand        = FVector(ProposalLoc.X - CurFurnLoc.X, ProposalLoc.Y - CurFurnLoc.Y, 0.0f).Size();
+		// [견인 데드존 보완] 데드존 안에서 '서 있는' 플레이어는 낡은 앵커 제안이 가구를
+		// 뒤로 당기는 브레이크가 됨 — 가구가 멈췄다가 상대가 견인으로 전환되는 순간 점프.
+		// 자기 이동량 이상의 발언권을 주지 않는다: 서 있으면 최소 가중치, 걸으면 즉시 회복.
+		Demand = FMath::Min(Demand, P->GetVelocity().Size2D() * DeltaTime * 4.0f + 1.0f);
 		const double       W             = Demand + Eps;
 
 		Weights[i] = W;
@@ -435,6 +593,10 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 		: FMath::RadiansToDegrees(FMath::Atan2(WSumSin, WSumCos));
 	const float TargetYaw    = FMath::FixedTurn(CurFurnYaw, TargetYawRaw, FurnYawRotationSpeed * DeltaTime);
 
+	// [들것 회전] 회전 보류(교착/벽 막힘) 동안 의도 누적 금지 — 해제 순간 홱 도는 것 방지
+	if (bPairLineValid && (bYawStalemate || bCarrierBlockedLastTick))
+		PairLineTargetYaw = CurFurnYaw;
+
 	FVector WLocSum = FVector::ZeroVector;
 	for (int32 i = 0; i < N; ++i)
 	{
@@ -452,15 +614,52 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 	// 그랩 시점 카메라 대비 위/아래로 본 각도만큼 가구를 올리고 내림. 전원 평균(둘 다 위 봐야 최대).
 	// 범위 제약은 여기서 하지 않음 → 아래 '플레이어 기준' 제약에서 처리.
 	float TargetHeightOffset = 0.0f;
+	float PairHandHeight0 = 0.0f;   // 들것 기울기용: 페어 각자의 '손 높이' (평균은 높이, 차이는 기울기)
+	float PairHandHeight1 = 0.0f;
 	if (FurnitureHeightPerPitch != 0.0f)
 	{
 		float HSum = 0.0f;
 		for (int32 i = 0; i < N; ++i)
 		{
 			const FGrabAnchor& Anc = Anchors[Players[i]];
-			HSum += FMath::FindDeltaAngleDegrees(Anc.InitialAimPitch, Players[i]->GetBaseAimRotation().Pitch) * FurnitureHeightPerPitch;
+			const float Hi = FMath::FindDeltaAngleDegrees(Anc.InitialAimPitch, Players[i]->GetBaseAimRotation().Pitch) * FurnitureHeightPerPitch;
+			HSum += Hi;
+			if (i == 0)      { PairHandHeight0 = Hi; }
+			else if (i == 1) { PairHandHeight1 = Hi; }
 		}
 		TargetHeightOffset = HSum / (float)N;
+	}
+
+	// [인원 미달 드래그 연출] 2인 가구를 혼자 들면 잡은 쪽만 들리고 반대쪽 끝이 바닥에
+	// 끌리는 자세가 되도록 — 기울기(Step 3)와 함께 중심을 낮춰 먼 쪽 끝을 바닥에 붙인다.
+	// '이건 혼자 못 드는 가구'라는 걸 시각적으로 즉시 전달. 인원 충족 시 보간으로 수평 복귀.
+	const int32 RequiredPlayers = FurnitureStat->GetRequiredPlayer();
+	const bool  bUnderManned    = (N == 1) && (RequiredPlayers >= 2);
+	float   UnderMannedTilt = 0.0f;
+	FVector UnderMannedDir  = FVector::ZeroVector;
+	if (bUnderManned)
+	{
+		UnderMannedDir = FVector(CurFurnLoc.X - Players[0]->GetActorLocation().X,
+		                         CurFurnLoc.Y - Players[0]->GetActorLocation().Y, 0.0f);
+		if (UnderMannedDir.Normalize())
+		{
+			UnderMannedTilt = 14.0f;
+			// '기울어진 가구의 바닥(월드 AABB 하단)이 발밑 바닥에 닿는' 중심 높이를 역산.
+			// Bounds.BoxExtent는 회전이 반영된 월드 AABB라 기울기 성분이 이미 포함 —
+			// 여기에 sin(T)·길이를 또 더하면 이중 가산되어 그만큼 공중에 뜬다(버그 이력).
+			// 이 동안은 카메라 피치 높이 조절도 무시됨: 혼자서는 못 들어올린다는 표현.
+			const FVector Ext = FurnitureMesh ? FurnitureMesh->Bounds.BoxExtent : FVector(50.0f);
+			float FloorZ = Players[0]->GetActorLocation().Z - 90.0f;
+			if (const UCapsuleComponent* Cap = Players[0]->GetCapsuleComponent())
+			{
+				FloorZ = Players[0]->GetActorLocation().Z - Cap->GetScaledCapsuleHalfHeight();
+			}
+			const float CenterOffZ = FurnitureMesh ? (FurnitureMesh->Bounds.Origin.Z - Owner->GetActorLocation().Z) : 0.0f;
+			// +1: 관통 없이 '닿아 보이는' 높이. 음수 겹침을 주면 회전(기울기)은 스윕이
+			// 안 되어 모서리가 바닥을 파고들고, 그 자세로 놓으면 박힌 채 시작함.
+			const float DesiredCenterZ = FloorZ + Ext.Z + 1.0f;
+			TargetHeightOffset = DesiredCenterZ - (TargetLoc.Z + CenterOffZ);
+		}
 	}
 
 	// 현재 높이 오프셋에서 목표 높이 오프셋으로 부드럽게 보간
@@ -474,16 +673,57 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 			AvgPlayerZ += Players[i]->GetActorLocation().Z;
 		AvgPlayerZ /= (float)N;
 
-		const float DesiredZ = TargetLoc.Z + CurrentHeightOffset;
-		const float ClampedZ = FMath::Clamp(DesiredZ, AvgPlayerZ + FurnitureHeightMin, AvgPlayerZ + FurnitureHeightMax);
+		// [피벗 오프셋 보정] 제약을 피벗이 아니라 '메쉬 중심' 기준으로 → 피벗이 메쉬와 떨어진 가구도
+		// 시각 위치가 범위 안에 맞음(천장/바닥 관통 방지, 위치 일관).
+		const float MeshCenterOffZ = FurnitureMesh ? (FurnitureMesh->Bounds.Origin.Z - Owner->GetActorLocation().Z) : 0.0f;
+		const float DesiredCenterZ = TargetLoc.Z + CurrentHeightOffset + MeshCenterOffZ;
+		// 인원 미달 드래그 자세는 바닥 접지까지 내려가야 하므로 하한을 크게 완화
+		const float MinZ = AvgPlayerZ + FurnitureHeightMin - (bUnderManned ? 250.0f : 0.0f);
+		const float ClampedCenterZ = FMath::Clamp(DesiredCenterZ, MinZ, AvgPlayerZ + FurnitureHeightMax);
 		// 윈드업 방지: 범위 밖 입력이 계속 쌓이지 않도록, 실제 적용 가능한 오프셋으로 되돌려 저장
-		CurrentHeightOffset = ClampedZ - TargetLoc.Z;
+		CurrentHeightOffset = (ClampedCenterZ - MeshCenterOffZ) - TargetLoc.Z;
 	}
 
 	// ---- 3. 가구 이동 (sweep=true, 가구 자체 충돌) ----
 	// Pitch/Roll은 현재 값 유지: 물리로 쓰러진 가구는 그 자세 그대로 운반 (억지로 세우면 바닥 파고듦)
 	FRotator TargetRot = Owner->GetActorRotation();
 	TargetRot.Yaw = TargetYaw;
+
+	// [들것 기울기] 공동운반 시 두 운반자의 손 높이(카메라 피치) '차이'를 기울기로 변환 —
+	// 평균은 위 2.5의 높이 조절 그대로, 차이는 두 사람을 잇는 선을 따라 낮은 쪽으로 기움.
+	// 1인 운반·놓기는 이 분기를 안 타므로 기존(자세 보존) 동작 유지.
+	if (bPairLine && N >= 2 && FurnitureHeightPerPitch != 0.0f)
+	{
+		const FVector PosA = Players[0]->GetActorLocation();
+		const FVector PosB = Players[1]->GetActorLocation();
+		FVector LineDir(PosB.X - PosA.X, PosB.Y - PosA.Y, 0.0f);
+		const float PairDist = LineDir.Size();
+		if (PairDist > PairLineMinDistance)
+		{
+			LineDir /= PairDist;
+			// B쪽 손이 높으면 B쪽 끝이 올라가는 회전. 과도한 기울기는 ±20°로 제한.
+			const float TiltDeg = FMath::Clamp(FMath::RadiansToDegrees(
+				FMath::Atan2(PairHandHeight1 - PairHandHeight0, PairDist)), -20.0f, 20.0f);
+			const FVector TiltAxis = FVector::CrossProduct(LineDir, FVector::UpVector);
+			const FQuat GoalQuat = FQuat(TiltAxis, FMath::DegreesToRadians(TiltDeg))
+			                     * FQuat(FRotator(0.0f, TargetYaw, 0.0f));
+			// 피치/롤은 보간으로 부드럽게 접근(합류 순간 스냅 방지), Yaw는 기존 FixedTurn 결과 유지
+			TargetRot = FMath::RInterpTo(Owner->GetActorRotation(), GoalQuat.Rotator(),
+			                             DeltaTime, FurnitureHeightInterpSpeed);
+			TargetRot.Yaw = TargetYaw;
+		}
+	}
+	// [인원 미달 드래그 연출] 잡은 쪽만 들리고 먼 쪽 끝이 바닥으로 기우는 자세 (위 2.5의 중심 낮춤과 세트)
+	else if (bUnderManned && UnderMannedTilt > 0.0f)
+	{
+		const FVector TiltAxis = FVector::CrossProduct(UnderMannedDir, FVector::UpVector);
+		// Cross(D,Up) 축의 +θ는 D쪽(먼 쪽) 끝을 올리므로, 내리려면 -θ
+		const FQuat GoalQuat = FQuat(TiltAxis, FMath::DegreesToRadians(-UnderMannedTilt))
+		                     * FQuat(FRotator(0.0f, TargetYaw, 0.0f));
+		TargetRot = FMath::RInterpTo(Owner->GetActorRotation(), GoalQuat.Rotator(),
+		                             DeltaTime, FurnitureHeightInterpSpeed);
+		TargetRot.Yaw = TargetYaw;
+	}
 
 	// HeightOffset 대신 보간된 CurrentHeightOffset 적용
 	Owner->SetActorLocationAndRotation(TargetLoc + FVector(0.0f, 0.0f, CurrentHeightOffset), TargetRot, true);
@@ -513,6 +753,10 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 			FMath::Abs(FMath::FindDeltaAngleDegrees(TargetYaw, ActualYaw)) > CorrectionDeadzone;
 		if (bRotationBlocked)
 		{
+			// [들것 회전] 막힌 만큼 의도도 실제 Yaw로 재기준 (앵커 리셋과 같은 이유의 윈드업 방지)
+			if (bPairLineValid)
+				PairLineTargetYaw = ActualYaw;
+
 			for (int32 i = 0; i < N; ++i)
 			{
 				ACharacter* P = Players[i];
@@ -573,15 +817,26 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 			if ((EndPos - StartPos).SizeSquared2D() < KINDA_SMALL_NUMBER)
 				continue;
 
-			FCollisionShape Shape = FCollisionShape::MakeCapsule(
-				Cap->GetScaledCapsuleRadius(), Cap->GetScaledCapsuleHalfHeight());
+			// [턱 오탐 방지] CMC가 걸어서 오를 수 있는 턱(MaxStepHeight 이하)은 벽으로 치지 않는다.
+			// 발바닥 높이 그대로 수평 스윕하면 문턱·낮은 단차에 막힘 판정 → 가구 후퇴 ↔ 견인이
+			// 반복되며 서버·클라 위치가 어긋나 러버밴딩(디싱크 체감)이 생김. 캡슐 밑단을 스텝
+			// 높이만큼 들어올려(반높이 축소 + 중심 상향, 머리 높이는 유지) 스윕하고,
+			// 실제 등반은 CMC 스텝업이 알아서 처리하게 둔다.
+			const UCharacterMovementComponent* PCMC = P->GetCharacterMovement();
+			const float CapRadius     = Cap->GetScaledCapsuleRadius();
+			const float CapHalfHeight = Cap->GetScaledCapsuleHalfHeight();
+			const float StepH         = PCMC ? PCMC->MaxStepHeight : 45.0f;
+			const float NewHalfHeight = FMath::Max(CapHalfHeight - StepH * 0.5f, CapRadius);
+			const FVector LiftZ(0.0f, 0.0f, CapHalfHeight - NewHalfHeight);   // 밑단만 올라가도록 중심 상향
+
+			FCollisionShape Shape = FCollisionShape::MakeCapsule(CapRadius, NewHalfHeight);
 			FCollisionQueryParams QP;
 			QP.AddIgnoredActor(Owner);
 			for (ACharacter* Other : Players)  // 그랩 플레이어끼리 오탐 WorstBlock 방지
 				QP.AddIgnoredActor(Other);
 
 			FHitResult Hit;
-			if (GetWorld()->SweepSingleByProfile(Hit, StartPos, EndPos, FQuat::Identity,
+			if (GetWorld()->SweepSingleByProfile(Hit, StartPos + LiftZ, EndPos + LiftZ, FQuat::Identity,
 				Cap->GetCollisionProfileName(), Shape, QP))
 			{
 				const FVector Shortfall(Att.X - Hit.Location.X, Att.Y - Hit.Location.Y, 0.0f);
@@ -629,23 +884,43 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 
 		const FVector Att      = GetAttachedLocation(P, ActualLoc, ActualYaw);
 		const FVector Delta    = FVector(Att.X - P->GetActorLocation().X, Att.Y - P->GetActorLocation().Y, 0.0f);
-		const bool bAtTarget   = Delta.SizeSquared() <= FMath::Square(CorrectionDeadzone);
 		const bool bWasDragged = DraggedLastTick.Contains(P);
+		// [견인 데드존] 정착 상태에서는 PullStartRadius까지 자유 이동을 허용(견인 시작을 늦춤),
+		// 일단 견인이 시작되면 CorrectionDeadzone까지 완전히 끌어 대형을 정확히 복원한다.
+		// 해제 반경까지 넓히면 도달 앵커 재기록(아래)에 잔여 오차가 구워져, 견인이 반복될수록
+		// 피동 플레이어가 대형에서 점점 뒤로 밀리는 누적 드리프트가 생긴다 — 진입만 넓게.
+		const float AtTargetRadius = bWasDragged
+			? CorrectionDeadzone
+			: FMath::Max(PullStartRadius, CorrectionDeadzone);
+		// [겹침 방지] 데드존 여유는 옆·뒤 방향까지만 — 앵커 자리에서 '가구 중심 방향'으로
+		// 일정 이상 파고들면(운반자-가구 충돌은 그랩 중 꺼져 있어 몸이 가구를 관통해 보임)
+		// 도달 판정을 깨고 견인을 발동시켜 대형을 복원한다. 견인 램프(0.12s) 덕에 부드럽게 밀려남.
+		bool bIntrudesFurniture = false;
+		{
+			FVector DirToFurn(ActualLoc.X - Att.X, ActualLoc.Y - Att.Y, 0.0f);
+			if (DirToFurn.Normalize())
+			{
+				const float TowardFurn = FVector::DotProduct(FVector(-Delta.X, -Delta.Y, 0.0f), DirToFurn);
+				bIntrudesFurniture = TowardFurn > 12.0f;
+			}
+		}
+		const bool bAtTarget   = !bIntrudesFurniture
+			&& Delta.SizeSquared() <= FMath::Square(AtTargetRadius);
 
 		if (bAtTarget && !bWasDragged)
 		{
-			// 능동 주도자: CMC 속도 간섭 없음.
-			// Yaw: 원격 운반자는 자기 클라가 로컬로 돌리고 있으므로(낡은 가구 Yaw 기준),
-			// 허용 오차(RemoteBodyYawTolerance) 안에서는 서버가 덮어쓰지 않음 → 이중 기록 왕복(회전 시 뚝뚝) 방지.
-			// 호스트는 지연이 없어 정밀 데드존으로 즉시 교정.
+			// 능동 주도자: CMC '속도'는 간섭하지 않음 (자기 입력으로 걸음).
+			// [발 미끄러짐 방지] 예전엔 여기서 Multicast_ApplyPlayerCorrection(ZeroVector)을 호출했는데,
+			// 그 구현이 오너 CMC 속도를 매 틱 0으로 덮어써(→ 걷기 속도 0↔걷기 왕복) 발이 미끄러졌음(발발).
+			// → 그 Multicast 제거. 속도를 안 건드리니 오너는 매끈하게 걸음.
+			// [회전 복제] 몸통 Yaw는 서버가 ApplyBodyYaw로 세팅 → 서버 권위 회전이 다른 뷰어(호스트·타클라)에게
+			// 복제되어 회전이 보임. 오너 자신은 로컬 동기화 블록(TickComponent)이 매끈하게 돌리므로,
+			// 서버는 원격 허용오차(RemoteBodyYawTolerance) 안에선 덮어쓰지 않아 이중 기록 왕복을 최소화.
 			const float DesiredYaw = GetDesiredYaw(P, ActualYaw);
 			const float YawTol = P->IsLocallyControlled() ? YawCorrectionDeadzone : RemoteBodyYawTolerance;
 			if (FMath::Abs(FMath::FindDeltaAngleDegrees(P->GetActorRotation().Yaw, DesiredYaw)) > YawTol)
 			{
-				FRotator NewRot = P->GetActorRotation();
-				NewRot.Yaw = DesiredYaw;
-				P->SetActorRotation(NewRot);
-				Multicast_ApplyPlayerCorrection(P, FVector::ZeroVector, DesiredYaw);
+				ApplyBodyYaw(P, DesiredYaw, DeltaTime);
 			}
 			continue;
 		}
@@ -656,16 +931,21 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 		const float YawTol = P->IsLocallyControlled() ? YawCorrectionDeadzone : RemoteBodyYawTolerance;
 		if (FMath::Abs(FMath::FindDeltaAngleDegrees(P->GetActorRotation().Yaw, DesiredYaw)) > YawTol)
 		{
-			FRotator NewRot = P->GetActorRotation();
-			NewRot.Yaw = DesiredYaw;
-			P->SetActorRotation(NewRot);
+			ApplyBodyYaw(P, DesiredYaw, DeltaTime);   // 즉시 스냅 대신 보간
 		}
 
 		if (bAtTarget && bWasDragged)
 		{
 			// 피동 플레이어가 방금 목표에 도달 → XY 정지 (관성 슬라이딩 방지)
 			// Z는 보존: 낙하 중이면 중력 속도를 지워선 안 됨 (공중 정지/슬로모 방지)
-			CMC->Velocity = FVector(0.0f, 0.0f, CMC->Velocity.Z);
+			// [예측 보호] 서버 직접 기록은 호스트(로컬 제어) 폰에만. 원격 프록시(클라 조종)의
+			// CMC 속도를 예측 파이프라인 밖에서 덮어쓰면, 클라 move 재생 시작속도와 어긋나
+			// ClientAdjustPosition(=텔레포트 체감)이 발사됨. 원격은 아래 Multicast가 소유
+			// 클라에서 같은 값을 적용하고, 서버는 그 move를 재생하며 자연히 일치한다.
+			if (P->IsLocallyControlled())
+			{
+				CMC->Velocity = FVector(0.0f, 0.0f, CMC->Velocity.Z);
+			}
 			Multicast_ApplyPlayerCorrection(P, FVector::ZeroVector, DesiredYaw);
 			StoppedDraggingThisTick.Add(P);
 
@@ -713,12 +993,21 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 		// BrakingDecel 보상: CMC가 다음 틱 시작 시 BrakingDecel*DT 만큼 속도를 감쇠시키므로
 		// 그만큼 더 주입해 실질 이동거리가 Delta와 일치하도록 함.
 		// 서버·클라 모두 동일하게 BrakingDecel 감쇠 적용 → 동일 이동 → ClientAdjustPosition 없음.
-		const FVector NeededVelocity = (Delta / DeltaTime).GetClampedToMaxSize(MaxCorrectionSpeed);
+		// DeltaTime=0(첫 틱/히치) 나눗셈 가드 — inf 속도 주입 방지
+		const float SafeDeltaTime = FMath::Max(DeltaTime, KINDA_SMALL_NUMBER);
+		// [견인 램프] 벌어진 거리(데드존 50uu)를 한 틱에 닫으면 견인 시작 순간 수천 cm/s가
+		// 주입돼 '멈췄다가 순간이동' 체감이 됨 → 0.12초에 걸쳐 지수적으로 닫는다.
+		const float PullCloseTime = FMath::Max(SafeDeltaTime, 0.12f);
+		const FVector NeededVelocity = (Delta / PullCloseTime).GetClampedToMaxSize(MaxCorrectionSpeed);
 		const FVector CarryVelocity  = (NeededVelocity + NeededVelocity.GetSafeNormal() * CMC->BrakingDecelerationWalking * DeltaTime)
 		                               .GetClampedToMaxSize(MaxCorrectionSpeed);
 		// XY만 견인, Z는 보존: CarryVelocity.Z=0이라 통째로 대입하면 낙하 속도가 매 틱 0으로
 		// 리셋되어 공중에서 슬로모션으로 떨어지는 현상 발생
-		CMC->Velocity = FVector(CarryVelocity.X, CarryVelocity.Y, CMC->Velocity.Z);
+		// [예측 보호] 위 도달 블록과 동일 — 원격 프록시는 Multicast 경로(소유 클라 적용)만 사용
+		if (P->IsLocallyControlled())
+		{
+			CMC->Velocity = FVector(CarryVelocity.X, CarryVelocity.Y, CMC->Velocity.Z);
+		}
 		Multicast_ApplyPlayerCorrection(P, CarryVelocity, DesiredYaw);
 		CurrentTickDragged.Add(P);
 	}
@@ -791,9 +1080,14 @@ void UFurnitureGrabSystem::Multicast_UpdateFurnitureTransform_Implementation(FVe
 	if (GetOwner() && GetOwner()->HasAuthority())
 		return;
 
-	if (SeqID != LocalSystemOffsetSequence)
+	// 낡은(이전 시퀀스) 패킷만 무시하고 최신은 항상 수용한다. 기존의 '불일치=전부 버림'은
+	// 수동 회전으로 시퀀스가 오른 뒤 Reliable(ApplySystemOffset)이 도착할 때까지 새 시퀀스가
+	// 달린 트랜스폼 패킷을 통째로 버려, 보간 타깃이 정체됐다가 한 번에 튀는 히치를 만들었음.
+	// (uint8 순환 대응: int8 차이의 부호로 앞뒤 판정)
+	const int8 SeqDelta = (int8)(SeqID - LocalSystemOffsetSequence);
+	if (SeqDelta < 0)
 	{
-		return; 
+		return;
 	}
 
 	ServerLocation = NewLocation;
@@ -808,17 +1102,17 @@ void UFurnitureGrabSystem::Multicast_ShowDebugSpeeds_Implementation(
 	float FurnActualSpeed, float FurnMaxSpeed,
 	const TArray<float>& MaxWalkSpeeds, const TArray<float>& ActualSpeeds)
 {
-//#if !UE_BUILD_SHIPPING
-//	if (!GEngine) return;
-//	GEngine->AddOnScreenDebugMessage(9000, 0.1f, FColor::Yellow,
-//		FString::Printf(TEXT("[가구] 실속도: %.0f  /  설정최대속도: %.0f"), FurnActualSpeed, FurnMaxSpeed));
-//	for (int32 i = 0; i < MaxWalkSpeeds.Num(); ++i)
-//	{
-//		GEngine->AddOnScreenDebugMessage(9001 + i, 0.1f, FColor::Cyan,
-//			FString::Printf(TEXT("  [P%d] MaxWalkSpeed: %.0f  /  현재속도: %.0f"),
-//				i + 1, MaxWalkSpeeds[i], ActualSpeeds[i]));
-//	}
-//#endif
+#if !UE_BUILD_SHIPPING
+	if (!GEngine) return;
+	GEngine->AddOnScreenDebugMessage(9000, 0.1f, FColor::Yellow,
+		FString::Printf(TEXT("[가구] 실속도: %.0f  /  설정최대속도: %.0f"), FurnActualSpeed, FurnMaxSpeed));
+	for (int32 i = 0; i < MaxWalkSpeeds.Num(); ++i)
+	{
+		GEngine->AddOnScreenDebugMessage(9001 + i, 0.1f, FColor::Cyan,
+			FString::Printf(TEXT("  [P%d] MaxWalkSpeed: %.0f  /  현재속도: %.0f"),
+				i + 1, MaxWalkSpeeds[i], ActualSpeeds[i]));
+	}
+#endif
 }
 
 void UFurnitureGrabSystem::Multicast_ApplyPlayerCorrection_Implementation(
@@ -908,6 +1202,9 @@ void UFurnitureGrabSystem::OnRep_GrabbedPlayers()
 		{
 			FurnitureMesh->SetSimulatePhysics(false);
 			FurnitureMesh->SetCollisionProfileName(TEXT("BlockAllDynamic"));
+			// [시야] 카메라 프로브(스프링암)는 각 클라이언트에서 돌므로,
+			// 클라 동기화 경로에서도 운반 중 카메라 채널 무시를 적용한다.
+			FurnitureMesh->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
 		}
 		else
 		{
@@ -952,7 +1249,10 @@ void UFurnitureGrabSystem::OnRep_GrabbedPlayers()
 
 			// 클라이언트에서 로컬 플레이어의 Anchor 복구 (Grab()은 서버 전용이므로 클라에는 없음)
 			// GetDesiredYaw 및 TickComponent 로컬 Yaw 보정에 필요
-			if (P->IsLocallyControlled() && GetOwner())
+			// Multicast_SetPlayerAnchor(Reliable)가 먼저 도착해 '그랩 시점' 정확 앵커를
+			// 만들어둔 경우, 여기서 '현재 트랜스폼' 기반 재구성 앵커로 덮어쓰면 가구가 움직이는 중
+			// 합류한 두 번째 캐리어가 스냅한다 — 이미 있으면 유지.
+			if (P->IsLocallyControlled() && GetOwner() && !Anchors.Contains(P))
 			{
 				FGrabAnchor LocalAnchor;
 				LocalAnchor.InitialOffset       = GetOwner()->GetActorLocation() - P->GetActorLocation();
@@ -1005,9 +1305,9 @@ void UFurnitureGrabSystem::UpdateLocalWalkSpeed()
 			LocalOriginalMaxWalkSpeed = CMC->MaxWalkSpeed;
 			bLocalSpeedReduced = true;
 		}
-		// OnRep는 인원이 바뀔 때마다 호출되므로 매번 이속을 재계산한다
-		if (FurnitureStat && FurnitureStat->GetRequiredPlayer() > 0)
-			CMC->MaxWalkSpeed = FurnitureStat->GetBaseSpeed() * (float)GrabbedPlayers.Num() / (float)FurnitureStat->GetRequiredPlayer();
+		// OnRep는 인원이 바뀔 때마다 호출되므로 매번 이속을 재계산한다 (서버와 동일 규칙)
+		if (FurnitureStat)
+			CMC->MaxWalkSpeed = ComputeCarrySpeed();
 	}
 	else if (bLocalSpeedReduced)
 	{

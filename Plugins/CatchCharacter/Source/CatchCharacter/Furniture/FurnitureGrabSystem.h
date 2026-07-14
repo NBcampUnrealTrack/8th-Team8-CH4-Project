@@ -84,6 +84,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
 	float YawCorrectionDeadzone = 0.25f;
 
+	// 캐릭터 몸통 Yaw 보간 속도. 목표(DesiredYaw)로 즉시 스냅하지 않고 이 속도로 부드럽게 회전.
+	// 낮을수록 부드럽지만 굼뜸, 높을수록 즉시에 가까움. 0 이하면 즉시 스냅.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
+	float BodyYawInterpSpeed = 12.0f;
+
 	// [서버] 원격 운반자 몸통 Yaw에 대한 서버 개입 허용 오차(도).
 	// 원격 몸통 Yaw는 그 클라가 로컬에서(복제된 가구 Yaw 기준 = 한두 틱 낡음) 돌려서 ServerMove로 올라오는데,
 	// 서버 Step 5가 최신 가구 Yaw로 매 틱 덮어쓰면 '낡은 값 ↔ 최신 값'이 서버 사본에서 매 틱 왕복
@@ -101,6 +106,27 @@ public:
 	// 가구 최대 회전 속도 (도/초). 빠른 카메라 회전 시 가구 위치 튐 방지.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
 	float FurnYawRotationSpeed = 90.0f;
+
+	// [들것 회전] 2인 이상 운반 시 가구 Yaw를 카메라 대신 '두 운반자를 잇는 선'의 회전으로
+	// 결정한다 (걸어서 도는 방식). 1인 운반은 항상 기존 카메라 추종. false면 기존 방식.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
+	bool bPairLineRotation = true;
+
+	// [들것 회전] 두 운반자가 이 거리(cm)보다 가까우면 선 방향이 수치적으로 불안정하므로
+	// 그 틱은 회전 의도를 누적하지 않는다.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
+	float PairLineMinDistance = 40.0f;
+
+	// [견인 데드존] 자기 목표 지점에서 이 반경(cm) 안에서는 견인 없이 자유 이동.
+	// 견인이 일단 시작되면 CorrectionDeadzone까지 완전히 끌어 대형을 복원한다
+	// (진입·해제 반경이 같으면 도달 앵커 재기록에 오차가 구워져 대형이 누적 이탈).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
+	float PullStartRadius = 50.0f;
+
+	// 인원 미달 시 '1인당' 이동속도 기여분 (기본속도 대비). 0.2 = 1/5.
+	//   속도 = Base × min(1, 인원수 × 이 값). 예) 필요3인에 2명 = 2×0.2 = 2/5.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
+	float UnderMannedSpeedFactor = 0.2f;
 
 	// [회전 교착] 제안 방향 일치도(0~1)가 이 값 미만이면 줄다리기로 보고 회전 정지.
 	// 등가중치 2인 기준 일치도 = cos(의견차/2) → 0.3 ≈ 의견차 145° 이상일 때 교착.
@@ -149,6 +175,16 @@ private:
 
 	// [서버] 지난 틱에 운반자가 벽에 막혔는가 (Step 4 감지 → 다음 틱 Step 2에서 회전 보류)
 	bool bCarrierBlockedLastTick = false;
+
+	// [서버, 들것 회전 상태] 능동 운반자의 이동이 만든 '선 회전 의도' 누적치(절대 Yaw).
+	// 피동(견인) 이동은 누적에서 제외 — 회전이 견인을 만들고 그 견인이 선을 또 돌리는
+	// 폭주 피드백 차단. 페어 구성이 바뀌면 현재 가구 Yaw로 재기준(스냅 없음).
+	bool    bPairLineValid    = false;
+	float   PairLineTargetYaw = 0.0f;
+	FVector PairLinePrevPosA  = FVector::ZeroVector;
+	FVector PairLinePrevPosB  = FVector::ZeroVector;
+	TWeakObjectPtr<ACharacter> PairLineA;
+	TWeakObjectPtr<ACharacter> PairLineB;
 
 	// 이전 틱에 "피동→도달" 전환(bAtTarget && bWasDragged)이었던 플레이어 집합.
 	// 이 틱의 Step 1에서 가중치=0으로 처리해 역방향 견인력을 방지하되,
@@ -208,4 +244,10 @@ private:
 
 	void UpdateLocalWalkSpeed();
 	void SetGrabCollisionState(ACharacter* Player, bool bEnable);
+
+	// 운반 이동속도 계산: 필요 인원 미달이면 부족 정도만큼 극단적으로 감속, 충족이면 기본속도
+	float ComputeCarrySpeed() const;
+
+	// 몸통 Yaw를 DesiredYaw로 즉시 스냅하지 않고 BodyYawInterpSpeed로 보간해 적용 (부드러운 회전)
+	void ApplyBodyYaw(ACharacter* P, float DesiredYaw, float DeltaTime) const;
 };

@@ -6,6 +6,8 @@
 #include "Components/CapsuleComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "Sound/SoundBase.h"
+#include "NiagaraFunctionLibrary.h"
+#include "NiagaraSystem.h"
 
 namespace
 {
@@ -112,6 +114,21 @@ void UTCFootstepComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 		}
 		UGameplayStatics::PlaySoundAtLocation(this, JumpSound, Foot, 1.f,
 			FMath::RandRange(0.95f, 1.05f));
+	}
+	// ── 착지 먼지: 공중 → 지면 전이 시 발밑 먼지 퍼프 ──
+	// 들어올리기 먼지(NS_GrabPuff)를 재사용 — 톤 일관성 + 신규 에셋 없이 처리
+	else if (!bWasOnGround && bOnGround)
+	{
+		if (UNiagaraSystem* Dust = LoadObject<UNiagaraSystem>(nullptr,
+			TEXT("/Game/Developers/goldb/VFX/NS_GrabPuff.NS_GrabPuff")))
+		{
+			FVector Foot = OwnerChar->GetActorLocation();
+			if (const UCapsuleComponent* Cap = OwnerChar->GetCapsuleComponent())
+			{
+				Foot.Z -= Cap->GetScaledCapsuleHalfHeight();
+			}
+			UNiagaraFunctionLibrary::SpawnSystemAtLocation(this, Dust, Foot + FVector(0.f, 0.f, 4.f));
+		}
 	}
 	bWasOnGround = bOnGround;
 	if (!Move || !Move->IsMovingOnGround() || Speed < MinSpeed)

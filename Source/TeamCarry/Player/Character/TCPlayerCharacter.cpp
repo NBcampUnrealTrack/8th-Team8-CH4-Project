@@ -86,6 +86,13 @@ void ATCPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 	EIC->BindAction(RotateZAction, ETriggerEvent::Triggered, this, &ThisClass::RotateZ);
 	EIC->BindAction(RotateYAction, ETriggerEvent::Triggered, this, &ThisClass::RotateY);
 	EIC->BindAction(ZoomAction, ETriggerEvent::Triggered, this, &ThisClass::HandleZoomInput);
+	EIC->BindAction(Emote1Action, ETriggerEvent::Started, this, &ThisClass::Emote1);
+	EIC->BindAction(Emote2Action, ETriggerEvent::Started, this, &ThisClass::Emote2);
+	EIC->BindAction(Emote3Action, ETriggerEvent::Started, this, &ThisClass::Emote3);
+	EIC->BindAction(Emote4Action, ETriggerEvent::Started, this, &ThisClass::Emote4);
+	EIC->BindAction(MoveAction, ETriggerEvent::Started, this, &ThisClass::CancelEmote);
+	EIC->BindAction(JumpAction, ETriggerEvent::Started, this, &ThisClass::CancelEmote);
+	EIC->BindAction(RunAction, ETriggerEvent::Started, this, &ThisClass::CancelEmote);
 
 }
 
@@ -93,6 +100,16 @@ void ATCPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 void ATCPlayerCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// 마우스 조작감 — 카메라 회전 랙을 줄여 시선이 '확확' 따라오게 한다.
+	// (랙 10.0은 카메라가 마우스를 눈에 띄게 뒤따라와 조작이 둔하게 느껴지던 원인)
+	// 생성자 기본값 대신 여기서 덮어쓰는 것은 Live Coding 호환용 런타임 튜닝 지점 —
+	// 값 확정 후 생성자 기본값으로 옮겨도 된다.
+	if (SpringArm)
+	{
+		SpringArm->CameraRotationLagSpeed = 25.f;
+		SpringArm->CameraLagSpeed = 20.f;
+	}
 
 	// 로컬 플레이어가 조종하는 캐릭터인지 확인
 	if (IsLocallyControlled() == true)
@@ -116,6 +133,17 @@ void ATCPlayerCharacter::HandleMoveInput(const FInputActionValue& InValue)
 	if (IsValid(Controller) == false)
 	{
 		UE_LOG(LogTemp, Error, TEXT("Controller is invalid."));
+		return;
+	}
+
+	// 이모트(춤)이 재생 중일 때는 이동 입력을 무시하여 미끄러짐 방지
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if (AnimInstance && (
+		AnimInstance->Montage_IsPlaying(Emote1Montage) ||
+		AnimInstance->Montage_IsPlaying(Emote2Montage) ||
+		AnimInstance->Montage_IsPlaying(Emote3Montage) ||
+		AnimInstance->Montage_IsPlaying(Emote4Montage)))
+	{
 		return;
 	}
 
@@ -163,28 +191,13 @@ float ATCPlayerCharacter::GetAimPitch() const
 // 플레이어 달리기 시작
 void ATCPlayerCharacter::StartRun(const FInputActionValue& InValue)
 {
-	// 가구를 들고 있는지 확인
+	// 운반 중에는 인원수와 무관하게 달리기가 MaxWalkSpeed를 건드리지 않는다.
+	// 운반 속도는 GrabSystem(ComputeCarrySpeed)이 서버·클라 양쪽에서 관리하는데,
+	// 여기서 500으로 덮어쓰면 서버 운반 속도와 어긋나 클라 예측 이동이 매 move마다
+	// 보정(ClientAdjustPosition)되며 러버밴딩이 남 — 1인 운반도 동일.
 	if (GrabComponent && GrabComponent->GetGrabbedActor())
 	{
-		ATCFurnitureActor* Furniture = Cast<ATCFurnitureActor>(GrabComponent->GetGrabbedActor());
-
-		if (Furniture)
-		{
-			// 가구의 GrabSystem을 통해 가구를 들고 있는 플레이어 인원수 조회
-			UFurnitureGrabSystem* FGS = Furniture->GetGrabSystem();
-
-			if (FGS)
-			{
-				// 팀원 코드에 맞춰 잡고 있는 인원수를 가져오는 함수로 수정 필요
-				int32 GrabberCount = FGS->GetGrabbedPlayers().Num();
-
-				// 2명 이상이 가구를 들고 있다면 달리기 불가 처리 후 함수 종료
-				if (GrabberCount >= 2)
-				{
-					return;
-				}
-			}
-		}
+		return;
 	}
 
 	// 달리기 최대 속도 500
@@ -197,6 +210,12 @@ void ATCPlayerCharacter::StartRun(const FInputActionValue& InValue)
 // 플레이어 달리기 종료 -> 걷기
 void ATCPlayerCharacter::StopRun(const FInputActionValue& InValue)
 {
+	// 운반 중이면 속도 복원도 건너뜀 — 250 하드코딩이 운반 속도를 덮어쓰는 것 방지 (StartRun과 대칭)
+	if (GrabComponent && GrabComponent->GetGrabbedActor())
+	{
+		return;
+	}
+
 	// 걷기 속도 250
 	GetCharacterMovement()->MaxWalkSpeed = 250.f;
 
@@ -341,6 +360,107 @@ void ATCPlayerCharacter::HandleZoomInput(const FInputActionValue& InValue)
 	SpringArm->TargetArmLength = FMath::Clamp(NewArmLength, 150.0f, 1000.0f);
 }
 
+// 이모트(춤) 처리 함수
+void ATCPlayerCharacter::Emote1(const FInputActionValue& InValue)
+{
+	if (Emote1Montage)
+	{
+		// 춤 시작 시 캐릭터의 현재 이동 속도를 강제로 0(즉시 정지) 설정
+		GetCharacterMovement()->StopMovementImmediately();
+
+		// 로컬 화면에서 먼저 춤 재생
+		PlayAnimMontage(Emote1Montage);
+
+		// 서버에 춤 재생 요청 (ActionID 2번)
+		ServerPlayActionMontage(2);
+	}
+}
+
+// 이모트(춤) 처리 함수
+void ATCPlayerCharacter::Emote2(const FInputActionValue& InValue)
+{
+	if (Emote2Montage)
+	{
+		GetCharacterMovement()->StopMovementImmediately();
+		PlayAnimMontage(Emote2Montage);
+		ServerPlayActionMontage(3);
+	}
+}
+
+// 이모트(춤) 처리 함수
+void ATCPlayerCharacter::Emote3(const FInputActionValue& InValue)
+{
+	if (Emote3Montage)
+	{
+		GetCharacterMovement()->StopMovementImmediately();
+		PlayAnimMontage(Emote3Montage);
+		ServerPlayActionMontage(4);
+	}
+}
+
+// 이모트(춤) 처리 함수
+void ATCPlayerCharacter::Emote4(const FInputActionValue& InValue)
+{
+	if (Emote4Montage)
+	{
+		GetCharacterMovement()->StopMovementImmediately();
+		PlayAnimMontage(Emote4Montage);
+		ServerPlayActionMontage(5);
+	}
+}
+
+// 이모트(춤) 취소 판정
+void ATCPlayerCharacter::CancelEmote(const FInputActionValue& InValue)
+{
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+
+	if (!AnimInstance) return;
+
+	// 현재 이모트 몽타주가 재생 중이라면
+	if (AnimInstance && AnimInstance->Montage_IsPlaying(Emote1Montage))
+	{
+		// 로컬 화면에서 몽타주 재생 중지
+		StopAnimMontage(Emote1Montage);
+
+		// 다른 플레이어들 화면에서도 중지되도록 서버에 요청
+		ServerStopActionMontage(2);
+	}
+	else if (Emote2Montage && AnimInstance->Montage_IsPlaying(Emote2Montage))
+	{
+		StopAnimMontage(Emote2Montage);
+		ServerStopActionMontage(3);
+	}
+	else if (Emote3Montage && AnimInstance->Montage_IsPlaying(Emote3Montage))
+	{
+		StopAnimMontage(Emote3Montage);
+		ServerStopActionMontage(4);
+	}
+	else if (Emote4Montage && AnimInstance->Montage_IsPlaying(Emote4Montage))
+	{
+		StopAnimMontage(Emote4Montage);
+		ServerStopActionMontage(5);
+	}
+}
+
+// Multicast - 애니메이션 중지 전체 클라이언트 동기화
+void ATCPlayerCharacter::MulticastStopActionMontage_Implementation(int32 ActionID)
+{
+	// 내 캐릭터가 아닌 다른 플레이어의 캐릭터일 때만 애니메이션 강제 중지
+	if (!IsLocallyControlled())
+	{
+		if (ActionID == 2 && Emote1Montage) StopAnimMontage(Emote1Montage);
+		else if (ActionID == 3 && Emote2Montage) StopAnimMontage(Emote2Montage);
+		else if (ActionID == 4 && Emote3Montage) StopAnimMontage(Emote3Montage);
+		else if (ActionID == 5 && Emote4Montage) StopAnimMontage(Emote4Montage);
+	}
+}
+
+// Server - 애니메이션 중지 요청 수신
+void ATCPlayerCharacter::ServerStopActionMontage_Implementation(int32 ActionID)
+{
+	MulticastStopActionMontage(ActionID);
+}
+
 // 애니메이션 전체 클라이언트 동기화
 void ATCPlayerCharacter::MulticastPlayActionMontage_Implementation(int32 ActionID)
 {
@@ -349,14 +469,12 @@ void ATCPlayerCharacter::MulticastPlayActionMontage_Implementation(int32 ActionI
 	if (!IsLocallyControlled())
 	{
 		// 전달받은 ID에 따라 각자의 PC에 세팅된 몽타주를 안전하게 재생
-		if (ActionID == 0 && GrabMontage)
-		{
-			PlayAnimMontage(GrabMontage);
-		}
-		else if (ActionID == 1 && ThrowMontage)
-		{
-			PlayAnimMontage(ThrowMontage);
-		}
+		if (ActionID == 0 && GrabMontage) PlayAnimMontage(GrabMontage);
+		else if (ActionID == 1 && ThrowMontage) PlayAnimMontage(ThrowMontage);
+		else if (ActionID == 2 && Emote1Montage) PlayAnimMontage(Emote1Montage);
+		else if (ActionID == 3 && Emote2Montage) PlayAnimMontage(Emote2Montage);
+		else if (ActionID == 4 && Emote3Montage) PlayAnimMontage(Emote3Montage);
+		else if (ActionID == 5 && Emote4Montage) PlayAnimMontage(Emote4Montage);
 	}
 }
 
@@ -370,11 +488,20 @@ void ATCPlayerCharacter::ServerPlayActionMontage_Implementation(int32 ActionID)
 // Server - 달리기 종료
 void ATCPlayerCharacter::ServerStopRun_Implementation()
 {
+	// 운반 중 도착한 낡은 RPC(그랩 직전 발사) 무시 — 서버 운반 속도 덮어쓰기 방지
+	if (GrabComponent && GrabComponent->GetGrabbedActor())
+	{
+		return;
+	}
 	GetCharacterMovement()->MaxWalkSpeed = 250.f;
 }
 
 // Server - 달리기 시작
 void ATCPlayerCharacter::ServerStartRun_Implementation()
 {
+	if (GrabComponent && GrabComponent->GetGrabbedActor())
+	{
+		return;
+	}
 	GetCharacterMovement()->MaxWalkSpeed = 500.f;
 }
