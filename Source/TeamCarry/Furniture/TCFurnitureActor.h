@@ -7,6 +7,8 @@
 #include "Player/Interface/TCInteractable.h"
 #include "TCFurnitureActor.generated.h"
 
+class UMaterialInterface;
+
 /**
  * 
  */
@@ -49,5 +51,42 @@ protected:
     // 가구가 파괴되었는지 여부를 저장하는 플래그
     //UPROPERTY(Replicated) 서버에서만 처리하면되니 필요없을거라 판단.
     bool bIsFurnitureDestroyed = false;
+
+    // =====================================================================
+    // 금(크랙) 표시 — 체력 비율이 임계값 이하로 떨어지면 메쉬 위에 오버레이 머티리얼로 '금'을 덧씌움.
+    // 원본 머티리얼은 무수정. 반투명 '금' 머티리얼을 에디터에서 슬롯에 지정(비워두면 안 뜸, 안전).
+    // 체력 감지는 UFurnitureStat::OnFurnitureDamage(서버·클라 공통 브로드캐스트)로 처리 → 전 클라 동기화.
+    // =====================================================================
+
+    // 금 전용 겹침 메쉬 — 원본과 같은 스태틱메쉬를 살짝 키워 겹치고, 이 메쉬에만 금 머티리얼을 입힘.
+    // 엔진 SetOverlayMaterial을 못 쓰는 이유(실측): 오버레이 패스가 Nanite 메쉬에서 렌더되지 않음
+    // (가구 다수가 Nanite 활성) + Masked 머티리얼도 오버레이 패스 미지원. 겹침 메쉬는 독립 컴포넌트라
+    // 일반 렌더 경로로 항상 그려짐. 상세 이력은 cpp 생성자·UpdateCrackVisual 주석 참조.
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Furniture|Crack")
+    TObjectPtr<UStaticMeshComponent> CrackMeshComp;
+
+    // 1단계 금 (CrackStage1Ratio 이하). 예: 60%
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Crack")
+    TObjectPtr<UMaterialInterface> CrackOverlayStage1;
+
+    // 2단계 금 (CrackStage2Ratio 이하). 예: 30%
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Crack")
+    TObjectPtr<UMaterialInterface> CrackOverlayStage2;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Crack", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+    float CrackStage1Ratio = 0.6f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Crack", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+    float CrackStage2Ratio = 0.3f;
+
+    // 체력 변화 콜백 (서버·클라 공통). 금 단계 갱신.
+    UFUNCTION()
+    void OnFurnitureDamaged(float MaxHealth, float OldHealth, float NewHealth);
+
+    // 체력 비율(0~1)로 금 단계를 계산해 오버레이 적용. 단계가 바뀔 때만 실제 교체.
+    void UpdateCrackVisual(float HealthRatio);
+
+    // 현재 적용된 금 단계 (0=없음, 1, 2) — 중복 적용 방지
+    int32 CurrentCrackStage = 0;
 
 };

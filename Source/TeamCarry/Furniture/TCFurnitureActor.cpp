@@ -6,6 +6,8 @@
 #include "CatchCharacter/Furniture/FurnitureStat.h"
 #include "Player/Character/TCPlayerCharacter.h"
 #include "Components/StaticMeshComponent.h"
+#include "Materials/MaterialInterface.h"
+#include "UObject/ConstructorHelpers.h"
 #include "Kismet/GameplayStatics.h"
 #include "Engine/StaticMeshActor.h"
 #include "GeometryCollection/GeometryCollectionComponent.h"
@@ -51,6 +53,37 @@ ATCFurnitureActor::ATCFurnitureActor()
 
     // 조각의 위치까지 동기화x 어차피 플레이어랑 상호작용안될거.
     GeometryCollectionComp->SetIsReplicated(false);
+
+    // [금 표시 = 겹침 메쉬 방식 (최종 채택)]
+    // 원본과 같은 스태틱메쉬를 살짝 키워 겹치고 금 머티리얼만 입힘. 원본 무수정.
+    //
+    // ── 왜 SetOverlayMaterial(엔진 오버레이)을 안 쓰나 (시도 후 롤백한 이력) ──
+    //  1) 오버레이 패스는 'Nanite 메쉬'에서 렌더되지 않음 (실측: Nanite 끄면 나오고 켜면 안 나옴).
+    //     가구 메쉬 다수가 Nanite 활성(렌더링 담당 세팅)이라 오버레이는 구조적으로 불가.
+    //  2) 오버레이 패스는 Masked 머티리얼도 렌더 안 함 (Translucent만 가능 — 큐브 실측).
+    //  겹침 메쉬는 독립 컴포넌트로 일반 렌더 경로를 타므로 원본의 Nanite 여부와 무관하게 항상 그려짐.
+    //  금 머티리얼은 Masked/Translucent 둘 다 가능 (현재 Translucent 사용 — 가장자리 부드러움).
+    CrackMeshComp = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("CrackMeshComp"));
+    if (RootComponent)
+        CrackMeshComp->SetupAttachment(RootComponent);   // RootComponent = FurnitureMesh (부모 생성자에서 설정)
+    CrackMeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    CrackMeshComp->SetCollisionProfileName(TEXT("NoCollision"));
+    CrackMeshComp->SetCastShadow(false);
+    CrackMeshComp->SetVisibility(false);                 // 평소엔 숨김, 금 단계에서만 표시
+    CrackMeshComp->SetIsReplicated(false);               // 시각 전용 (각 머신에서 로컬 처리)
+
+    // 금(크랙) 오버레이 머티리얼 기본값 자동 로드 → 모든 가구가 별도 지정 없이 공통 사용.
+    // (특정 가구만 다른 금을 쓰려면 그 가구 디테일의 Furniture|Crack 슬롯에서 덮어쓰면 됨.
+    //  경로에 에셋이 없으면 Succeeded()=false로 그냥 비어 있게 두므로 크래시 없음.)
+    static ConstructorHelpers::FObjectFinder<UMaterialInterface> CrackMat1(
+        TEXT("/Game/Furniture/Material/M_Damage_level1.M_Damage_level1"));
+    if (CrackMat1.Succeeded())
+        CrackOverlayStage1 = CrackMat1.Object;
+
+    static ConstructorHelpers::FObjectFinder<UMaterialInterface> CrackMat2(
+        TEXT("/Game/Furniture/Material/M_Damage_level2.M_Damage_level2"));
+    if (CrackMat2.Succeeded())
+        CrackOverlayStage2 = CrackMat2.Object;
 }
 
 void ATCFurnitureActor::BeginPlay()
@@ -62,6 +95,115 @@ void ATCFurnitureActor::BeginPlay()
     {
         GetFurnitureStat()->OnFurnitureDestroy.AddDynamic(this, &ATCFurnitureActor::DestroyFurniture);
     }
+
+    // (겹침 금 메쉬의 스태틱메쉬 동기화는 UpdateCrackVisual에서 실제 시각 메쉬를 찾아 처리)
+
+    // 금 표시: 체력 변화 감지는 서버·클라 공통으로 바인딩 (OnFurnitureDamage는 서버 TakeDamage와
+    // 클라 OnRep_CurrentHealth 양쪽에서 브로드캐스트되므로 전 머신에서 금이 동기화됨).
+    if (GetFurnitureStat())
+    {
+        GetFurnitureStat()->OnFurnitureDamage.AddDynamic(this, &ATCFurnitureActor::OnFurnitureDamaged);
+
+        // 초기 상태 반영 (이미 손상된 가구에 늦게 접속한 클라 대비)
+        const float MaxHP = GetFurnitureStat()->GetMaxHealth();
+        if (MaxHP > 0.f)
+            UpdateCrackVisual(GetFurnitureStat()->GetCurrentHealth() / MaxHP);
+    }
+}
+
+void ATCFurnitureActor::OnFurnitureDamaged(float MaxHealth, float OldHealth, float NewHealth)
+{
+    if (MaxHealth <= 0.f)
+        return;
+
+    UpdateCrackVisual(NewHealth / MaxHealth);
+}
+
+void ATCFurnitureActor::UpdateCrackVisual(float HealthRatio)
+{
+    // 체력 비율 → 금 단계 (낮은 임계값부터 검사)
+    int32 Stage = 0;
+    if (HealthRatio <= CrackStage2Ratio)      Stage = 2;
+    else if (HealthRatio <= CrackStage1Ratio) Stage = 1;
+
+    if (Stage == CurrentCrackStage)
+        return;   // 단계 변화 없으면 재적용 안 함
+    CurrentCrackStage = Stage;
+
+    // ==================================================================
+    // [시도했다가 롤백: 엔진 오버레이(SetOverlayMaterial) 방식]
+    // 한 줄로 끝나 단순하지만, 오버레이 패스가 'Nanite 메쉬'에서 렌더되지 않아 롤백 (실측:
+    // Nanite 켜진 가구만 금이 안 나옴. 추가로 Masked 머티리얼도 오버레이 패스에서 렌더 안 됨).
+    // 가구 Nanite가 전부 해제되는 날이 오면 아래 두 줄로 교체 가능 (머티리얼은 Translucent 필수).
+    // ==================================================================
+    //UMaterialInterface* Overlay =
+    //    (Stage == 2) ? CrackOverlayStage2 :
+    //    (Stage == 1) ? CrackOverlayStage1 : nullptr;
+    //FurnitureMesh->SetOverlayMaterial(Overlay);
+
+    // [겹침 메쉬 방식 (최종 채택)] — 이유는 생성자 CrackMeshComp 주석 참조
+    if (!CrackMeshComp)
+        return;
+
+    // 정상(금 없음) → 숨김
+    if (Stage == 0)
+    {
+        CrackMeshComp->SetVisibility(false);
+        return;
+    }
+
+    // 실제 '보이는' 스태틱메쉬 컴포넌트 찾기 = 보이면서 바운드가 가장 큰 SMC.
+    // (FurnitureMesh가 '안 보이는 콜리전용 메쉬'인 가구가 있어, 그걸 복제하면 아무것도 안 보임 →
+    //  콜리전 메쉬가 아닌 '진짜 시각 메쉬'를 크기로 판별해 고른다.)
+    UStaticMeshComponent* Src = nullptr;
+    {
+        float BestSize = -1.f;
+        TArray<UStaticMeshComponent*> Comps;
+        GetComponents<UStaticMeshComponent>(Comps);
+        for (UStaticMeshComponent* C : Comps)
+        {
+            if (!C || C == CrackMeshComp || !C->GetStaticMesh())
+                continue;
+            if (!C->IsVisible())          // 숨은 콜리전 메쉬 제외
+                continue;
+            const float Size = C->Bounds.SphereRadius;
+            if (Size > BestSize)
+            {
+                BestSize = Size;
+                Src = C;
+            }
+        }
+        // 폴백: 보이는 게 하나도 없으면 FurnitureMesh라도
+        if (!Src && FurnitureMesh && FurnitureMesh->GetStaticMesh())
+            Src = FurnitureMesh;
+    }
+
+    if (!Src || !Src->GetStaticMesh())
+    {
+        // 원본 메쉬를 못 찾음 → 이 가구는 금 표시 불가
+        return;
+    }
+
+    // 겹침 메쉬를 '실제 원본 컴포넌트'에 붙이고 같은 메쉬로 동기화
+    if (CrackMeshComp->GetAttachParent() != Src)
+        CrackMeshComp->AttachToComponent(Src, FAttachmentTransformRules::SnapToTargetIncludingScale);
+    if (CrackMeshComp->GetStaticMesh() != Src->GetStaticMesh())
+        CrackMeshComp->SetStaticMesh(Src->GetStaticMesh());
+
+    // z-파이팅 방지: '메쉬 바운드 중심' 기준으로 균일 확대 (피벗이 어디 있든 항상 표면 바깥으로 나감).
+    // 컴포넌트 스케일은 피벗 기준이라, 바운드 중심 C가 고정되도록 위치를 C*(1-S)로 보정 → 균일 쉘.
+    const float   S           = 1.01f;
+    const FVector LocalCenter = Src->GetStaticMesh()->GetBounds().Origin;
+    CrackMeshComp->SetRelativeScale3D(FVector(S));
+    CrackMeshComp->SetRelativeLocation(LocalCenter * (1.f - S));
+
+    // 단계에 맞는 금 머티리얼을 모든 슬롯에 적용 → 금 선만 원본 위에 뜸
+    UMaterialInterface* Mat = (Stage == 2) ? CrackOverlayStage2 : CrackOverlayStage1;
+    const int32 NumMats = CrackMeshComp->GetNumMaterials();
+    for (int32 i = 0; i < NumMats; ++i)
+        CrackMeshComp->SetMaterial(i, Mat);
+
+    CrackMeshComp->SetVisibility(true);
 }
 
 void ATCFurnitureActor::DestroyFurniture()
@@ -148,6 +290,12 @@ void ATCFurnitureActor::Multicast_DestroyFurniture_Implementation()
         FurnitureMesh->SetVisibility(false);
         FurnitureMesh->SetSimulatePhysics(false);
         FurnitureMesh->SetCollisionProfileName(TEXT("NoCollision"));
+    }
+
+    // 파괴 시 겹침 금 메쉬도 숨김 (원본이 사라지는데 금만 떠 있으면 안 됨)
+    if (CrackMeshComp)
+    {
+        CrackMeshComp->SetVisibility(false);
     }
 
     // 파괴 메쉬(RestCollection)가 실제로 등록된 경우에만 조각내기 시뮬레이션 실행.
