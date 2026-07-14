@@ -6,12 +6,16 @@
 #include "CatchCharacter/Furniture/FurnitureStat.h"
 #include "Core/TeamCarryGameState.h"
 #include "Core/TeamCarryGameMode.h"
+#include "Player/Component/GrabComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "GameFramework/Actor.h"
 #include "Kismet/GameplayStatics.h"
 #include "NiagaraFunctionLibrary.h"
 #include "NiagaraSystem.h"
 #include "Sound/SoundBase.h"
+#include "Blueprint/UserWidget.h"
+#include "Engine/Engine.h"
+#include "TimerManager.h"
 
 namespace
 {
@@ -36,6 +40,13 @@ namespace
 	const TCHAR* DefaultPickupFX = TEXT("/Game/Developers/goldb/VFX/NS_GrabPuff.NS_GrabPuff");
 	const TCHAR* DefaultBreakSound = TEXT("/Game/Developers/goldb/Audio/SW_Impact.SW_Impact");
 	const TCHAR* DefaultBreakFX = TEXT("/Game/Developers/goldb/VFX/NS_ImpactPuff.NS_ImpactPuff");
+	// 강한 충돌 체감 — 묵직한 '쿵' 레이어 + 만화식 별 팝
+	const TCHAR* DefaultThudSound = TEXT("/Game/Developers/goldb/Audio/SW_Thud.SW_Thud");
+	const TCHAR* DefaultHitStarsFX = TEXT("/Game/Developers/goldb/VFX/NS_HitStars.NS_HitStars");
+	// 파괴 디메리트 체감 — 감점 팝업 + 하강 실패 스팅
+	const TCHAR* BreakPenaltyWidgetPath = TEXT("/Game/Developers/goldb/UI/WBP_BreakPenalty.WBP_BreakPenalty_C");
+	const TCHAR* DefaultBreakPenaltySound = TEXT("/Game/Developers/goldb/Audio/SW_BreakPenalty.SW_BreakPenalty");
+	constexpr float BreakPenaltyPopupSeconds = 1.8f;
 }
 
 UTCFeedbackComponent::UTCFeedbackComponent()
@@ -111,6 +122,35 @@ void UTCFeedbackComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 			const FVector Loc = Owner->GetActorLocation();
 			if (BreakSound) { UGameplayStatics::PlaySoundAtLocation(this, BreakSound, Loc); }
 			if (BreakFX) { UNiagaraFunctionLibrary::SpawnSystemAtLocation(this, BreakFX, Loc); }
+
+			// 파괴 디메리트 체감 — 하강 실패 스팅(2D) + 감점 팝업(1.8초 후 자동 제거).
+			// 파괴는 배송 점수를 통째로 잃는 사건인데 연출이 약해 손해가 체감되지 않던 문제.
+			if (USoundBase* PenaltyS = LoadObject<USoundBase>(nullptr, DefaultBreakPenaltySound))
+			{
+				UGameplayStatics::PlaySound2D(this, PenaltyS);
+			}
+			if (UWorld* World = GetWorld())
+			{
+				if (UClass* PenaltyCls = LoadClass<UUserWidget>(nullptr, BreakPenaltyWidgetPath))
+				{
+					if (APlayerController* PC = GEngine ? GEngine->GetFirstLocalPlayerController(World) : nullptr)
+					{
+						if (UUserWidget* Popup = CreateWidget<UUserWidget>(PC, PenaltyCls))
+						{
+							Popup->AddToViewport(45); // HUD 위, 시간 경고(50)보다는 아래
+							TWeakObjectPtr<UUserWidget> WeakPopup = Popup;
+							FTimerHandle PopupTimer;
+							World->GetTimerManager().SetTimer(PopupTimer, [WeakPopup]()
+							{
+								if (WeakPopup.IsValid())
+								{
+									WeakPopup->RemoveFromParent();
+								}
+							}, BreakPenaltyPopupSeconds, false);
+						}
+					}
+				}
+			}
 		}
 		else if (LastHealth > 0.f && Health < LastHealth - KINDA_SMALL_NUMBER)
 		{
@@ -121,16 +161,62 @@ void UTCFeedbackComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 				UGameplayStatics::PlaySoundAtLocation(this, HitS, Owner->GetActorLocation(),
 					1.f, FMath::RandRange(0.9f, 1.1f));
 			}
+
+			// 우드 히트 아래에 저역 '쿵'을 겹쳐 무게감을 만든다 (피치 랜덤으로 반복감 완화)
+			if (USoundBase* Thud = LoadObject<USoundBase>(nullptr, DefaultThudSound))
+			{
+				UGameplayStatics::PlaySoundAtLocation(this, Thud, Owner->GetActorLocation(),
+					1.f, FMath::RandRange(0.92f, 1.06f));
+			}
+
+			// 만화식 별 팝 — 가구 상단에서 터져 '띵' 하고 부딪힌 게 한눈에 보이게
+			if (UNiagaraSystem* Stars = LoadObject<UNiagaraSystem>(nullptr, DefaultHitStarsFX))
+			{
+				FVector Origin, Extent;
+				Owner->GetActorBounds(false, Origin, Extent);
+				const FVector Top(Origin.X, Origin.Y, Origin.Z + Extent.Z * 0.6f);
+				UNiagaraFunctionLibrary::SpawnSystemAtLocation(this, Stars, Top);
+			}
 		}
 		LastHealth = Health;
 	}
 
 	const bool bGrabbed = ReadGrabbed();
 
-	// ── 운반 하이라이트: 잡혀 있는 동안 스텐실 3(초록 링)을 매 틱 재주장 ──
-	// 포커스 시스템(OnUnfocus)이 커스텀뎁스를 꺼도 다음 틱에 즉시 복구된다.
-	if (bGrabbed)
+	// ── 아웃라인 우선순위 (머신별 로컬) ──
+	// 스텐실은 메시당 하나뿐이라 포커스(1)·운반(3)·임박(4)이 서로 덮어씀. 우선순위:
+	//   ① 로컬 플레이어가 지금 조준 중(잡을 수 있음) = 노랑 — '개인별' 표시라 내 화면에서만
+	//   ② 잡혀 있음 = 초록   ③ 시간 임박 + 안 잡힘 = 빨강
+	// 커스텀뎁스 스텐실은 복제되지 않는 렌더 상태이므로 각자 자기 화면 기준으로 갈린다.
+	bool bLocallyFocused = false;
+	if (UWorld* FW = GetWorld())
 	{
+		if (APlayerController* LPC = GEngine ? GEngine->GetFirstLocalPlayerController(FW) : nullptr)
+		{
+			if (APawn* LocalPawn = LPC->GetPawn())
+			{
+				if (UGrabComponent* LocalGrab = LocalPawn->FindComponentByClass<UGrabComponent>())
+				{
+					// 자기가 이미 들고 있는 가구는 노랑보다 운반 초록이 맞음 → 제외
+					bLocallyFocused = (LocalGrab->CurrentBestTarget == Owner)
+					               && (LocalGrab->GetGrabbedActor() != Owner);
+				}
+			}
+		}
+	}
+
+	if (bLocallyFocused)
+	{
+		if (UStaticMeshComponent* MeshC = Owner->FindComponentByClass<UStaticMeshComponent>())
+		{
+			if (MeshC->CustomDepthStencilValue != 1) { MeshC->SetCustomDepthStencilValue(1); }
+			if (!MeshC->bRenderCustomDepth) { MeshC->SetRenderCustomDepth(true); }
+		}
+	}
+	else if (bGrabbed)
+	{
+		// ── 운반 하이라이트: 잡혀 있는 동안 스텐실 3(초록 링)을 매 틱 재주장 ──
+		// 포커스 시스템(OnUnfocus)이 커스텀뎁스를 꺼도 다음 틱에 즉시 복구된다.
 		if (UStaticMeshComponent* MeshC = Owner->FindComponentByClass<UStaticMeshComponent>())
 		{
 			if (MeshC->CustomDepthStencilValue != 3) { MeshC->SetCustomDepthStencilValue(3); }
