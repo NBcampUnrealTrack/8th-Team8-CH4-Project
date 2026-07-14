@@ -316,7 +316,7 @@ void ATCFurnitureActor::Multicast_DestroyFurniture_Implementation()
         GeometryCollectionComp->SetSimulatePhysics(true);
 
         GeometryCollectionComp->AddRadialImpulse(
-            GetActorLocation(), 40.0f, 80.0f, RIF_Linear, true);
+            GetActorLocation(), 100.0f, 200.0f, RIF_Linear, true);
     }
 }
 
