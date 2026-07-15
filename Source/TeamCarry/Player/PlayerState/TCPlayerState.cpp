@@ -67,6 +67,17 @@ void ATCPlayerState::SetCharacterIndexAuthoritative(int32 InCharacterIndex)
 	NotifyLobbyChanged();
 }
 
+void ATCPlayerState::SetHasLoadedCurrentMapAuthoritative(bool bInLoaded)
+{
+	if (!HasAuthority())
+	{
+		UE_LOG(LogTCNet, Warning, TEXT("SetHasLoadedCurrentMapAuthoritative: 비권위 호출 무시"));
+		return;
+	}
+	// 비복제 서버 전용 값이므로 클라 알림 불필요(ATeamCarryGameMode 가 서버에서 직접 조회).
+	bHasLoadedCurrentMap = bInLoaded;
+}
+
 void ATCPlayerState::OnRep_LobbyInfo()
 {
 	// 클라에서 복제값이 도착하면 UI 갱신을 트리거.

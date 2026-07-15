@@ -47,6 +47,40 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "TeamCarry|Lobby")
 	void SetLobbyCursorActive(bool bInActive);
 
+	// UTCSessionFlow::HostServerTravel() 이 서버 트래블 직전, 접속 중인 모든 PC에 호출한다(명세 2장
+	// "로딩 화면 동기화 수정"). 호스트 로컬(OnTravelStarted)과 달리, 다른 클라이언트는 이 RPC로만
+	// 로딩 화면(S_Loading)을 확실히 띄울 수 있다 — 호스트 자신도 포함되지만 MockUIController의
+	// ShowPersistentLoadingWidget()이 IsInViewport() 체크로 idempotent라 안전하다.
+	UFUNCTION(Client, Reliable, Category = "TeamCarry|Session")
+	void ClientShowLoadingScreen();
+
+	// 스테이지 맵(S_InGame) 진입 전원 대기 게이트(로딩 화면 동기화 수정). 내 화면의 로딩이 끝나면
+	// 즉시 InGame으로 전환하지 않고, 서버에 로딩 완료를 보고한 뒤 ClientNotifyAllPlayersLoaded()를
+	// 기다린다(2장 참고). BeginPlay() 의 스테이지 맵 분기가 호출한다.
+	UFUNCTION(Server, Reliable, Category = "TeamCarry|Session")
+	void ServerReportMapLoaded();
+
+	// ATeamCarryGameMode::NotifyPlayerFinishedLoading() 이 전원 로딩 완료(또는 재접속/후발 합류) 시
+	// 호출한다. 실제 InGame 화면 전환 + 조작 모드 활성화를 수행한다(BeginPlay() 의 구 로직 이관).
+	UFUNCTION(Client, Reliable, Category = "TeamCarry|Session")
+	void ClientNotifyAllPlayersLoaded();
+
+	// BP_StageSelectBoard와의 상호작용 시 진입하는 "게시판 클릭 모드"(명세 4장-5, 게시판 UI 개정).
+	// 마우스 커서를 노출해 캐릭터의 WidgetInteractionComponent로 BoardScreen(월드 스페이스 위젯)의
+	// 목록/확인/취소 버튼을 클릭할 수 있게 한다. ATCStageSelectBoard::OnInteract_Implementation(서버)이
+	// 상호작용한 플레이어의 PC에 Client RPC로 호출한다.
+	UFUNCTION(Client, Reliable, Category = "TeamCarry|Lobby")
+	void ClientEnterBoardInteractionMode();
+
+	// 게시판 클릭 모드 종료. W_StageBoardScreen의 확인/취소 클릭 시(호스트 자신의 로컬 호출,
+	// 리슨 서버이므로 서버=호스트 프로세스) 또는 ESC 시 호출한다.
+	UFUNCTION(BlueprintCallable, Category = "TeamCarry|Lobby")
+	void ExitBoardInteractionMode();
+
+	// ATCPlayerCharacter::Interact()가 좌클릭을 GrabComponent(가구 잡기) 대신
+	// WidgetInteraction(월드 위젯 클릭)으로 넘길지 판단하는 데 사용한다.
+	FORCEINLINE bool IsBoardInteractionModeActive() const { return bBoardInteractionModeActive; }
+
 protected:
 	// --- UI 테스트용 BeginPlay() ---
 	virtual void BeginPlay() override;
@@ -97,6 +131,9 @@ private:
 
 	// 현재 로비 커서가 켜져 있는지(Alt 토글 상태).
 	bool bLobbyCursorActive = false;
+
+	// 현재 게시판 클릭 모드(ExitBoardInteractionMode 참고)가 켜져 있는지.
+	bool bBoardInteractionModeActive = false;
 
 	// UMockUIController::OnStateChanged 구독 핸들러.
 	// 오버레이를 2단 이상 중첩해서 열고 닫으면(예: O_PauseMenu 위에서 O_Settings/O_KeyGuide/

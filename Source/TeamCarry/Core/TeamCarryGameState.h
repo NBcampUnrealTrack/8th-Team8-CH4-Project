@@ -23,7 +23,7 @@ public:
 	UPROPERTY(Replicated, BlueprintReadOnly)
 	int32 TotalLevelValue;
 
-	// 남은 가구 개수
+	// 남은 가구 개수(이동 가능한 개수 — 트럭 적재/파괴 시 감소)
 	UPROPERTY(ReplicatedUsing = OnRep_RemainingFurniture, BlueprintReadOnly)
 	int32 RemainingFurniture;
 

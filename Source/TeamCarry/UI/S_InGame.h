@@ -53,10 +53,11 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
 	TObjectPtr<UButton> Btn_Menu;
 
-	// 남은 가구 개수 표시
+	// 가구 개수 표시: "이동 가능한 개수 / 전체 상자 개수(파괴된 것 포함)" 분수 표기(v3 내부 개정,
+	// 구 Txt_RemainingFurniture 대체 — UI_Technical_Spec.md 4장-7).
 	// WBP에 아직 위젯이 추가되지 않은 상태에서도 크래시가 나지 않도록 Optional로 선언한다.
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
-	TObjectPtr<UTextBlock> Txt_RemainingFurniture;
+	TObjectPtr<UTextBlock> Txt_FurnitureCount;
 
 	// 부서진 정도 경고용(기능 미구현) — WBP에 위젯은 존재하므로 바인딩해서
 	// 기본값 "Text Block" 노출만 막는다. 경고 기능 구현 시 이 위젯을 사용할 것.
@@ -92,4 +93,7 @@ private:
 
 	// 팀 값어치 게이지의 Max 값(전체 목표 값어치). 스테이지 중 불변이므로 NativeConstruct에서 1회만 조회한다.
 	int32 CachedTotalLevelValue = 0;
+
+	// Txt_FurnitureCount 분모(전체 상자 개수, 파괴된 것 포함). 스테이지 중 불변이므로 NativeConstruct에서 1회만 조회한다.
+	int32 CachedTotalFurnitureCount = 0;
 };

@@ -49,6 +49,11 @@ void UMockUIController::Deinitialize()
 void UMockUIController::HandleTravelStarted(const FString& TargetMapPath)
 {
 	UE_LOG(LogTemp, Log, TEXT("[UI Router] Travel started -> %s. Showing S_Loading."), *TargetMapPath);
+	ShowLoadingScreenNow();
+}
+
+void UMockUIController::ShowLoadingScreenNow()
+{
 	ShowPersistentLoadingWidget();
 	ReplaceState(EE_UIState::Loading);
 }

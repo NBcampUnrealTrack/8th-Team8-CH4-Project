@@ -43,20 +43,36 @@ private:
 	UFUNCTION()
 	void HandleSettingsClicked();
 
-	// Btn_KeyGuide: 조작법 가이드 팝업 푸시 → MockController->PushOverlay("O_KeyGuide")
-	void HandleKeyGuideClicked();
-
 	// Btn_Save: 수동 저장 (호스트 전용, 프로토타입은 로그만)
 	UFUNCTION()
 	void HandleSaveClicked();
 
-	// Btn_ToTitle: 타이틀 복귀 (파괴적 액션 → O_Confirm 경유)
+	// Btn_ToLobby: 로비 복귀(호스트 전용, InGame 컨텍스트 전용) → O_Confirm 경유 → HostReturnToLobby()
 	UFUNCTION()
-	void HandleToTitleClicked();
+	void HandleToLobbyClicked();
 
-	// O_Confirm 팝업에서 '확인'을 눌렀을 때 실행될 브릿지 함수(세션 파기 + 타이틀 복귀).
+	// Btn_Reset: 스테이지 초기화(호스트 전용, InGame 컨텍스트 전용) → O_Confirm 경유 → RestartStage()
 	UFUNCTION()
-	void OnConfirmToTitle();
+	void HandleResetClicked();
+
+	// Btn_LeaveRoom: 방 나가기(전원, Lobby 컨텍스트 전용) → O_Confirm 경유 → LeaveToTitle()
+	UFUNCTION()
+	void HandleLeaveRoomClicked();
+
+	// O_Confirm 팝업에서 '확인'을 눌렀을 때 실행될 브릿지 함수들.
+	UFUNCTION()
+	void OnConfirmReturnToLobby();
+
+	UFUNCTION()
+	void OnConfirmResetStage();
+
+	UFUNCTION()
+	void OnConfirmLeaveRoom();
+
+	// 호출 컨텍스트(Lobby/Tutorial/InGame)에 따라 Btn_Save/Btn_ToLobby/Btn_Reset/Btn_LeaveRoom의
+	// 노출을 갱신한다(v3 내부 개정 — UI_Technical_Spec.md 4장-12 노출 표). 새 enum 없이 기존
+	// MockUIController::GetCurrentState()를 그대로 재사용한다.
+	void RefreshContextVisibility();
 
 public:
 	// --- Pause Menu Buttons ---
@@ -66,17 +82,21 @@ public:
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
 	TObjectPtr<UCommonButtonBase> Btn_Settings;
 
-	// 조작법 가이드 버튼: 클릭 시 O_KeyGuide 오버레이를 스택에 Push (명세 3-10).
-	// 명세 5-5: 버튼 클래스는 UCommonButtonBase 로 통일.
-	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
-	TObjectPtr<UCommonButtonBase> Btn_KeyGuide;
-
-	// 수동 저장 버튼: 호스트 전용 (명세 3-1). 프로토타입에서는 권한 로직 위치만 표시한다.
+	// 수동 저장 버튼: 호스트 전용, InGame 컨텍스트 전용(Tutorial 에서는 강제 비활성화, 명세 4장-12).
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
 	TObjectPtr<UCommonButtonBase> Btn_Save;
 
+	// 로비 복귀 버튼: 호스트 전용, InGame 컨텍스트 전용(v3 내부 신규).
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
-	TObjectPtr<UCommonButtonBase> Btn_ToTitle;
+	TObjectPtr<UCommonButtonBase> Btn_ToLobby;
+
+	// 리셋 버튼: 호스트 전용, InGame 컨텍스트 전용(v3 내부 신규).
+	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
+	TObjectPtr<UCommonButtonBase> Btn_Reset;
+
+	// 나가기 버튼: 전원, Lobby 컨텍스트 전용(v3 내부 신규). 호스트 전용 게이팅을 받지 않는다.
+	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
+	TObjectPtr<UCommonButtonBase> Btn_LeaveRoom;
 
 private:
 	float LastMenuToggleTime = 0.0f;

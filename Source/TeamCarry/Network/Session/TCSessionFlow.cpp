@@ -5,6 +5,7 @@
 #include "Network/Session/TCLobbyGameState.h"
 #include "Network/Net/TCNetStatics.h"
 #include "Core/TCSaveGame.h"
+#include "Player/PlayerController/TCPlayerController.h"
 #include "Engine/World.h"
 #include "Kismet/GameplayStatics.h"
 
@@ -206,6 +207,16 @@ void UTCSessionFlow::HostReturnToLobby()
 	HostServerTravel(LobbyMapPath);
 }
 
+void UTCSessionFlow::RestartStage()
+{
+	if (!IsHost())
+	{
+		UE_LOG(LogTCNet, Warning, TEXT("[SessionFlow] RestartStage: 호스트 아님 — 무시"));
+		return;
+	}
+	HostServerTravel(GetSelectedStageMapPath());
+}
+
 void UTCSessionFlow::CompleteTutorial()
 {
 	if (!IsHost())
@@ -242,6 +253,18 @@ void UTCSessionFlow::HostServerTravel(const FString& MapPath)
 	}
 	UE_LOG(LogTCNet, Log, TEXT("[SessionFlow] ServerTravel → %s"), *MapPath);
 	OnTravelStarted.Broadcast(MapPath);
+
+	// 알려진 문제 수정(명세 2장): OnTravelStarted는 이 프로세스(호스트) 로컬에서만 발화되어,
+	// 다른 클라이언트는 로딩 화면을 못 보고 곧장 목적지 화면으로 순간이동한 것처럼 보였다.
+	// 서버 트래블 직전, 접속 중인 모든 PC에 Client RPC로 로딩 화면 표시를 명시적으로 지시한다.
+	for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
+	{
+		if (ATCPlayerController* PC = Cast<ATCPlayerController>(It->Get()))
+		{
+			PC->ClientShowLoadingScreen();
+		}
+	}
+
 	// 이미 리슨서버이므로 ?listen 재지정 불필요. 클라는 자동 추종.
 	World->ServerTravel(MapPath);
 }

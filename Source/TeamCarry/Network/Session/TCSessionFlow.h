@@ -124,6 +124,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "TeamCarry|Session")
 	void HostReturnToLobby();
 
+	// 세션 유지한 채 현재 선택된 스테이지 맵으로 재트래블(호스트). O_PauseMenu(Btn_Reset)가 호출한다.
+	// 가구 배치·팀 값어치·타이머 등 인게임 상태를 초기화한다(UI_Technical_Spec.md 2장·4장-12).
+	UFUNCTION(BlueprintCallable, Category = "TeamCarry|Session")
+	void RestartStage();
+
 	// 튜토리얼 마지막 Step 완료/건너뛰기(호스트 전용, 명세 4장-6·5장) 시 S_Tutorial 이 호출.
 	// 세이브에 bTutorialCompleted=true 를 기록하고, 같은 방의 다음 HostStartGame() 이 이어하기
 	// (스테이지 직행) 경로를 타도록 전환한 뒤, 세션 유지한 채 로비로 복귀한다.

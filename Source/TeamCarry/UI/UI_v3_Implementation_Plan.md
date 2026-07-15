@@ -121,3 +121,72 @@ C++ 변경만으로는 `BindWidgetOptional` 대상 위젯이 실제 WBP 애셋�
 - [ ] `ATeamCarryGameMode`(BP_TeamCarryGameMode)의 `bUseSeamlessTravel` 실제 값 — C++에서 설정하지 않고 블루프린트 디폴트에만 있어 정적 검색으로 확인 불가했음. 에디터에서 Class Defaults 직접 확인 필요.
 - [ ] `TCPlayerState`에 이미 다른 사람이 유사한 "로딩 완료" 플래그를 추가하지 않았는지
 - [ ] `O_PauseMenu`/`S_InGame`의 WBP 애셋이 이 계획과 다른 방향으로 이미 수정되지 않았는지
+
+---
+
+## Phase 3. 게시판(Stage Select Board) 월드 UI 구현 — 완료 기록 (2026-07-14~15)
+
+> **상태: 구현 완료, PIE로 단일 클라이언트(호스트) 상호작용 검증 완료.** 아래는 "무엇을 왜 했는가" 기록이 아니라, **.uasset(바이너리) 변경분을 머지 충돌로 잃었을 때 그대로 재현하기 위한 값 목록**이 핵심이다. C++ 변경분은 git으로 정상 추적되므로 걱정할 필요 없음 — 문제는 아래 "에디터/.uasset 변경 값" 섹션뿐이다.
+
+### 3-1. 배경
+
+로비의 스테이지 선택을 팝업(O_StageSelect)이 아니라 로비에 배치된 게시판 오브젝트(BP_StageSelectBoard) 앞에서, 그 오브젝트에 붙은 월드 스페이스 화면(W_StageBoardScreen)을 마우스로 직접 조작해 선택하도록 변경(UI_Technical_Spec.md v3, 4장-5·6장-9 참고).
+
+설계 원칙(사용자 확인 완료):
+- **로컬(조작자만) 처리:** 마우스 레이캐스트/호버/클릭은 상호작용한 플레이어의 `WidgetInteractionComponent`에서만 일어나고 네트워크를 타지 않는다. 아직 확정 안 한 리스트 하이라이트(`PendingSelectedStageId`)도 로컬 변수.
+- **동기화되는 건 확정된 스테이지 ID 하나뿐:** 확인 버튼 → `UTCSessionFlow::SetStageSelection()` → `ATCLobbyGameState::SelectedStageId`(Replicated) → `OnSelectedStageChanged` 델리게이트 브로드캐스트 → 각 클라이언트의 `W_StageBoardScreen::RefreshDisplay()`가 텍스트/하이라이트만 갱신.
+- **호스트만 조작 가능:** 리슨 서버 구조상 서버(`ServerTryInteract_Implementation`)에서 재검증하는 `Player->IsLocallyControlled()`가 호스트 자신의 폰에서만 true이므로 별도의 `IsHost()` 체크 없이 자연스럽게 호스트 전용이 됨.
+
+### 3-2. C++ 변경 (git으로 추적됨 — 참고용 요약만)
+
+| 파일 | 변경 내용 |
+|---|---|
+| `Level/Struct/TCStageSelectBoard.h/.cpp`(신규) | `ATCStageSelectBoard : AActor, ITCInteractable`. `BoardMesh`(root)/`TeleportAnchor`/`BoardScreen`(WidgetComponent) 컴포넌트. `OnInteract`가 `PC->ClientEnterBoardInteractionMode()` 호출(Client RPC이므로 리슨 서버든 아니든 항상 올바른 클라이언트로 라우팅). |
+| `Player/Character/TCPlayerCharacter.h/.cpp` | `UWidgetInteractionComponent* WidgetInteraction`(Camera에 부착, Mouse 소스, 기본 비활성) 추가. `Interact()`/`ReleaseInteract()`가 `PC->IsBoardInteractionModeActive()`이면 `GrabComponent` 대신 `WidgetInteraction->Press/ReleasePointerKey(LeftMouseButton)`로 라우팅. |
+| `Player/PlayerController/TCPlayerController.h/.cpp` | `ClientEnterBoardInteractionMode()`(Client RPC, 커서+WidgetInteraction 활성화), `ExitBoardInteractionMode()`(다음 틱으로 입력모드 전환을 미룸 — 이유는 3-4 참고), `IsBoardInteractionModeActive()` getter, `Input_ToggleLobbyCursor()`에 게시판 모드 가드 추가. |
+| `UI/W_StageBoardScreen.h/.cpp`(신규) | 게시판 화면 위젯(`UCommonUserWidget`). `List_Stages`/`Btn_Confirm`/`Btn_Cancel`. CommonUI 화면 스택(State/Overlay)에 속하지 않는 예외 위젯 — `UMockUIController`를 거치지 않고 `ATCLobbyGameState::OnSelectedStageChanged`를 직접 구독. |
+| `UI/W_StageListItem.h/.cpp`(신규) | `IUserObjectListEntry` 네이티브 구현 — 리스트 행 위젯(블루프린트 이벤트 그래프 배선 불필요). |
+| `Player/Component/GrabComponent.cpp` | `TryInteract()`/`ServerTryInteract_Implementation()`가 실제로 들 수 있는 가구(`FurnitureGrabSystem` 보유)일 때만 그랩 몽타주 재생 + `GrabbedActor`로 기억하도록 수정(문/게시판 등 단순 토글형 상호작용까지 "가구를 든 상태"로 오판되던 버그 수정). |
+
+### 3-3. 발견/수정한 버그 순서 (재발 시 참고용)
+
+1. **`TeleportAnchor`가 판넬에서 360cm 떨어져 있었음** → 상호작용 감지 범위(캐릭터 전방 약 10~90cm, `GrabComponent::ScanBestTarget`)를 한참 벗어남 → 70cm로 조정.
+2. **`BoardScreen`(월드 위젯)이 두께 10cm 불투명 패널의 정중앙(relativeLocation 0,0,0)에 파묻혀 있었음** → 화면 자체는 정상 렌더링되지만 시각적으로 안 보임 → 패널 정면 방향(로컬 X)으로 8cm 빼서 표면 앞에 위치시킴.
+3. **`GrabComponent`가 게시판 상호작용도 "가구 잡기"로 취급** → 클릭 시 가구 잡기 애니메이션 재생 + 이동속도 잠금이 잘못 걸림 → `FurnitureGrabSystem` 보유 여부로 분기하도록 수정(3-2 참고).
+4. **`WidgetInteractionComponent`는 매 틱 호버만 갱신할 뿐, 실제 클릭은 `PressPointerKey`/`ReleasePointerKey`를 명시적으로 호출해야 UMG에 전달됨** → 게시판 모드 중 좌클릭을 `GrabComponent` 대신 `WidgetInteraction`으로 라우팅하도록 `Interact()`/`ReleaseInteract()` 추가.
+5. **확인/취소 클릭 시 무한 재진입 루프** — `ExitBoardInteractionMode()`가 확인 버튼의 `OnClicked` 콜백 스택(=`ReleasePointerKey` 처리 도중) 안에서 곧바로 `SetInputMode()`를 바꾸자, Slate가 마우스 캡처를 게임 뷰포트로 즉시 돌려주면서 아직 처리 중이던 클릭을 캐릭터의 좌클릭 입력으로 다시 잡아버려 게시판 모드가 즉시 재진입됨(로그상 진입→확인→종료가 0.3초 간격으로 반복). → 입력모드 전환 부분만 `SetTimerForNextTick`으로 미뤄 해결.
+6. **`Btn_Confirm`/`Btn_Cancel`의 `Visibility`가 `SelfHitTestInvisible`로 되어 있었음** — 이게 실제 "마우스로 게시판 UI를 전혀 조작할 수 없던" 근본 원인. `SelfHitTestInvisible`은 "이 위젯 자체는 클릭을 무시하고 통과시킨다"는 뜻이라 버튼 자신에게는 잘못된 값. `Visible`로 수정.
+7. **`BoardScreen`의 `DrawSize`가 정사각형(500×500)** — 실제 패널 면(가로 700cm×세로 500cm)과 비율이 안 맞아 내용이 찌그러져 보임 → `DrawSize`를 (700,500)으로 수정.
+
+### 3-4. 에디터/.uasset 변경 값 (★ 머지 충돌 시 재현용 — 이 섹션이 핵심)
+
+**`/Game/Developers/MinkiCho/Blueprint/Object/BP_StageSelectBoard`** (부모: `ATCStageSelectBoard`)
+
+- `TeleportAnchor` 컴포넌트 (CDO 기본값 + L_Lobby에 배치된 `BP_StageSelectBoard_C_1` 인스턴스 모두 동일하게 적용됨):
+  - `relativeLocation = (X=70, Y=0, Z=-210)`
+- `BoardScreen` 컴포넌트 (CDO 기본값 + 위 인스턴스 모두):
+  - `relativeLocation = (X=8, Y=0, Z=0)`
+  - `drawSize = (X=700, Y=500)`
+  - `widgetClass = /Game/Developers/MinkiCho/Blueprint/UI/StageSelect/WBP_W_StageBoardScreen.WBP_W_StageBoardScreen_C`
+- 위 세 값의 축 의미(재현 시 헷갈리지 않도록): `BoardMesh`(루트)의 로컬 X축이 패널의 정면(면 법선) 방향이다. L_Lobby의 `BP_StageSelectBoard_C_1`는 액터 자체가 world yaw=90°이고, 수동으로 추가한 시각적 콜리전 자식 `Cube`는 그 액터 프레임 안에서 상쇄되는 자체 relativeRotation yaw=-90°를 가지고 있어 액터-로컬 X축이 곧 패널의 진짜 정면 방향이 된다(Cube의 relativeScale3D는 (7, 0.1, 5) — 가로 700cm, 두께 10cm, 높이 500cm). 패널을 다시 배치하거나 크기를 바꿀 경우 이 축 관계부터 다시 확인할 것.
+- `BoardMesh`(루트): `CollisionProfileName = BlockAll`. 정적 메시는 할당하지 않음(현재 L_Lobby 인스턴스는 별도로 수동 추가한 `Cube`(StaticMeshComponent, relativeScale3D=(7,0.1,5), relativeRotation yaw=-90)가 실제 시각/콜리전을 담당) — 추후 `BoardMesh` 자체에 정식 메시를 할당해 `Cube`를 대체하는 정리 작업이 남아있음.
+
+**`/Game/Developers/MinkiCho/Blueprint/UI/StageSelect/WBP_W_StageBoardScreen`** (부모: `UW_StageBoardScreen`)
+
+- 위젯 트리: `ScaleBox_0` > `Overlay_0` > [`Image_41`(배경, Visibility=Visible), `VerticalBox_88`[`Txt_StageName`, `Spacer_261`, `List_Stages`(ListView, EntryWidgetClass=`WBP_StageListItem`, Fill 사이즈), `Spacer_165`, `HorizontalBox_0`[`Btn_Confirm`, `Spacer_79`, `Btn_Cancel`], `Spacer_102`]]
+- `Btn_Confirm`(부모 `WBP_Btn_Apply`), `Btn_Cancel`(부모 `WBP_Btn_Cancel`): **`Visibility = Visible`** (기본/실수로 `SelfHitTestInvisible`이 되면 클릭이 전혀 안 먹힘 — 3-3의 6번 버그, 가장 재발하기 쉬운 지점이니 머지 후 최우선으로 확인).
+
+**`/Game/Developers/MinkiCho/Blueprint/UI/StageSelect/WBP_StageListItem`** (부모: `UW_StageListItem`)
+
+- 위젯 트리: `Overlay_31` > [`Image_49`, `HorizontalBox_178`[`SizeBox_60`[`Image_Stage`], `TextBlock_StageName`]]
+
+**`/Game/Data/Stages/DT_Stages`** (DataTable)
+
+- 테스트용 임시 행 `Stage_2` 추가됨: `stageId=2`, `displayName="스테이지 2 (테스트)"`, `mapPath=/Game/Maps/L_Level1`(Stage_1과 동일한 맵 재사용 — 실제 스테이지 2 레벨이 없어 동기화 테스트 목적으로만 만든 임시 행). **정식 스테이지가 아니므로 최종 빌드 전에 제거하거나 실제 스테이지 2 데이터로 교체할 것.**
+
+### 3-5. 남은 작업
+
+- [ ] `DT_Stages`의 `Stage_2` 임시 행 정리(제거 또는 실데이터로 교체)
+- [ ] `BoardMesh`에 정식 정적 메시 할당해 수동 `Cube` 자식 대체
+- [ ] `S_Lobby`의 `Txt_InteractPrompt`(게시판을 바라볼 때 뜨는 상호작용 프롬프트)가 실제로 표시되는지 미확인 — `ATCStageSelectBoard::OnFocus_Implementation()`은 구현돼 있으나 PIE에서 프롬프트 노출 자체는 아직 검증 안 됨
+- [ ] 2인 이상 PIE로 "호스트만 조작 가능 + 비호스트 화면엔 결과만 동기화" 시나리오 실제 검증(현재까지는 싱글/호스트 단독 테스트만 완료)
