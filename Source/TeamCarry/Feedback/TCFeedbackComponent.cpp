@@ -164,8 +164,10 @@ void UTCFeedbackComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 		}
 		// 이전 값이 MaxHealth를 넘으면 스탯 초기화(생성자 기본 100 → 데이터테이블 값)로 낮아진 것 —
 		// 타격이 아니므로 연출 없이 기준만 재동기화 (레벨 시작 시 저체력 소품의 유령 쿵·별팝 방지)
+		// 인원 미달 운반의 내구도 드레인(잡힌 상태의 지속 소모)은 충돌 히트 피드백 대상이 아님
 		else if (LastHealth > 0.f && Health < LastHealth - KINDA_SMALL_NUMBER
-			&& LastHealth <= Stat->GetMaxHealth() + KINDA_SMALL_NUMBER)
+			&& LastHealth <= Stat->GetMaxHealth() + KINDA_SMALL_NUMBER
+			&& !(ReadGrabbed() && Stat->GetGrabbedPlayerNum() < Stat->GetRequiredPlayer()))
 		{
 			// 내구도 깎임 — 타격음 (목록 중 랜덤 + 피치 흔들림). 가구별 커스텀은 HitSounds 프로퍼티로.
 			if (HitSounds.Num() > 0)
@@ -184,14 +186,13 @@ void UTCFeedbackComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 					1.f, FMath::RandRange(0.92f, 1.06f));
 			}
 
-				// 만화식 별 팝 — 가구 상단에서 터져 '띵' 하고 부딪힌 게 한눈에 보이게
-				if (UNiagaraSystem* Stars = LoadObject<UNiagaraSystem>(nullptr, DefaultHitStarsFX))
-				{
-					FVector Origin, Extent;
-					Owner->GetActorBounds(false, Origin, Extent);
-					const FVector Top(Origin.X, Origin.Y, Origin.Z + Extent.Z * 0.6f);
-					UNiagaraFunctionLibrary::SpawnSystemAtLocation(this, Stars, Top);
-				}
+			// 만화식 별 팝 — 가구 상단에서 터져 '띵' 하고 부딪힌 게 한눈에 보이게
+			if (UNiagaraSystem* Stars = LoadObject<UNiagaraSystem>(nullptr, DefaultHitStarsFX))
+			{
+				FVector Origin, Extent;
+				Owner->GetActorBounds(false, Origin, Extent);
+				const FVector Top(Origin.X, Origin.Y, Origin.Z + Extent.Z * 0.6f);
+				UNiagaraFunctionLibrary::SpawnSystemAtLocation(this, Stars, Top);
 			}
 		}
 		LastHealth = Health;
