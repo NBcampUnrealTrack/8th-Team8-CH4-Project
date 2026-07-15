@@ -22,7 +22,6 @@
 
 ATCFurnitureActor::ATCFurnitureActor()
 {
-    // 파괴 후 콜리전 꺼짐을 감시하는 용도로만 틱 사용 (평소엔 꺼둠, 파괴 시 활성화)
     PrimaryActorTick.bCanEverTick = true;
     PrimaryActorTick.bStartWithTickEnabled = false;
 
@@ -100,10 +99,10 @@ void ATCFurnitureActor::BeginPlay()
 {
     Super::BeginPlay();
 
-    // 배치 가구는 물리 꺼진 정적 상태로 시작한다 — 첫 그랩 후 Release()가 물리를 복원해 그때부터 동적
+    // 만일 나중에 배치된가구가 처음에 안떨어지길바란다면...
     if (FurnitureMesh)
     {
-        FurnitureMesh->SetSimulatePhysics(false);
+        FurnitureMesh->SetSimulatePhysics(true);
     }
 
     // 파괴됨을 감지 (서버에서만 바인딩)
@@ -132,6 +131,14 @@ void ATCFurnitureActor::OnFurnitureDamaged(float MaxHealth, float OldHealth, flo
     if (MaxHealth <= 0.f)
         return;
 
+    // 이전 값이 MaxHealth 초과 = 스탯 초기화(생성자 기본 100 → 데이터테이블 값)로 낮아진 것 —
+    // 타격이 아니므로 금 표시 동기화만 하고 데미지 숫자는 띄우지 않는다
+    if (OldHealth > MaxHealth + KINDA_SMALL_NUMBER)
+    {
+        UpdateCrackVisual(NewHealth / MaxHealth);
+        return;
+    }
+
     UpdateCrackVisual(NewHealth / MaxHealth);
 
     // 피해량 숫자 표시 (체력이 실제로 줄었을 때만 — 회복/동일값 복제는 무시)
@@ -142,8 +149,8 @@ void ATCFurnitureActor::OnFurnitureDamaged(float MaxHealth, float OldHealth, flo
 
 void ATCFurnitureActor::SpawnDamageNumber(float Damage)
 {
-    // 코스메틱: 데디서버 제외, 파괴된 가구 위엔 안 띄움
-    if (!DamageNumberWidgetClass || bIsFurnitureDestroyed || GetNetMode() == NM_DedicatedServer)
+    // 표시 스위치(bShowDamageNumbers)로 가구별/런타임 제어. 코스메틱: 데디서버 제외, 파괴된 가구 위엔 안 띄움
+    if (!bShowDamageNumbers || !DamageNumberWidgetClass || bIsFurnitureDestroyed || GetNetMode() == NM_DedicatedServer)
         return;
 
     UWidgetComponent* WC = NewObject<UWidgetComponent>(this);
@@ -319,7 +326,7 @@ void ATCFurnitureActor::DestroyFurniture()
         // GM에 가구 파괴를 알림
         if (ATeamCarryGameMode* GM = Cast<ATeamCarryGameMode>(GetWorld()->GetAuthGameMode()))
         {
-            GM->OnFurnitureDestroyed();
+            GM->OnFurnitureDestroyed(this);
         }
 
         // GC 컴포넌트가 없거나, 있어도 파괴 메쉬(RestCollection)가 등록되지 않았다면

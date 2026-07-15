@@ -22,8 +22,8 @@ public:
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
-	// 데이터 테이블 데이터를 기반으로 스탯 초기화
-	void InitializeStats(const FFurnitureData& Data);
+	// 데이터 테이블 데이터를 기반으로 스탯 초기화 (InRowName: 원본 로우 이름 — 조회 키로 보관·복제)
+	void InitializeStats(const FFurnitureData& Data, FName InRowName = NAME_None);
 
 	// 잡기 인원 업데이트 및 물리 상태 영향력 계산
 	void UpdateGrabbedPlayers(int32 Count);
@@ -46,6 +46,8 @@ public:
 	float GetBaseSpeed() const { return BaseSpeed; }
 	float GetCurrentHealth() const { return CurrentHealth; }
 	float GetMaxHealth() const { return MaxHealth; }
+
+	FName GetRowName() const { return RowName; }
 	int32 GetGrabbedPlayerNum() const { return CurrentGrabbedPlayer; }
 	int32 GetRequiredPlayer() const { return RequiredPlayer; }
 	float GetCollisionDamageMultiplier() const { return CollisionDamageMultiplier; }
@@ -79,6 +81,10 @@ protected:
 	// 최대 체력. 금 표시 %(CurrentHealth/MaxHealth) 계산에 클라에서도 필요하므로 복제.
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Replicated, Category = "Furniture|State")
 	float MaxHealth;
+
+	// 초기화에 사용된 데이터 테이블 로우 이름. 서버 InitializeStats에서 기록, 클라 사용 위해 복제.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Replicated, Category = "Furniture|State")
+	FName RowName;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Replicated, Category = "Furniture|State")
 	int32 RequiredPlayer;

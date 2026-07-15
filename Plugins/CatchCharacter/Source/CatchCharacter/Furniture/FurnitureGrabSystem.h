@@ -128,6 +128,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
 	float UnderMannedSpeedFactor = 0.2f;
 
+	// 인원 미달로 드는 동안 초당 내구도 소모량 (1초 단위로 적용). 0이면 끔.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
+	float UnderMannedHealthDrainPerSec = 5.0f;
+
 	// [회전 교착] 제안 방향 일치도(0~1)가 이 값 미만이면 줄다리기로 보고 회전 정지.
 	// 등가중치 2인 기준 일치도 = cos(의견차/2) → 0.3 ≈ 의견차 145° 이상일 때 교착.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
@@ -191,6 +195,43 @@ private:
 	// DraggedLastTick에는 포함하지 않아 bWasDragged=false 유지 → Active 복귀 가능.
 	TSet<ACharacter*> StoppedDraggingLastTick;
 
+	// HandleMovement 한 틱 동안 단계 함수들이 공유하는 작업 상태
+	struct FGrabMoveContext
+	{
+		float   DeltaTime          = 0.0f;
+		TArray<ACharacter*> Players;          // 유효(앵커 보유) 운반자
+		int32   N                  = 0;
+		FVector CurFurnLoc         = FVector::ZeroVector;
+		float   CurFurnYaw         = 0.0f;
+		bool    bUnderManned       = false;   // 2인 가구 솔로 끌기 여부
+		bool    bPairLine          = false;   // 이번 틱 들것 선 회전 활성
+		float   PairLineIntentRate = 0.0f;    // 이번 틱 선 회전 의도(도/초)
+		float   TargetYaw          = 0.0f;    // 가구 목표 Yaw (틱당 상한 반영)
+		FVector TargetLoc          = FVector::ZeroVector;   // 가중 평균 목표 위치(자연 좌표)
+		float   TargetHeightOffset = 0.0f;    // 피치 기반 목표 높이 오프셋
+		float   PairHandHeight0    = 0.0f;    // 들것 기울기용 손 높이
+		float   PairHandHeight1    = 0.0f;
+		bool    bUprightEnough     = true;    // 정립(45° 미만) 여부 — 끌림 자세 게이트
+		float   UnderMannedTilt    = 0.0f;    // 끌림 자세 목표 기울기(도)
+		FVector UnderMannedDir     = FVector::ZeroVector;   // 플레이어→가구 끌림 방향
+		bool    bValveJammed       = false;   // 관통 밸브 탈출 실패 → 운반자 이동 봉인
+		bool    bFurnitureStuck    = false;   // 가구 전진 막힘 → 입력 견인 면제 해제
+		FVector ActualLoc          = FVector::ZeroVector;   // 이동 확정 후 자연 좌표
+		float   ActualYaw          = 0.0f;
+		TArray<ACharacter*> ToRelease;        // 대형 이탈 자동 해제 대상
+	};
+
+	// HandleMovement 단계 함수 (구현: FurnitureGrabSystemMovement.cpp)
+	bool MovePrepare(FGrabMoveContext& Ctx);            // 0. 수집·드레인·속도 강제 (false=틱 중단)
+	void MoveUpdatePairLine(FGrabMoveContext& Ctx);     // 0.5 들것 선 회전 의도
+	void MoveApplyAnchorShaping(FGrabMoveContext& Ctx); // 0.7 테더 + 0.8 정면 복원
+	void MoveComputeTarget(FGrabMoveContext& Ctx);      // 1~2 제안 가중 평균 → 목표
+	void MoveComputeHeight(FGrabMoveContext& Ctx);      // 2.5 피치 높이 + 끌림 자세
+	void MoveSweepFurniture(FGrabMoveContext& Ctx);     // 3 스윕 + 밸브 + 스텝업 + 회전 가드
+	bool MoveReconcileAnchors(FGrabMoveContext& Ctx);   // 3.5~4 재기록·막힘 감지 (false=전원 소실)
+	void MoveDrivePlayers(FGrabMoveContext& Ctx);       // 5 플레이어 속도 주입
+	void MoveFinalize(FGrabMoveContext& Ctx);           // 6~7 자동 해제·브로드캐스트
+
 	void HandleMovement(float DeltaTime);
 	FVector GetAttachedLocation(ACharacter* Player, const FVector& FurnitureLoc, float FurnitureYaw) const;
 	float   GetDesiredYaw(ACharacter* Player, float FurnitureYaw) const;
@@ -241,6 +282,9 @@ private:
 
 	// 현재 보간 적용 중인 가구 높이 오프셋
 	float CurrentHeightOffset = 0.0f;
+
+	// 미달 운반 내구도 드레인의 1초 단위 적용용 누적 시간
+	float UnderMannedDrainAccum = 0.0f;
 
 	void UpdateLocalWalkSpeed();
 	void SetGrabCollisionState(ACharacter* Player, bool bEnable);

@@ -2,6 +2,7 @@
 
 #include "FurnitureDamage.h"
 #include "FurnitureStat.h"
+#include "FurnitureGrabSystem.h"
 #include "Kismet/GameplayStatics.h"
 
 UFurnitureDamage::UFurnitureDamage()
@@ -16,10 +17,20 @@ void UFurnitureDamage::BeginPlay()
 	PreviousLocation = GetOwner()->GetActorLocation();
 	PreviousQuat     = GetOwner()->GetActorQuat();
 
-	// 스폰 직후 낙하/배치 접촉으로 즉시 데미지 입는 것 방지 (서버 전용)
+	// 스폰 직후 낙하/배치 정착 접촉으로 즉시 데미지 입는 것 방지 (서버 전용).
+	// 일반 무적은 강한 물리 충격이 관통하므로(던지기 즉시 등록용) 정착 임펄스가 뚫고 들어와
+	// 시작하자마자 내구도가 깎이고 타격음이 났다 — 시작 구간은 관통 불가 완전 무적으로 덮는다
 	if (GetOwner() && GetOwner()->HasAuthority())
 	{
+		SetSuperInvincible(true);
 		SetInvincible(3.f);
+		if (UWorld* World = GetWorld())
+		{
+			FTimerHandle SettleTimer;
+			World->GetTimerManager().SetTimer(SettleTimer,
+				FTimerDelegate::CreateWeakLambda(this, [this]() { SetSuperInvincible(false); }),
+				3.0f, false);
+		}
 	}
 }
 
@@ -73,6 +84,19 @@ void UFurnitureDamage::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, U
 		}
 	}
 
+	// 운반 중인 가구가 미는 접촉은 내구도 대상이 아님 — 파손은 던지기·낙하 충돌만.
+	// (키네마틱 운반체가 누르는 접촉은 임펄스가 속도와 무관하게 튀어 무적 관통·즉사가 됨)
+	if (OtherActor)
+	{
+		if (const UFurnitureGrabSystem* OtherGrab = OtherActor->FindComponentByClass<UFurnitureGrabSystem>())
+		{
+			if (OtherGrab->GetGrabbedPlayers().Num() > 0)
+			{
+				return;
+			}
+		}
+	}
+
 	// 충돌 세기(cm/s). 질량은 데미지에 영향 없음 — 가구별 위력은 CollisionDamageMultiplier로 조절
 	float ImpactSpeed = 0.f;
 	const bool bPhysicsImpact = (HitComp && HitComp->IsSimulatingPhysics());   // 공중 낙하·던짐 여부
@@ -82,6 +106,9 @@ void UFurnitureDamage::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, U
 		// 물리 충돌: 충격량 ÷ 질량 = 실제 접촉 속도 변화량 (질량 정규화 → 무게 무관 지표)
 		const float Mass = HitComp->GetMass();
 		ImpactSpeed = (Mass > KINDA_SMALL_NUMBER) ? NormalImpulse.Size() / Mass : 0.f;
+		// 자기 실제 이동 속도를 상한으로 신뢰 — 끼임/눌림(정지 상태)의 임펄스 스파이크를
+		// 낙하·던짐 충돌로 오판하지 않는다 (던짐·낙하는 자기 속도가 커서 영향 없음)
+		ImpactSpeed = FMath::Min(ImpactSpeed, HitComp->GetPhysicsLinearVelocity().Size() + 50.0f);
 	}
 	else if (HitComp)
 	{
@@ -96,7 +123,7 @@ void UFurnitureDamage::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, U
 	}
 
 	// 무적 판정: 무적이어도 '강한 물리 충격'(던짐·큰 낙하)은 관통 → 던짐이 즉시 데미지 등록.
-	// 그 외(살짝 놓기·잔접촉·운반 부딪침)는 무적으로 보호.
+	// (ImpactSpeed가 위에서 자기 실속도로 캡되므로 눌림 스파이크는 여기 도달하지 못한다)
 	if (bIsInvincible)
 	{
 		const bool bHardPhysicsHit = bPhysicsImpact && (ImpactSpeed >= InvincibilityBypassSpeed);
