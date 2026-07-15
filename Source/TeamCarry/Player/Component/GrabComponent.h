@@ -65,8 +65,7 @@ protected:
 	void ServerRotateFurniture(FRotator RotationDelta);
 
 	// 가구를 들고 떨어질 때 강제로 놓치게 되는 최대 체공 시간
-	// 0.01 = 공중에 뜨는 즉시 드랍(점프 운반 방지, 기획 의도로 롤백).
-	// 경사/턱에서 공동 운반이 끊기는 부작용이 있으면 이 값을 키우는 쪽으로 재조정할 것.
+	// 0.01 = 공중에 뜨는 즉시 드랍 (점프 운반 방지)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interaction")
 	float MaxFallTimeToDrop = 0.01f;
 

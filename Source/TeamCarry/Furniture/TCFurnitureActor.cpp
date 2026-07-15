@@ -90,9 +90,7 @@ void ATCFurnitureActor::BeginPlay()
 {
     Super::BeginPlay();
 
-    // 배치 가구는 시작 시 정적 — 배치 상태의 콜리전 겹침(매트리스-프레임, TV-벽 등)이
-    // 시작 순간 물리 겹침 해소로 튕겨나가는 것 방지. 첫 그랩 후 Release()가 물리를
-    // 복원하므로 그때부터는 기존과 동일하게 동적.
+    // 배치 가구는 물리 꺼진 정적 상태로 시작한다 — 첫 그랩 후 Release()가 물리를 복원해 그때부터 동적
     if (FurnitureMesh)
     {
         FurnitureMesh->SetSimulatePhysics(false);
