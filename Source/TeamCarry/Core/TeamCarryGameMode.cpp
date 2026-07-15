@@ -5,6 +5,8 @@
 #include "Furniture/TCFurnitureActor.h"
 #include "GameFramework/PlayerState.h"
 #include "Network/Session/TCGameInstance.h"
+#include "Player/PlayerState/TCPlayerState.h"
+#include "Player/PlayerController/TCPlayerController.h"
 #include "Engine/Engine.h"
 #include "HAL/IConsoleManager.h"
 
@@ -67,9 +69,110 @@ void ATeamCarryGameMode::BeginPlay()
         GS->TotalLevelValue = TotalLevelValue;
     }
 
-    // 게임 시작 시 카운트다운 시작
+    // 전원 로딩 완료 대기(로딩 화면 동기화 수정): 즉시 카운트다운을 시작하지 않고, 접속 중인 모든
+    // 플레이어가 ServerReportMapLoaded() 로 로딩 완료를 보고할 때까지 WaitingToStart 로 대기한다.
+    // 일부 클라이언트가 응답 없이 멈추는 경우를 대비해 타임아웃 세이프티 타이머를 건다.
     SetGamePhase(EGamePhase::WaitingToStart);
-    StartCountdown();
+
+    TWeakObjectPtr<ATeamCarryGameMode> WeakThis = this;
+    GetWorldTimerManager().SetTimer(LoadingGateTimeoutHandle, [WeakThis]()
+        {
+            if (!WeakThis.IsValid()) return;
+
+            ATeamCarryGameState* GS = WeakThis->GetCachedGameState();
+            if (!GS || GS->CurrentPhase != EGamePhase::WaitingToStart)
+            {
+                // 이미 전원 로딩 완료 경로로 진행됨 — 타임아웃은 그대로 무시.
+                return;
+            }
+
+            UE_LOG(LogTemp, Warning, TEXT("전원 로딩 완료 대기 타임아웃 — 강제로 게임을 시작합니다."));
+            WeakThis->StartCountdown();
+
+            // 응답 없는 플레이어가 있을 수 있으므로, 접속 중인 모든 PC에 강제로 InGame 진입을 지시한다.
+            if (UWorld* World = WeakThis->GetWorld())
+            {
+                for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
+                {
+                    if (ATCPlayerController* PC = Cast<ATCPlayerController>(It->Get()))
+                    {
+                        PC->ClientNotifyAllPlayersLoaded();
+                    }
+                }
+            }
+        }, 20.0f, false);
+}
+
+void ATeamCarryGameMode::NotifyPlayerFinishedLoading(APlayerController* PC)
+{
+    ATCPlayerState* PS = PC ? PC->GetPlayerState<ATCPlayerState>() : nullptr;
+    if (!PS)
+    {
+        return;
+    }
+    PS->SetHasLoadedCurrentMapAuthoritative(true);
+
+    ATeamCarryGameState* GS = GetCachedGameState();
+    if (!GS)
+    {
+        return;
+    }
+
+    if (GS->CurrentPhase == EGamePhase::WaitingToStart)
+    {
+        // 정상 동시 시작: 전원 로딩 완료 시에만 카운트다운을 시작하고, 전원에게 InGame 진입을 지시한다.
+        if (!AreAllConnectedPlayersLoaded())
+        {
+            return;
+        }
+
+        GetWorldTimerManager().ClearTimer(LoadingGateTimeoutHandle);
+        StartCountdown();
+
+        if (UWorld* World = GetWorld())
+        {
+            for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
+            {
+                if (ATCPlayerController* EachPC = Cast<ATCPlayerController>(It->Get()))
+                {
+                    EachPC->ClientNotifyAllPlayersLoaded();
+                }
+            }
+        }
+    }
+    else
+    {
+        // 재접속/후발 합류(이미 Playing 이후 단계): 전체 게이트를 기다리지 않고 그 플레이어
+        // 한 명에게만 즉시 InGame 진입을 지시한다(기존 재접속 로직과 충돌하지 않도록).
+        if (ATCPlayerController* JoiningPC = Cast<ATCPlayerController>(PC))
+        {
+            JoiningPC->ClientNotifyAllPlayersLoaded();
+        }
+    }
+}
+
+bool ATeamCarryGameMode::AreAllConnectedPlayersLoaded() const
+{
+    const ATeamCarryGameState* GS = CachedGameState;
+    if (!GS)
+    {
+        return false;
+    }
+    int32 Counted = 0;
+    for (APlayerState* PS : GS->PlayerArray)
+    {
+        const ATCPlayerState* TCPS = Cast<ATCPlayerState>(PS);
+        if (!TCPS)
+        {
+            continue;
+        }
+        ++Counted;
+        if (!TCPS->HasLoadedCurrentMap())
+        {
+            return false;
+        }
+    }
+    return Counted > 0;
 }
 
 void ATeamCarryGameMode::Tick(float DeltaTime)
@@ -104,6 +207,10 @@ void ATeamCarryGameMode::SetTotalFurnitureCount(int32 Count)
     {
         GS->RemainingFurniture = Count;
 
+        // 전체 상자 개수(파괴된 것 포함)의 고정 분모. 이 함수는 BeginPlay에서 1회만 호출되므로
+        // RemainingFurniture와 동시에 설정된 이 시점의 Count가 곧 전체 개수다(UI_Technical_Spec.md 4장-7).
+        GS->TotalFurnitureCount = Count;
+
         // 리슨 서버 호스트는 자기 자신에게 OnRep이 트리거되지 않으므로 수동 호출로 UI를 즉시 갱신한다.
         GS->OnRep_RemainingFurniture();
     }
@@ -135,6 +242,25 @@ void ATeamCarryGameMode::Logout(AController* Exiting)
     int32 PlayerCount = GetNumPlayers();
     UE_LOG(LogTemp, Warning, TEXT("플레이어 이탈 | 남은 플레이어: %d"), PlayerCount - 1);
 
+    // 전원 로딩 대기 중 한 명이 나가서, 남은 인원이 이미 전원 로딩 완료 상태가 되는 경우 대비
+    // (로딩 화면 동기화 수정). GS 는 위에서 이미 조회했다.
+    if (GS && GS->CurrentPhase == EGamePhase::WaitingToStart && AreAllConnectedPlayersLoaded())
+    {
+        GetWorldTimerManager().ClearTimer(LoadingGateTimeoutHandle);
+        StartCountdown();
+
+        if (UWorld* World = GetWorld())
+        {
+            for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
+            {
+                if (ATCPlayerController* EachPC = Cast<ATCPlayerController>(It->Get()))
+                {
+                    EachPC->ClientNotifyAllPlayersLoaded();
+                }
+            }
+        }
+    }
+
     // 월드가 종료 중이면 FinishGame 호출 안 함
     if (GetWorld() && !GetWorld()->bIsTearingDown && PlayerCount <= 1)
     {
@@ -145,6 +271,13 @@ void ATeamCarryGameMode::Logout(AController* Exiting)
 void ATeamCarryGameMode::PostLogin(APlayerController* NewPlayer)
 {
     Super::PostLogin(NewPlayer);
+
+    // 스테이지 맵 진입 전원 대기 게이트 리셋(로딩 화면 동기화 수정). Seamless Travel 로 도착하는
+    // 경우(로비→스테이지)는 PostLogin 이 호출되지 않으므로 HandleSeamlessTravelPlayer 가 대신 처리한다.
+    if (ATCPlayerState* NewPS = NewPlayer ? NewPlayer->GetPlayerState<ATCPlayerState>() : nullptr)
+    {
+        NewPS->SetHasLoadedCurrentMapAuthoritative(false);
+    }
 
     ATeamCarryGameState* GS = GetCachedGameState();
     if (!GS) return;
@@ -174,6 +307,21 @@ void ATeamCarryGameMode::PostLogin(APlayerController* NewPlayer)
                     }
                 }
             }
+        }
+    }
+}
+
+void ATeamCarryGameMode::HandleSeamlessTravelPlayer(AController*& C)
+{
+    Super::HandleSeamlessTravelPlayer(C);
+
+    // 로비→스테이지처럼 Seamless Travel 로 도착하는 플레이어는 PostLogin 을 타지 않으므로
+    // 여기서 로딩 완료 게이트를 리셋한다(ATCLobbyGameMode::HandleSeamlessTravelPlayer 와 동일 패턴).
+    if (APlayerController* PC = Cast<APlayerController>(C))
+    {
+        if (ATCPlayerState* PS = PC->GetPlayerState<ATCPlayerState>())
+        {
+            PS->SetHasLoadedCurrentMapAuthoritative(false);
         }
     }
 }
@@ -343,6 +491,8 @@ void ATeamCarryGameMode::OnFurnitureDestroyed()
     if (!GS || GS->bIsGameFinished) return;
 
     GS->RemainingFurniture--;
+    // Txt_FurnitureCount 분모(전체 상자 개수)에서도 파괴된 것은 제외해 동적으로 줄어들게 한다(명세 4장-7).
+    GS->DestroyedFurnitureCount++;
     GS->OnRep_RemainingFurniture();
 
     UE_LOG(LogTemp, Warning, TEXT("가구 파괴 | 남은 가구: %d"), GS->RemainingFurniture);

@@ -14,6 +14,7 @@ class UInputMappingContext;
 class UInputAction;
 class UGrabComponent;
 class UTCCarrySpeedComponent;
+class UWidgetInteractionComponent;
 
 UCLASS()
 class TEAMCARRY_API ATCPlayerCharacter : public ACharacter
@@ -43,6 +44,9 @@ public:
 	// 카메라 컴포넌트 가져오기
 	FORCEINLINE UCameraComponent* GetCamera() const { return Camera; }
 
+	// 월드 스페이스 위젯 상호작용 컴포넌트 가져오기(ATCPlayerController 등 외부에서 접근).
+	FORCEINLINE UWidgetInteractionComponent* GetWidgetInteraction() const { return WidgetInteraction; }
+
 protected:
 	// 카메라를 캐릭터에서 일정 거리 떨어지게 유지하는 스프링암 컴포넌트
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "TCPlayerCharacter|Components")
@@ -59,6 +63,12 @@ protected:
 	// 가구 운반 중 인원비례 속도 조절 컴포넌트
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "TCPlayerCharacter|Components")
 	TObjectPtr<UTCCarrySpeedComponent> CarrySpeedComponent;
+
+	// BP_StageSelectBoard 등 월드 스페이스 위젯(WidgetComponent)과의 마우스 클릭 상호작용을 담당한다
+	// (명세 4장-5, 게시판 UI 개정). 마우스 커서 위치를 기준으로 트레이스하므로, 로컬 플레이어가
+	// 커서를 사용할 수 있는 모드(ATCPlayerController::EnterBoardInteractionMode)일 때만 의미 있다.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "TCPlayerCharacter|Components")
+	TObjectPtr<UWidgetInteractionComponent> WidgetInteraction;
 
 #pragma endregion
 
@@ -148,6 +158,9 @@ private:
 
 	// 상호작용 - 잡기 입력 처리
 	void Interact(const FInputActionValue& InValue);
+
+	// 상호작용 입력(좌클릭) 뗄 때 처리 — 게시판 클릭 모드 중엔 WidgetInteraction 릴리즈로 전달
+	void ReleaseInteract(const FInputActionValue& InValue);
 
 	//  상호작용 - 던지기 입력 처리
 	void Throw(const FInputActionValue& InValue);

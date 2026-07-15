@@ -153,8 +153,9 @@ bool UGrabComponent::TryInteract()
 		// 대상이 있다면 서버로 상호작용 처리 요청
 		ServerTryInteract(CurrentBestTarget);
 
-		// 잡기에 성공했으면 true 반환
-		return true;
+		// 그랩 몽타주는 실제로 손에 들 수 있는 가구(FurnitureGrabSystem 보유)일 때만 재생한다.
+		// 문/게시판 등 단순 토글형 상호작용까지 가구 잡기 애니메이션이 나가던 문제 수정.
+		return CurrentBestTarget->FindComponentByClass<UFurnitureGrabSystem>() != nullptr;
 	}
 
 	// 이미 가구를 들고 있는 경우 (내려놓기)
@@ -486,6 +487,7 @@ void UGrabComponent::ServerTryInteract_Implementation(AActor* TargetActor)
 				+ OwnerCharacter->GetActorForwardVector() * 50.0f;
 			if (!HasGrabLineOfSight(GetWorld(), OwnerCharacter, TargetActor, GrabOrigin))
 			{
+				UE_LOG(LogTemp, Warning, TEXT("[ServerTryInteract] HasGrabLineOfSight 실패: %s"), *TargetActor->GetName());
 				return;
 			}
 
@@ -503,10 +505,21 @@ void UGrabComponent::ServerTryInteract_Implementation(AActor* TargetActor)
 		// 대상 가구가 지금 잡을 수 있는 상태인지 검증 (정원 초과 등 확인)
 		if (ITCInteractable::Execute_CanInteract(TargetActor, OwnerCharacter))
 		{
+			UE_LOG(LogTemp, Warning, TEXT("[ServerTryInteract] OnInteract 호출: %s"), *TargetActor->GetName());
 			// 검증을 통과했다면 가구의 OnInteract 실행 (가구 쪽에서 물리 연결 처리)
 			ITCInteractable::Execute_OnInteract(TargetActor, OwnerCharacter);
-			// 방금 잡은 대상을 변수에 저장하여 기억
-			GrabbedActor = TargetActor;
+
+			// 실제로 들 수 있는 가구(FurnitureGrabSystem 보유)만 GrabbedActor로 기억한다.
+			// 문/게시판처럼 단순 토글형 상호작용 대상까지 손에 든 것으로 취급하면
+			// 이동속도 잠금(StartRun/StopRun의 GetGrabbedActor() 체크)이 잘못 걸린다.
+			if (TargetActor->FindComponentByClass<UFurnitureGrabSystem>())
+			{
+				GrabbedActor = TargetActor;
+			}
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[ServerTryInteract] 서버측 CanInteract 실패: %s"), *TargetActor->GetName());
 		}
 	}
 }

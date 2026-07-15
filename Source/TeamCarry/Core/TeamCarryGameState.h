@@ -23,9 +23,18 @@ public:
 	UPROPERTY(Replicated, BlueprintReadOnly)
 	int32 TotalLevelValue;
 
-	// 남은 가구 개수
+	// 남은 가구 개수(이동 가능한 개수 — 트럭 적재/파괴 시 감소)
 	UPROPERTY(ReplicatedUsing = OnRep_RemainingFurniture, BlueprintReadOnly)
 	int32 RemainingFurniture;
+
+	// 전체 상자 개수(스테이지 시작 시 1회 산정 후 불변). TotalLevelValue 와 동일한 "1회 산정, 불변" 패턴.
+	UPROPERTY(Replicated, BlueprintReadOnly)
+	int32 TotalFurnitureCount;
+
+	// 파괴된 상자 개수(누적). Txt_FurnitureCount 의 분모는 "TotalFurnitureCount - DestroyedFurnitureCount"로
+	// 계산한다 — 즉 분모도 파괴된 것은 제외하고 동적으로 줄어든다(v3 내부 개정, 명세 4장-7).
+	UPROPERTY(Replicated, BlueprintReadOnly)
+	int32 DestroyedFurnitureCount;
 
 	// 남은 시간 (초) — UI에 표시되는 카운트다운 값. TimeLimitSeconds 에서 차감된다.
 	UPROPERTY(Replicated, BlueprintReadOnly)

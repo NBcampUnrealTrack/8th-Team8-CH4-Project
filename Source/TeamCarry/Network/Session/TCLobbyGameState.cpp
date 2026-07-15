@@ -52,12 +52,14 @@ void ATCLobbyGameState::SetSelectedStageIdAuthoritative(int32 InStageId)
 	SelectedStageId = InStageId;
 	// 서버(호스트) 자신은 OnRep 이 안 불리므로 직접 UI 갱신 통지.
 	NotifyLobbyChanged();
+	OnSelectedStageChanged.Broadcast(SelectedStageId);
 }
 
 void ATCLobbyGameState::OnRep_SelectedStageId()
 {
 	// 클라: 방장이 고른 스테이지 도착 → 위젯 갱신 트리거.
 	NotifyLobbyChanged();
+	OnSelectedStageChanged.Broadcast(SelectedStageId);
 }
 
 void ATCLobbyGameState::AddSessionLogEntry(const FText& NewEntry)

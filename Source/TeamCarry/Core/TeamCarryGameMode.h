@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameModeBase.h"
@@ -56,9 +56,17 @@ public:
 	
 	// 플레이어 로그아웃 시 호출
 	virtual void Logout(AController* Exiting) override;
-	
+
 	// 플레이어 재접속 시 호출
 	virtual void PostLogin(APlayerController* NewPlayer) override;
+
+	// 로비→스테이지처럼 Seamless Travel 로 도착하는 플레이어는 PostLogin 을 타지 않는다
+	// (ATCLobbyGameMode::HandleSeamlessTravelPlayer 와 동일한 이중 훅 패턴, 로딩 화면 동기화 수정).
+	virtual void HandleSeamlessTravelPlayer(AController*& C) override;
+
+	// ATCPlayerController::ServerReportMapLoaded() 가 호출(서버 권위). 해당 플레이어의 로딩 완료를
+	// 기록하고, 전원 로딩 완료 여부에 따라 게임 시작 또는 해당 플레이어 단독 진입을 진행한다.
+	void NotifyPlayerFinishedLoading(APlayerController* PC);
 	
 	// 게임 저장
 	UFUNCTION(BlueprintCallable)
@@ -106,6 +114,10 @@ protected:
 	// 별 개수 판정 (남은 시간 기준)
 	int32 CalculateStar(float RemainingTime);
 
+	// 접속 중인 모든 플레이어가 스테이지 맵 로딩을 마쳤는지(ATCLobbyGameState::AreAllPlayersReady()와
+	// 동일한 형태 — PlayerArray 스캔). 인원 0이면 false.
+	bool AreAllConnectedPlayersLoaded() const;
+
 private:
 	// 총 옮겨야 할 가구 개수
 	int32 TotalFurnitureCount;
@@ -124,7 +136,11 @@ private:
 
 	// 카운트다운 타이머 핸들
 	FTimerHandle CountdownTimerHandle;
-	
+
+	// 전원 로딩 완료 대기 타임아웃 세이프티 타이머(로딩 화면 동기화 수정) — 일부 클라이언트가
+	// 응답 없이 멈추는 경우 전체가 무한 대기하지 않도록 시간 초과 시 강제로 진행한다.
+	FTimerHandle LoadingGateTimeoutHandle;
+
 	// 튕긴 플레이어 ID 목록
 	TArray<FUniqueNetIdRepl> DisconnectedPlayerIds;
 

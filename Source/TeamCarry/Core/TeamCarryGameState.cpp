@@ -1,4 +1,4 @@
-#include "TeamCarryGameState.h"
+﻿#include "TeamCarryGameState.h"
 #include "Net/UnrealNetwork.h"
 #include "TeamCarry/UI/MockUIController.h" 
 #include "Engine/World.h"
@@ -9,6 +9,8 @@ ATeamCarryGameState::ATeamCarryGameState()
 	TotalScore = 0;
 	TotalLevelValue = 0;
 	RemainingFurniture = 0;
+	TotalFurnitureCount = 0;
+	DestroyedFurnitureCount = 0;
 	RemainingTime = 0.0f;
 	bIsGameFinished = false;
 	StarCount = 0;
@@ -22,6 +24,8 @@ void ATeamCarryGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 	DOREPLIFETIME(ATeamCarryGameState, TotalScore);
 	DOREPLIFETIME(ATeamCarryGameState, TotalLevelValue);
 	DOREPLIFETIME(ATeamCarryGameState, RemainingFurniture);
+	DOREPLIFETIME(ATeamCarryGameState, TotalFurnitureCount);
+	DOREPLIFETIME(ATeamCarryGameState, DestroyedFurnitureCount);
 	DOREPLIFETIME(ATeamCarryGameState, RemainingTime);
 	DOREPLIFETIME(ATeamCarryGameState, bIsGameFinished);
 	DOREPLIFETIME(ATeamCarryGameState, StarCount);

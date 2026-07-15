@@ -1,4 +1,4 @@
-﻿// Fill out your copyright notice in the Description page of Project Settings.
+// Fill out your copyright notice in the Description page of Project Settings.
 
 
 #include "TeamCarry/UI/O_PauseMenu.h"
@@ -36,35 +36,32 @@ void UO_PauseMenu::NativeConstruct()
 		Btn_Settings->OnClicked().AddUObject(this, &UO_PauseMenu::HandleSettingsClicked);
 	}
 
-	// Bind KeyGuide Button (조작법 가이드 팝업 푸시, 명세 3-10)
-	// UCommonButtonBase 는 OnClicked() 멤버 함수로 바인딩한다.
-	if (Btn_KeyGuide)
-	{
-		Btn_KeyGuide->OnClicked().RemoveAll(this);
-		Btn_KeyGuide->OnClicked().AddUObject(this, &UO_PauseMenu::HandleKeyGuideClicked);
-	}
-
 	if (Btn_Save)
 	{
 		Btn_Save->OnClicked().RemoveAll(this);
 		Btn_Save->OnClicked().AddUObject(this, &UO_PauseMenu::HandleSaveClicked);
-		// =====================================================================
-		// [호스트 권한 처리 위치 - 프로토타입 단계에서는 미구현]
-		// 멀티플레이 연동 시, 아래 위치에서 로컬 플레이어가 호스트(방장)인지
-		// 판별하여 Btn_Save 의 노출/활성화를 제어한다.
-		//   const bool bIsHost = GetOwningPlayer() && GetOwningPlayer()->HasAuthority();
-		//   Btn_Save->SetIsEnabled(bIsHost);                 // 클라이언트: 비활성
-		//   Btn_Save->SetVisibility(bIsHost ? Visible : Collapsed); // 또는 숨김
-		// 또한 튜토리얼(S_Tutorial) 진입 시에도 비활성 처리한다.
 	}
 
-	// Bind ToTitle Button (타이틀 복귀)
-	if (Btn_ToTitle)
+	if (Btn_ToLobby)
 	{
-		Btn_ToTitle->OnClicked().RemoveAll(this);
-		Btn_ToTitle->OnClicked().AddUObject(this, &UO_PauseMenu::HandleToTitleClicked);
+		Btn_ToLobby->OnClicked().RemoveAll(this);
+		Btn_ToLobby->OnClicked().AddUObject(this, &UO_PauseMenu::HandleToLobbyClicked);
 	}
 
+	if (Btn_Reset)
+	{
+		Btn_Reset->OnClicked().RemoveAll(this);
+		Btn_Reset->OnClicked().AddUObject(this, &UO_PauseMenu::HandleResetClicked);
+	}
+
+	if (Btn_LeaveRoom)
+	{
+		Btn_LeaveRoom->OnClicked().RemoveAll(this);
+		Btn_LeaveRoom->OnClicked().AddUObject(this, &UO_PauseMenu::HandleLeaveRoomClicked);
+	}
+
+	// 호출 컨텍스트(Lobby/Tutorial/InGame)에 따라 버튼 노출을 갱신한다(명세 4장-12).
+	RefreshContextVisibility();
 }
 
 TOptional<FUIInputConfig> UO_PauseMenu::GetDesiredInputConfig() const
@@ -104,19 +101,10 @@ void UO_PauseMenu::HandleSettingsClicked()
 	}
 }
 
-void UO_PauseMenu::HandleKeyGuideClicked()
-{
-	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
-	{
-		UE_LOG(LogTemp, Log, TEXT("[UI PauseMenu] KeyGuide clicked. Pushing O_KeyGuide overlay."));
-		MockController->PushOverlay(TEXT("O_KeyGuide"));
-	}
-}
-
 void UO_PauseMenu::HandleSaveClicked()
 {
 	// 명세 3-1 / O_SaveLoad: [수동 저장] → 수동 저장/불러오기 관리 오버레이를 스택에 Push.
-	// (호스트 권한 검사는 NativeConstruct 의 버튼 표시 단계에서 이미 수행된 상태를 전제)
+	// (호스트 권한 검사는 RefreshContextVisibility()의 버튼 표시 단계에서 이미 수행된 상태를 전제)
 	// 실제 디스크 저장 로직은 백엔드(USaveGame) 연동 단계에서 O_SaveLoad 내부에 구현한다.
 	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
 	{
@@ -125,35 +113,145 @@ void UO_PauseMenu::HandleSaveClicked()
 	}
 }
 
-void UO_PauseMenu::HandleToTitleClicked()
+void UO_PauseMenu::HandleToLobbyClicked()
 {
 	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
 	{
-		// 파괴적 액션이므로 직접 전환하지 않고 확인 모달(O_Confirm)을 푸시한다.
-		UE_LOG(LogTemp, Log, TEXT("[UI PauseMenu] ToTitle clicked. Pushing O_Confirm overlay."));
+		// 파괴적 액션(진행 중인 스테이지 즉시 이탈)이므로 직접 전환하지 않고 확인 모달을 푸시한다.
+		UE_LOG(LogTemp, Log, TEXT("[UI PauseMenu] ToLobby clicked. Pushing O_Confirm overlay."));
 
 		UCommonActivatableWidget* OverlayWidget = MockController->PushOverlay(TEXT("O_Confirm"));
-			
+
 		if (UO_Confirm* ConfirmUI = Cast<UO_Confirm>(OverlayWidget))
 		{
 			FOnConfirmYesAction YesAction;
-			YesAction.BindDynamic(this, &UO_PauseMenu::OnConfirmToTitle);
+			YesAction.BindDynamic(this, &UO_PauseMenu::OnConfirmReturnToLobby);
 
 			ConfirmUI->SetupConfirm(
-				FText::FromString(TEXT("타이틀로 나가기")),
-				FText::FromString(TEXT("정말로 타이틀 화면으로 나가시겠습니까?")),
+				FText::FromString(TEXT("로비로 복귀")),
+				FText::FromString(TEXT("정말로 로비로 복귀하시겠습니까? 진행 중인 스테이지를 즉시 이탈합니다.")),
 				YesAction
 			);
 		}
 	}
 }
 
-void UO_PauseMenu::OnConfirmToTitle()
+void UO_PauseMenu::OnConfirmReturnToLobby()
 {
-	// TCSessionFlow::LeaveToTitle 이 세션 파기와 타이틀 레벨(L_Title) 이동을 함께 처리한다.
+	// UTCSessionFlow::HostReturnToLobby() 가 세션을 유지한 채 로비로 재트래블한다.
 	if (UTCSessionFlow* Flow = GetGameInstance()->GetSubsystem<UTCSessionFlow>())
 	{
-		UE_LOG(LogTemp, Log, TEXT("[UI PauseMenu] Leave confirmed. Requesting Leave To Title."));
+		UE_LOG(LogTemp, Log, TEXT("[UI PauseMenu] ToLobby confirmed. Requesting Return To Lobby."));
+		Flow->HostReturnToLobby();
+	}
+}
+
+void UO_PauseMenu::HandleResetClicked()
+{
+	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
+	{
+		// 파괴적 액션(진행 상황 초기화)이므로 직접 전환하지 않고 확인 모달을 푸시한다.
+		UE_LOG(LogTemp, Log, TEXT("[UI PauseMenu] Reset clicked. Pushing O_Confirm overlay."));
+
+		UCommonActivatableWidget* OverlayWidget = MockController->PushOverlay(TEXT("O_Confirm"));
+
+		if (UO_Confirm* ConfirmUI = Cast<UO_Confirm>(OverlayWidget))
+		{
+			FOnConfirmYesAction YesAction;
+			YesAction.BindDynamic(this, &UO_PauseMenu::OnConfirmResetStage);
+
+			ConfirmUI->SetupConfirm(
+				FText::FromString(TEXT("스테이지 초기화")),
+				FText::FromString(TEXT("정말로 스테이지를 초기화하시겠습니까? 진행 상황이 모두 사라집니다.")),
+				YesAction
+			);
+		}
+	}
+}
+
+void UO_PauseMenu::OnConfirmResetStage()
+{
+	// UTCSessionFlow::RestartStage() 가 현재 선택된 스테이지 맵으로 재트래블한다.
+	if (UTCSessionFlow* Flow = GetGameInstance()->GetSubsystem<UTCSessionFlow>())
+	{
+		UE_LOG(LogTemp, Log, TEXT("[UI PauseMenu] Reset confirmed. Requesting Restart Stage."));
+		Flow->RestartStage();
+	}
+}
+
+void UO_PauseMenu::HandleLeaveRoomClicked()
+{
+	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
+	{
+		// 파괴적 액션(세션 파기)이므로 직접 전환하지 않고 확인 모달을 푸시한다.
+		UE_LOG(LogTemp, Log, TEXT("[UI PauseMenu] LeaveRoom clicked. Pushing O_Confirm overlay."));
+
+		UCommonActivatableWidget* OverlayWidget = MockController->PushOverlay(TEXT("O_Confirm"));
+
+		if (UO_Confirm* ConfirmUI = Cast<UO_Confirm>(OverlayWidget))
+		{
+			FOnConfirmYesAction YesAction;
+			YesAction.BindDynamic(this, &UO_PauseMenu::OnConfirmLeaveRoom);
+
+			ConfirmUI->SetupConfirm(
+				FText::FromString(TEXT("방 나가기")),
+				FText::FromString(TEXT("정말로 방을 나가시겠습니까?")),
+				YesAction
+			);
+		}
+	}
+}
+
+void UO_PauseMenu::OnConfirmLeaveRoom()
+{
+	// UTCSessionFlow::LeaveToTitle() 이 세션 파기와 타이틀 레벨 이동을 함께 처리한다.
+	// 방장뿐 아니라 참가자도 방을 나갈 수 있으므로 IsHost() 게이팅을 받지 않는다.
+	if (UTCSessionFlow* Flow = GetGameInstance()->GetSubsystem<UTCSessionFlow>())
+	{
+		UE_LOG(LogTemp, Log, TEXT("[UI PauseMenu] LeaveRoom confirmed. Requesting Leave To Title."));
 		Flow->LeaveToTitle();
+	}
+}
+
+void UO_PauseMenu::RefreshContextVisibility()
+{
+	// 컨텍스트 판정(v3 내부 개정): 새 enum/SetupContext() 없이 기존 MockUIController::GetCurrentState()를
+	// 그대로 재사용한다 — PushOverlay는 CurrentState(Lobby/Tutorial/InGame)를 바꾸지 않으므로, 이
+	// 오버레이가 어떤 화면 위에 떠 있는지를 그대로 알려준다(UI_Technical_Spec.md 4장-12).
+	UMockUIController* MockController = GetGameInstance() ? GetGameInstance()->GetSubsystem<UMockUIController>() : nullptr;
+	const EE_UIState CurrentState = MockController ? MockController->GetCurrentState() : EE_UIState::InGame;
+
+	const UTCSessionFlow* Flow = GetGameInstance() ? GetGameInstance()->GetSubsystem<UTCSessionFlow>() : nullptr;
+	const bool bIsHost = Flow && Flow->IsHost();
+
+	if (CurrentState == EE_UIState::Lobby)
+	{
+		// 로비에는 저장할 진행 중인 스테이지도, 복귀할 다른 곳도, 리셋할 스테이지도 없다.
+		if (Btn_Save) Btn_Save->SetVisibility(ESlateVisibility::Collapsed);
+		if (Btn_ToLobby) Btn_ToLobby->SetVisibility(ESlateVisibility::Collapsed);
+		if (Btn_Reset) Btn_Reset->SetVisibility(ESlateVisibility::Collapsed);
+		if (Btn_LeaveRoom) Btn_LeaveRoom->SetVisibility(ESlateVisibility::Visible);
+	}
+	else if (CurrentState == EE_UIState::Tutorial)
+	{
+		// 튜토리얼은 CompleteTutorial() 단일 경로로만 로비 복귀(명세 4장-6).
+		if (Btn_Save)
+		{
+			Btn_Save->SetVisibility(ESlateVisibility::Visible);
+			Btn_Save->SetIsEnabled(false);
+		}
+		if (Btn_ToLobby) Btn_ToLobby->SetVisibility(ESlateVisibility::Collapsed);
+		if (Btn_Reset) Btn_Reset->SetVisibility(ESlateVisibility::Collapsed);
+		if (Btn_LeaveRoom) Btn_LeaveRoom->SetVisibility(ESlateVisibility::Collapsed);
+	}
+	else // EE_UIState::InGame (기본값)
+	{
+		// 멀티플레이 동기화를 위해 호스트(방장) 전용. 노출 분기는 편의일 뿐이므로 실제 트래블/
+		// 저장/리셋 실행은 서버 측에서 재검증한다(명세 6장-8).
+		const ESlateVisibility HostVis = bIsHost ? ESlateVisibility::Visible : ESlateVisibility::Collapsed;
+		if (Btn_Save) Btn_Save->SetVisibility(HostVis);
+		if (Btn_ToLobby) Btn_ToLobby->SetVisibility(HostVis);
+		if (Btn_Reset) Btn_Reset->SetVisibility(HostVis);
+		if (Btn_LeaveRoom) Btn_LeaveRoom->SetVisibility(ESlateVisibility::Collapsed);
 	}
 }

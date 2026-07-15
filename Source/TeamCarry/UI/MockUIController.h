@@ -117,6 +117,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "UI|Controller")
 	void ReplaceState(EE_UIState NewState);
 
+	// 로딩 화면(S_Loading)을 즉시 표시한다(명세 2장·4장-9). HandleTravelStarted(호스트 로컬,
+	// OnTravelStarted 구독)와 ATCPlayerController::ClientShowLoadingScreen()(모든 클라이언트에
+	// 전달되는 Client RPC)이 공유하는 단일 진입점 — 로딩 화면 동기화 수정(회의 반영).
+	UFUNCTION(BlueprintCallable, Category = "UI|Controller")
+	void ShowLoadingScreenNow();
+
 	UFUNCTION(BlueprintCallable, Category = "UI")
 	class UCommonActivatableWidget* PushOverlay(const FString& OverlayName);
 
