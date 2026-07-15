@@ -21,6 +21,12 @@ namespace
 	TAutoConsoleVariable<int32> CVarGrabDebug(
 		TEXT("TC.GrabDebug"), 0,
 		TEXT("잡기 스캔 디버그 표시 (0=끔, 1=켬)"));
+
+	// 운반 테스트 치트: 잡은 로컬 폰이 가구 반대 방향으로 자동 이동 입력 —
+	// 한 키보드로 '서로 반대 당김'(줄다리기)을 재현한다. 입력은 리쉬 필터를 그대로 통과시킨다
+	TAutoConsoleVariable<int32> CVarCarryAutoPull(
+		TEXT("TC.Carry.AutoPull"), 0,
+		TEXT("운반 줄다리기 테스트: 잡은 로컬 폰이 가구 반대로 자동 입력 (0=끔, 1=켬)"));
 	FAutoConsoleCommand CmdGrabDebugToggle(
 		TEXT("TC.GrabDebugToggle"),
 		TEXT("잡기 스캔 디버그 표시 토글 (F9)"),
@@ -28,6 +34,8 @@ namespace
 		{
 			const int32 NewVal = CVarGrabDebug.GetValueOnGameThread() ? 0 : 1;
 			CVarGrabDebug->Set(NewVal, ECVF_SetByConsole);
+			// 화면 표시와 로그 게이트가 같은 CVar를 보는지 검증용 — 로그에도 상태를 남긴다
+			UE_LOG(LogTemp, Warning, TEXT("[운반 디버그] TC.GrabDebug=%d (F9 토글)"), NewVal);
 			if (GEngine)
 			{
 				GEngine->AddOnScreenDebugMessage(9100, 2.f, FColor::Yellow,
@@ -157,6 +165,88 @@ void UGrabComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorC
 		// 가구를 들고 있지 않으면 시간 초기화
 		CurrentFallTime = 0.0f;
 	}
+
+	// [리쉬] 소유 클라 관성 클램프 — 입력은 필터가 막지만 남은 관성이 반경을 넘으면
+	// 바깥 성분만 깎는다 (서버 Step 5와 동일 규칙 → 예측 일치, 보정 왕복 없음)
+	if (GrabbedActor)
+	{
+		ACharacter* OwnerChar = Cast<ACharacter>(GetOwner());
+		if (OwnerChar && OwnerChar->IsLocallyControlled() && !OwnerChar->HasAuthority())
+		{
+			if (UFurnitureGrabSystem* FGS = GrabbedActor->FindComponentByClass<UFurnitureGrabSystem>())
+			{
+				FVector Att;
+				float   R = 0.0f;
+				if (FGS->bLeashMovement && FGS->GetCarryLeash(OwnerChar, Att, R))
+				{
+					if (UCharacterMovementComponent* CMC = OwnerChar->GetCharacterMovement())
+					{
+						FVector ToAtt(Att.X - OwnerChar->GetActorLocation().X,
+						              Att.Y - OwnerChar->GetActorLocation().Y, 0.0f);
+						const float Dist = ToAtt.Size();
+						if (Dist > R)
+						{
+							const FVector Away = -ToAtt / Dist;
+							const float Outward = FVector::DotProduct(
+								FVector(CMC->Velocity.X, CMC->Velocity.Y, 0.0f), Away);
+							if (Outward > 0.0f)
+							{
+								CMC->Velocity -= Away * Outward;
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// [테스트] TC.Carry.AutoPull=1: 잡은 로컬 폰 전원이 가구 반대 방향으로 자동 입력 —
+	// PIE 두 창의 폰이 서로 반대로 당기는 줄다리기가 재현된다 (실제 입력 경로처럼 리쉬 필터 통과)
+	if (GrabbedActor && CVarCarryAutoPull.GetValueOnGameThread() != 0)
+	{
+		ACharacter* OwnerChar = Cast<ACharacter>(GetOwner());
+		if (OwnerChar && OwnerChar->IsLocallyControlled())
+		{
+			FVector Away = OwnerChar->GetActorLocation() - GrabbedActor->GetActorLocation();
+			Away.Z = 0.0f;
+			if (Away.Normalize())
+			{
+				const FVector Filtered = FilterCarryInput(Away);
+				if (!Filtered.IsNearlyZero())
+				{
+					OwnerChar->AddMovementInput(Filtered, 1.0f);
+				}
+			}
+		}
+	}
+}
+
+// [리쉬] 운반 중 이동 입력 필터 — 반경 밖 원심 성분 제거 (접선 유지, 벽 따라 돌기는 가능)
+FVector UGrabComponent::FilterCarryInput(const FVector& WorldInput) const
+{
+	AActor* Grabbed = GetGrabbedActor();
+	ACharacter* OwnerChar = Cast<ACharacter>(GetOwner());
+	if (!Grabbed || !OwnerChar || WorldInput.IsNearlyZero())
+		return WorldInput;
+
+	UFurnitureGrabSystem* FGS = Grabbed->FindComponentByClass<UFurnitureGrabSystem>();
+	if (!FGS || !FGS->bLeashMovement)
+		return WorldInput;
+
+	FVector Att;
+	float   R = 0.0f;
+	if (!FGS->GetCarryLeash(OwnerChar, Att, R))
+		return WorldInput;
+
+	FVector ToAtt(Att.X - OwnerChar->GetActorLocation().X,
+	              Att.Y - OwnerChar->GetActorLocation().Y, 0.0f);
+	const float Dist = ToAtt.Size();
+	if (Dist <= R || Dist <= KINDA_SMALL_NUMBER)
+		return WorldInput;
+
+	const FVector Away = -ToAtt / Dist;
+	const float Outward = FVector::DotProduct(WorldInput, Away);
+	return (Outward > 0.0f) ? WorldInput - Away * Outward : WorldInput;
 }
 
 // 대상이 존재하면 서버로 상호작용-잡기 시도 요청

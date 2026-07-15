@@ -172,8 +172,13 @@ void ATCPlayerCharacter::HandleMoveInput(const FInputActionValue& InValue)
 	const FVector RightDirection = FRotationMatrix(ControlYawRotation).GetUnitAxis(EAxis::Y);
 
 	// 캐릭터 이동 적용
-	AddMovementInput(ForwardDirection, InMovementVector.X);
-	AddMovementInput(RightDirection, InMovementVector.Y);
+	// [리쉬] 운반 중엔 대형 반경 밖으로 나가는 입력 성분을 제거 — 가구가 못 가는 방향으로는 걷지 못한다
+	FVector WorldInput = ForwardDirection * InMovementVector.X + RightDirection * InMovementVector.Y;
+	if (GrabComponent)
+	{
+		WorldInput = GrabComponent->FilterCarryInput(WorldInput);
+	}
+	AddMovementInput(WorldInput, 1.0f);
 }
 
 // 플레이어 카메라 시점 회전(마우스) 처리
