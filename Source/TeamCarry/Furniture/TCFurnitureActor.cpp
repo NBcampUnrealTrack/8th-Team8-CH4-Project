@@ -319,7 +319,7 @@ void ATCFurnitureActor::DestroyFurniture()
         // GM에 가구 파괴를 알림
         if (ATeamCarryGameMode* GM = Cast<ATeamCarryGameMode>(GetWorld()->GetAuthGameMode()))
         {
-            GM->OnFurnitureDestroyed();
+            GM->OnFurnitureDestroyed(this);
         }
 
         // GC 컴포넌트가 없거나, 있어도 파괴 메쉬(RestCollection)가 등록되지 않았다면
