@@ -164,7 +164,7 @@ void UTCFeedbackSubsystem::Tick(float DeltaTime)
 		return;
 	}
 
-	const ATeamCarryGameState* GS = World->GetGameState<ATeamCarryGameState>();
+	ATeamCarryGameState* GS = World->GetGameState<ATeamCarryGameState>();
 	if (!GS)
 	{
 		return;
@@ -225,32 +225,42 @@ void UTCFeedbackSubsystem::Tick(float DeltaTime)
 		}
 	}
 
-	// ── 시간 압박 연출: 잔여시간이 임계 이하로 떨어지면 경고 UI + BGM 배속 ──
-	// (제한시간 종료 자체는 ATeamCarryGameMode::Tick 이 처리 — 게임 룰은 게임모드 소관)
-	// 경고 UI는 BGM 재생 여부와 무관하게 떠야 하므로 BGMComp 조건을 게이트에 두지 않는다
-	// (BGM 미로드/정지 시 경고까지 통째로 사라지던 결합 제거).
-	if (Phase == EGamePhase::Playing && !bBGMBoosted)
+	// ── 핫타임 연출: 5분 경과 후 트럭 비율이 낮으면 경고 UI + BGM 배속 ──
+	// 트럭 안 가구 / (전체 가구 - 파괴된 가구) 가 HotTimeStartRatio 이하면 핫타임 시작.
+	// HotTimeEndRatio 이상이 되면 핫타임 종료. GS->bIsHotTime 으로 복제해 TCFeedbackComponent 가 구독.
+	if (Phase == EGamePhase::Playing)
 	{
-		// 제한시간의 정본은 게임모드(BP에서 스테이지별 오버라이드) — 서버/호스트에서 읽고,
-		// 순수 클라이언트는 서브시스템 기본값 폴백 (기본값을 게임모드와 일치시킬 것)
-		float EffectiveLimit = TimeLimitSeconds;
+		// 전체 가구수는 GameMode 에서 읽는다 (서버/호스트 전용 — 클라는 0 폴백)
+		int32 TotalCount = 0;
 		if (const ATeamCarryGameMode* GM = World->GetAuthGameMode<ATeamCarryGameMode>())
 		{
-			EffectiveLimit = GM->TimeLimitSeconds;
+			TotalCount = GM->GetTargetCount();
 		}
-		const float RemainingTime = GS->RemainingTime;
-		if (RemainingTime <= BGMSpeedupRemaining)
-		{
-			bBGMBoosted = true;
-			if (BGMComp && BGMComp->IsPlaying())
-			{
-				BGMComp->SetPitchMultiplier(BGMSpeedupPitch);
-				UE_LOG(LogTemp, Log, TEXT("[Feedback] BGM 배속 x%.2f (잔여 %.0f초)"), BGMSpeedupPitch, RemainingTime);
-			}
 
-			// 시간 임박 경고 UI — 붉은 비네트 펄스 + 경고 문구 (뷰포트가 수명 관리)
+		// 유효 가구수 = 전체 - 파괴된 가구 (0 방지)
+		const int32 EffectiveTotal = FMath::Max(1, TotalCount - GS->DestroyedFurnitureCount);
+		// 트럭 안 가구수 = 전체 - 남은 가구 - 파괴된 가구
+		const int32 InTruckCount = FMath::Max(0, TotalCount - GS->RemainingFurniture - GS->DestroyedFurnitureCount);
+		const float TruckRatio = (float)InTruckCount / (float)EffectiveTotal;
+
+		// 핫타임 진입: 5분 경과 + 트럭 비율 20% 이하
+		if (!bIsHotTime && GS->ElapsedTime >= HotTimeElapsedThreshold && TruckRatio <= HotTimeStartRatio)
+		{
+			bIsHotTime = true;
+			GS->bIsHotTime = true;        // 클라이언트 복제 → TCFeedbackComponent 가 빨간 링 표시
+			GS->NotifyHotTimeChanged();   // 리슨 서버 호스트 수동 호출
+			if (!bBGMBoosted)
+			{
+				bBGMBoosted = true;
+				if (BGMComp && BGMComp->IsPlaying())
+				{
+					BGMComp->SetPitchMultiplier(BGMSpeedupPitch);
+					UE_LOG(LogTemp, Log, TEXT("[Feedback] 핫타임 BGM 배속 x%.2f (트럭 비율: %.0f%%)"), BGMSpeedupPitch, TruckRatio * 100.f);
+				}
+			}
+			// 핫타임 경고 UI 표시
 			// 리슨 서버 월드의 PC 목록은 심리스 트래블 뒤 원격 클라이언트가 0번에 올 수 있어
-			// GetPlayerController(0) 대신 '로컬' 컨트롤러를 명시적으로 찾는다 (호스트에서 경고 미표시 원인).
+			// GetPlayerController(0) 대신 '로컬' 컨트롤러를 명시적으로 찾는다.
 			if (UClass* WarnCls = LoadClass<UUserWidget>(nullptr, TimeWarningWidgetPath))
 			{
 				if (APlayerController* PC = GEngine ? GEngine->GetFirstLocalPlayerController(World) : nullptr)
@@ -261,10 +271,34 @@ void UTCFeedbackSubsystem::Tick(float DeltaTime)
 					}
 				}
 			}
+			UE_LOG(LogTemp, Warning, TEXT("[Feedback] 핫타임 시작 (경과: %.0f초, 트럭 비율: %.0f%%)"), GS->ElapsedTime, TruckRatio * 100.f);
+		}
+		// 핫타임 종료: 트럭 비율 50% 이상
+		else if (bIsHotTime && TruckRatio >= HotTimeEndRatio)
+		{
+			bIsHotTime = false;
+			bBGMBoosted = false;
+			GS->bIsHotTime = false;        // 클라이언트 복제 → TCFeedbackComponent 가 빨간 링 해제
+			GS->NotifyHotTimeChanged();    // 리슨 서버 호스트 수동 호출
+			if (BGMComp && BGMComp->IsPlaying())
+			{
+				BGMComp->SetPitchMultiplier(1.f);
+				UE_LOG(LogTemp, Log, TEXT("[Feedback] 핫타임 종료 — BGM 배속 해제 (트럭 비율: %.0f%%)"), TruckRatio * 100.f);
+			}
+			// 핫타임 경고 UI 제거
+			if (UClass* WarnCls = LoadClass<UUserWidget>(nullptr, TimeWarningWidgetPath))
+			{
+				TArray<UUserWidget*> Warns;
+				UWidgetBlueprintLibrary::GetAllWidgetsOfClass(World, Warns, WarnCls, false);
+				for (UUserWidget* Wg : Warns)
+				{
+					Wg->RemoveFromParent();
+				}
+			}
 		}
 	}
 
-	// 게임 종료: BGM 페이드아웃 + 클리어 팡파르 + 시간 경고 UI 제거
+	// 게임 종료: BGM 페이드아웃 + 클리어 팡파르 + 핫타임 경고 UI 제거
 	if (GS->bIsGameFinished && !bBGMFadedOut)
 	{
 		bBGMFadedOut = true;
