@@ -46,6 +46,13 @@ public:
 	void SetLobbySlotIndexAuthoritative(int32 InSlot);
 	void SetCharacterIndexAuthoritative(int32 InCharacterIndex);
 
+	// ── 스테이지 맵 진입 전원 대기 게이트(서버 전용 북키핑, 로딩 화면 동기화 수정) ──
+	// bIsReady와 달리 다른 클라이언트 UI에 보여줄 필요가 없고 서버만 알면 되므로 복제하지 않는다.
+	UFUNCTION(BlueprintPure, Category = "TeamCarry|Loading")
+	bool HasLoadedCurrentMap() const { return bHasLoadedCurrentMap; }
+
+	void SetHasLoadedCurrentMapAuthoritative(bool bInLoaded);
+
 protected:
 	// 준비 완료 플래그.
 	UPROPERTY(ReplicatedUsing = OnRep_LobbyInfo, VisibleAnywhere, Category = "TeamCarry|Lobby")
@@ -61,6 +68,10 @@ protected:
 
 	UFUNCTION()
 	void OnRep_LobbyInfo();
+
+	// 서버 전용 북키핑(비복제). ATeamCarryGameMode::PostLogin/HandleSeamlessTravelPlayer 가 스테이지
+	// 맵 진입 시마다 false 로 리셋하고, ATCPlayerController::ServerReportMapLoaded() 가 true 로 설정한다.
+	bool bHasLoadedCurrentMap = false;
 
 private:
 	// 복제값 변경 시 GameState 에 로비 변경을 알려 UI 갱신을 트리거한다(서버/클라 공통).

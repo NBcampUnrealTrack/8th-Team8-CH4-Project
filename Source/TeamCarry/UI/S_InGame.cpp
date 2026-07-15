@@ -1,4 +1,4 @@
-﻿// Fill out your copyright notice in the Description page of Project Settings.
+// Fill out your copyright notice in the Description page of Project Settings.
 
 
 #include "TeamCarry/UI/S_InGame.h"
@@ -72,6 +72,8 @@ void US_InGame::NativeConstruct()
 		{
 			// 팀 값어치 게이지의 Max 값은 스테이지 중 불변이므로 여기서 1회만 캐시한다.
 			CachedTotalLevelValue = GS->TotalLevelValue;
+			// Txt_FurnitureCount 분모(전체 상자 개수, 파괴된 것 포함)도 스테이지 중 불변이므로 1회만 캐시한다.
+			CachedTotalFurnitureCount = GS->TotalFurnitureCount;
 
 			// 게임이 시작될 때 GameState에 이미 들어있는 돈과 가구 수를 HUD에 즉시 반영합니다.
 			HandleTeamMoneyUpdated(GS->TotalScore);
@@ -117,7 +119,7 @@ void US_InGame::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 	{
 		if (ATeamCarryGameState* GS = World->GetGameState<ATeamCarryGameState>())
 		{
-			UpdateTimerDisplay(GS->RemainingTime);
+			UpdateTimerDisplay(GS->ElapsedTime);
 		}
 	}
 }
@@ -164,10 +166,24 @@ void US_InGame::UpdateTimerDisplay(float ElapsedTime)
 
 void US_InGame::HandleRemainingFurnitureUpdated(int32 NewCount)
 {
-	UE_LOG(LogTemp, Log, TEXT("[UI InGameHUD] HUD Received Remaining Furniture Update: %d"), NewCount);
-	if (Txt_RemainingFurniture)
+	// 분모(전체 상자 개수)도 파괴된 것은 제외하고 동적으로 계산한다(v3 내부 개정, 명세 4장-7).
+	// DestroyedFurnitureCount는 RemainingFurniture와 같은 호출(OnFurnitureDestroyed) 안에서 함께
+	// 갱신되므로, 이 델리게이트가 발화하는 시점에 GameState에서 직접 최신값을 읽으면 항상 일치한다.
+	int32 DenominatorCount = CachedTotalFurnitureCount;
+	if (const UWorld* World = GetWorld())
 	{
-		Txt_RemainingFurniture->SetText(FText::AsNumber(NewCount));
+		if (const ATeamCarryGameState* GS = World->GetGameState<ATeamCarryGameState>())
+		{
+			DenominatorCount = CachedTotalFurnitureCount - GS->DestroyedFurnitureCount;
+		}
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("[UI InGameHUD] HUD Received Remaining Furniture Update: %d / %d"), NewCount, DenominatorCount);
+	if (Txt_FurnitureCount)
+	{
+		// "이동 가능한 개수 / 상자 개수(파괴된 것 제외)" 분수 표기(UI_Technical_Spec.md 4장-7).
+		Txt_FurnitureCount->SetText(FText::Format(NSLOCTEXT("InGameUI", "FurnitureCountFormat", "{0} / {1}"),
+			FText::AsNumber(NewCount), FText::AsNumber(DenominatorCount)));
 	}
 }
 

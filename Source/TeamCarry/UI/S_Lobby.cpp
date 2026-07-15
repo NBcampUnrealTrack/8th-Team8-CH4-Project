@@ -10,6 +10,8 @@
 #include "Player/PlayerState/TCPlayerState.h"
 #include "Network/Session/TCLobbyGameState.h"
 #include "Network/Session/TCSessionFlow.h"
+#include "Level/Struct/TCStageSelectBoard.h"
+#include "Kismet/GameplayStatics.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
 
@@ -43,6 +45,16 @@ void US_Lobby::NativeConstruct()
 		Btn_KeyGuide->OnClicked().AddUObject(this, &US_Lobby::HandleKeyGuideClicked);
 	}
 
+	// BP_StageSelectBoard 근접 프롬프트 구독(명세 4장-5).
+	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
+	{
+		MockController->OnInteractTargetChanged.AddUniqueDynamic(this, &US_Lobby::HandleInteractTargetChanged);
+	}
+	if (Txt_InteractPrompt)
+	{
+		Txt_InteractPrompt->SetVisibility(ESlateVisibility::Collapsed);
+	}
+
 	bLocalPlayerReady = false;
 	// SetIsFocusable(true) 를 두면 오버레이(O_Confirm 등)가 닫혀 이 위젯이 leaf-most 로
 	// 복귀할 때, 포커스 대상이 없어 라우터가 이 위젯 자체에 키보드 포커스를 last-resort로
@@ -69,13 +81,26 @@ void US_Lobby::NativeDestruct()
 	}
 	BoundLobbyState = nullptr;
 
+	if (UGameInstance* GI = GetGameInstance())
+	{
+		if (UMockUIController* MockController = GI->GetSubsystem<UMockUIController>())
+		{
+			MockController->OnInteractTargetChanged.RemoveAll(this);
+		}
+	}
+
 	Super::NativeDestruct();
 }
 
 bool US_Lobby::NativeOnHandleBackAction()
 {
-	// ESC = 뒤로 가기 버튼과 동일 처리(명세 5-1). O_Confirm 모달을 거쳐 로비를 나간다.
-	HandleBackClicked();
+	// (v3 내부 개정) ESC → O_PauseMenu(Lobby 컨텍스트)를 연다. 기존에는 Btn_Back과 동일하게
+	// O_Confirm(방 나가기)로 직행해 로비에서 설정(O_Settings)에 접근할 경로가 없었다.
+	// Btn_Back 클릭은 기존처럼 HandleBackClicked()의 O_Confirm 직행 단축 경로를 그대로 유지한다.
+	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
+	{
+		MockController->PushOverlay(TEXT("O_PauseMenu"));
+	}
 	return true;
 }
 
@@ -232,11 +257,28 @@ void US_Lobby::HandleCharacterSelectClicked()
 
 void US_Lobby::HandleStageSelectClicked()
 {
-	// O_StageSelect 는 5단계에서 생성 예정 — 호출부만 배선.
-	// 노출 분기(IsHost)는 편의일 뿐 권위가 아니므로, 실제 확정은 서버 측에서 재검증한다(명세 6장-8).
-	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
+	// (v3 내부 개정, 명세 4장-3·4장-5) O_StageSelect 를 직접 열지 않는다 — 방장 캐릭터를
+	// BP_StageSelectBoard(ATCStageSelectBoard) 앞으로 순간이동시키는 편의 기능으로 축소되었다.
+	// 실제 오버레이는 텔레포트 후 보드와의 기존 Interact 상호작용(ATCStageSelectBoard::OnInteract)으로 연다.
+	// 씬에 보드가 유일하다고 가정한다(명세 4장-5).
+	TArray<AActor*> Boards;
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), ATCStageSelectBoard::StaticClass(), Boards);
+	if (Boards.Num() == 0)
 	{
-		MockController->PushOverlay(TEXT("O_StageSelect"));
+		UE_LOG(LogTemp, Warning, TEXT("[UI S_Lobby] StageSelect: BP_StageSelectBoard 를 찾지 못함"));
+		return;
+	}
+
+	const ATCStageSelectBoard* Board = Cast<ATCStageSelectBoard>(Boards[0]);
+	if (!Board)
+	{
+		return;
+	}
+
+	if (APawn* Pawn = GetOwningPlayerPawn())
+	{
+		// 리슨 서버 구조상 방장 자신의 위젯 호출이므로, 이 폰은 서버 시점에서도 로컬 권위를 갖는다.
+		Pawn->TeleportTo(Board->GetTeleportLocation(), Board->GetTeleportRotation(), false, true);
 	}
 }
 
@@ -275,6 +317,23 @@ void US_Lobby::HandleBackClicked()
 				YesAction
 			);
 		}
+	}
+}
+
+void US_Lobby::HandleInteractTargetChanged(AActor* Target, FString Key)
+{
+	if (!Txt_InteractPrompt)
+	{
+		return;
+	}
+	if (Target)
+	{
+		Txt_InteractPrompt->SetText(FText::FromString(Key));
+		Txt_InteractPrompt->SetVisibility(ESlateVisibility::Visible);
+	}
+	else
+	{
+		Txt_InteractPrompt->SetVisibility(ESlateVisibility::Collapsed);
 	}
 }
 

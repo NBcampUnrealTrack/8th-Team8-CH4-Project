@@ -22,10 +22,10 @@ struct FFurnitureScoreResult
 	FName FurnitureRowName;         // 가구 DataTable RowName
 
 	UPROPERTY(BlueprintReadOnly)
-	EFurnitureGrade Grade;          // 가구 등급
+	EFurnitureGrade Grade = EFurnitureGrade::Normal;    // 가구 등급
 
 	UPROPERTY(BlueprintReadOnly)
-	int32 FinalScore;               // 최종 지급 점수
+	int32 FinalScore = 0;           // 최종 지급 점수
 };
 
 // 스테이지 결과 구조체
@@ -35,13 +35,13 @@ struct FStageResult
 	GENERATED_BODY()
 
 	UPROPERTY(BlueprintReadOnly)
-	int32 TotalMoney;               // 최종 보유
+	int32 TotalMoney = 0;           // 최종 보유
 
 	UPROPERTY(BlueprintReadOnly)
-	float ElapsedTime;              // 소요 시간 (초)
+	float ElapsedTime = 0.0f;       // 소요 시간 (초)
 
 	UPROPERTY(BlueprintReadOnly)
-	bool bIsClear;                  // 클리어 여부
+	bool bIsClear = false;          // 클리어 여부
 };
 
 // 게임 진행 단계

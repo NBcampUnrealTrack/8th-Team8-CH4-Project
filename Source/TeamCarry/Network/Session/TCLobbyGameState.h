@@ -10,6 +10,10 @@
 // UI(S_CharacterSelect)가 구독해 PlayerArray 를 다시 읽어 슬롯을 갱신한다.
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnLobbyPlayersChanged);
 
+// 방장이 확정한 스테이지가 바뀔 때마다 브로드캐스트(명세 4장-5·7장-6신).
+// O_StageSelect 의 선택 하이라이트, BP_StageSelectBoard 의 W_StageBoardScreen 이 구독.
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnSelectedStageChanged, int32, NewStageId);
+
 /**
  * ATCLobbyGameState - 로비 레벨의 복제 상태.
  *
@@ -25,6 +29,10 @@ public:
 	// 로비 상태 변경 이벤트(서버/클라 공통). UI 가 구독.
 	UPROPERTY(BlueprintAssignable, Category = "TeamCarry|Lobby")
 	FOnLobbyPlayersChanged OnLobbyPlayersChanged;
+
+	// 선택된 스테이지 변경 이벤트(서버/클라 공통). O_StageSelect·W_StageBoardScreen 이 구독.
+	UPROPERTY(BlueprintAssignable, Category = "TeamCarry|Lobby")
+	FOnSelectedStageChanged OnSelectedStageChanged;
 
 	// 접속 인원 전원이 Ready 인가(시작 게이팅). 인원 0이면 false.
 	UFUNCTION(BlueprintPure, Category = "TeamCarry|Lobby")

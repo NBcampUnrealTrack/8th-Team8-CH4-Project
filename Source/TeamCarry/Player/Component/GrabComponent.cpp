@@ -17,12 +17,16 @@
 
 namespace
 {
-	// 디버그: 잡기 스캔 시각화. 콘솔 "TC.GrabDebug 1" 또는 "TC.GrabDebugToggle"(F9 바인딩).
-	// 스캔 박스(엔진 트레이스 표시) + 후보별 가시선(초록=통과/빨강=벽 차단/보라=후방 각도 탈락)
-	// + 화면 좌상단에 현재 대상과 CanInteract 판정 사유를 띄운다. 로컬 조종 캐릭터에서만 그림.
+	// 잡기 스캔 디버그 시각화 — 콘솔 "TC.GrabDebug 1" 또는 "TC.GrabDebugToggle"(F9). 로컬 조종 캐릭터에서만 그림
 	TAutoConsoleVariable<int32> CVarGrabDebug(
 		TEXT("TC.GrabDebug"), 0,
 		TEXT("잡기 스캔 디버그 표시 (0=끔, 1=켬)"));
+
+	// 운반 테스트 치트: 잡은 로컬 폰이 가구 반대 방향으로 자동 이동 입력 —
+	// 한 키보드로 '서로 반대 당김'(줄다리기)을 재현한다. 입력은 리쉬 필터를 그대로 통과시킨다
+	TAutoConsoleVariable<int32> CVarCarryAutoPull(
+		TEXT("TC.Carry.AutoPull"), 0,
+		TEXT("운반 줄다리기 테스트: 잡은 로컬 폰이 가구 반대로 자동 입력 (0=끔, 1=켬)"));
 	FAutoConsoleCommand CmdGrabDebugToggle(
 		TEXT("TC.GrabDebugToggle"),
 		TEXT("잡기 스캔 디버그 표시 토글 (F9)"),
@@ -30,6 +34,8 @@ namespace
 		{
 			const int32 NewVal = CVarGrabDebug.GetValueOnGameThread() ? 0 : 1;
 			CVarGrabDebug->Set(NewVal, ECVF_SetByConsole);
+			// 화면 표시와 로그 게이트가 같은 CVar를 보는지 검증용 — 로그에도 상태를 남긴다
+			UE_LOG(LogTemp, Warning, TEXT("[운반 디버그] TC.GrabDebug=%d (F9 토글)"), NewVal);
 			if (GEngine)
 			{
 				GEngine->AddOnScreenDebugMessage(9100, 2.f, FColor::Yellow,
@@ -37,20 +43,16 @@ namespace
 			}
 		}));
 
-	// 벽 너머(가시선 차단) 대상 판정.
-	// 탐색용 박스 트레이스는 부피가 있어 얇은 벽 반대편 가구까지 히트로 돌려주므로,
-	// 시작점→대상 라인 트레이스가 '벽 등 비상호작용 차단물'에 먼저 막히면 잡기 불가로 본다.
-	// 도중의 다른 가구(Interactable)는 시야 차단으로 치지 않는다 — 가구 무더기 뒤의
-	// 가구도 잡을 수 있어야 하므로, 가구 히트는 무시 목록에 넣고 재시도한다(최대 4겹).
-	bool HasGrabLineOfSight(UWorld* World, AActor* OwnerActor, AActor* Target, const FVector& Start)
+	// 가시선 검사(단일 시작점): 벽 등 비상호작용 차단물에 막히면 잡기 불가.
+	// 가구·폰은 차단으로 치지 않고 무시 후 재시도(최대 6겹)
+	bool HasGrabLineOfSightFrom(UWorld* World, AActor* OwnerActor, AActor* Target, const FVector& Start)
 	{
 		if (!World || !Target)
 		{
 			return false;
 		}
-		// 피벗(ActorLocation)은 바닥 높이인 가구가 많아 경사면에서 라인이 지형에 스치며
-		// 막힘 오탐이 남 → 실제 몸통인 바운즈 중심을 향해 쏜다.
-		const FVector TargetPoint = Target->GetComponentsBoundingBox().GetCenter();
+		// 트레이스 목표는 '플레이어에서 가장 가까운 바운즈 지점' (벽 뒤 가구는 여전히 차단됨)
+		const FVector TargetPoint = Target->GetComponentsBoundingBox().GetClosestPointTo(Start);
 		FCollisionQueryParams Params(SCENE_QUERY_STAT(GrabLOS), /*bTraceComplex=*/false);
 		Params.AddIgnoredActor(OwnerActor);
 		for (int32 Depth = 0; Depth < 6; ++Depth)
@@ -65,8 +67,7 @@ namespace
 			{
 				return true; // 대상 도달
 			}
-			// 가구(Interactable)와 플레이어(폰)는 시야 차단으로 치지 않는다 — 2인 협동에서
-			// 파트너 몸이 사이에 있으면 잡기가 막히던 문제 방지. 무시 목록에 넣고 재시도.
+			// 가구(Interactable)와 플레이어(폰)는 시야 차단으로 치지 않는다 — 무시 목록에 넣고 재시도
 			if (HitActor && (HitActor->Implements<UTCInteractable>() || Cast<APawn>(HitActor) != nullptr))
 			{
 				Params.AddIgnoredActor(HitActor);
@@ -75,6 +76,23 @@ namespace
 			return false; // 벽 등 비상호작용 차단물
 		}
 		return false; // 여러 겹 가려짐 — 사실상 도달 불가로 간주
+	}
+
+	// 가시선 검사: 카메라 기준이 막혀도 '캐릭터 눈높이' 기준으로 한 번 더 본다 —
+	// 상부장 아래 조리대 위 소품처럼 카메라(머리 위)에서는 선반에 가리지만 캐릭터는
+	// 정면으로 보고 있는 배치를 잡을 수 있게 한다 (캐릭터 기준이라 벽 뒤 악용은 여전히 차단)
+	bool HasGrabLineOfSight(UWorld* World, AActor* OwnerActor, AActor* Target, const FVector& Start)
+	{
+		if (HasGrabLineOfSightFrom(World, OwnerActor, Target, Start))
+		{
+			return true;
+		}
+		if (OwnerActor)
+		{
+			const FVector EyeStart = OwnerActor->GetActorLocation() + FVector(0.0f, 0.0f, 40.0f);
+			return HasGrabLineOfSightFrom(World, OwnerActor, Target, EyeStart);
+		}
+		return false;
 	}
 }
 
@@ -100,9 +118,20 @@ void UGrabComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorC
 	// 모든 플레이어의 트레이스 실행
 	ScanBestTarget();
 
-	// [주의] 운반 중 자동 줌아웃(+오프셋 상승)을 넣었었으나, 1인칭 전환(ToggleView)과
-	// 휠 줌(HandleZoomInput)이 TargetArmLength 를 직접 제어하는 것과 매 틱 충돌해 제거함.
-	// 운반 시야 확보는 '잡힌 가구의 카메라 채널 무시'(FurnitureGrabSystem::Grab)로 처리한다.
+	// 운반 시야 확보는 '잡힌 가구의 카메라 채널 무시'(FurnitureGrabSystem::Grab)로 처리한다
+
+	// [유령 잡기 정리] GrabSystem에서만 해제된 잔여 GrabbedActor 참조를 서버가 매 틱 대조해 지운다 (Replicated라 클라도 복구)
+	if (GrabbedActor && GetOwner() && GetOwner()->HasAuthority())
+	{
+		ACharacter* OwnerCharForHeal = Cast<ACharacter>(GetOwner());
+		const UFurnitureGrabSystem* GrabSys = GrabbedActor->FindComponentByClass<UFurnitureGrabSystem>();
+		if (OwnerCharForHeal && GrabSys && !GrabSys->IsGrabbedBy(OwnerCharForHeal))
+		{
+			//UE_LOG(LogTemp, Warning, TEXT("[운반] 유령 잡기 정리: %s → %s (GrabSystem엔 이미 없음)"),
+			//	*OwnerCharForHeal->GetName(), *GrabbedActor->GetName());
+			GrabbedActor = nullptr;
+		}
+	}
 
 	// 가구를 들고 체공 시 강제 드랍
 	if (GrabbedActor)
@@ -116,12 +145,24 @@ void UGrabComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorC
 				{
 					CurrentFallTime += DeltaTime;
 
-					// 설정한 체공 시간(0.8초)을 초과하면 강제로 놓기
+					// 설정한 체공 시간을 초과하면 강제로 놓기
 					if (CurrentFallTime >= MaxFallTimeToDrop)
 					{
 						// 로컬 클라 + 서버에서 실행 (중복 통신 방지)
 						if (OwnerChar->IsLocallyControlled() || OwnerChar->HasAuthority())
 						{
+							if (CVarGrabDebug.GetValueOnGameThread() != 0 && GEngine)
+							{
+								// 체공 자동 드랍 발생 표시 (F9 디버그)
+								GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Red,
+									FString::Printf(TEXT("[운반] 체공 자동 드랍: %s 체공 %.2fs (허용 %.2fs)"),
+										*OwnerChar->GetName(), CurrentFallTime, MaxFallTimeToDrop));
+								DrawDebugSphere(GetWorld(), OwnerChar->GetActorLocation(), 40.0f, 12,
+									FColor::Red, false, 5.0f, 0, 3.0f);
+							}
+							// 사후 로그 분석용 — F9 여부와 무관하게 기록 (Output Log에서 "체공" 검색)
+							//UE_LOG(LogTemp, Warning, TEXT("[운반] 체공 자동 드랍: %s 체공 %.2fs (허용 %.2fs)"),
+							//	*OwnerChar->GetName(), CurrentFallTime, MaxFallTimeToDrop);
 							// 가구 내려놓기 로직 호출
 							TryInteract();
 						}
@@ -142,6 +183,88 @@ void UGrabComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorC
 		// 가구를 들고 있지 않으면 시간 초기화
 		CurrentFallTime = 0.0f;
 	}
+
+	// [리쉬] 소유 클라 관성 클램프 — 입력은 필터가 막지만 남은 관성이 반경을 넘으면
+	// 바깥 성분만 깎는다 (서버 Step 5와 동일 규칙 → 예측 일치, 보정 왕복 없음)
+	if (GrabbedActor)
+	{
+		ACharacter* OwnerChar = Cast<ACharacter>(GetOwner());
+		if (OwnerChar && OwnerChar->IsLocallyControlled() && !OwnerChar->HasAuthority())
+		{
+			if (UFurnitureGrabSystem* FGS = GrabbedActor->FindComponentByClass<UFurnitureGrabSystem>())
+			{
+				FVector Att;
+				float   R = 0.0f;
+				if (FGS->bLeashMovement && FGS->GetCarryLeash(OwnerChar, Att, R))
+				{
+					if (UCharacterMovementComponent* CMC = OwnerChar->GetCharacterMovement())
+					{
+						FVector ToAtt(Att.X - OwnerChar->GetActorLocation().X,
+						              Att.Y - OwnerChar->GetActorLocation().Y, 0.0f);
+						const float Dist = ToAtt.Size();
+						if (Dist > R)
+						{
+							const FVector Away = -ToAtt / Dist;
+							const float Outward = FVector::DotProduct(
+								FVector(CMC->Velocity.X, CMC->Velocity.Y, 0.0f), Away);
+							if (Outward > 0.0f)
+							{
+								CMC->Velocity -= Away * Outward;
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// [테스트] TC.Carry.AutoPull=1: 잡은 로컬 폰 전원이 가구 반대 방향으로 자동 입력 —
+	// PIE 두 창의 폰이 서로 반대로 당기는 줄다리기가 재현된다 (실제 입력 경로처럼 리쉬 필터 통과)
+	if (GrabbedActor && CVarCarryAutoPull.GetValueOnGameThread() != 0)
+	{
+		ACharacter* OwnerChar = Cast<ACharacter>(GetOwner());
+		if (OwnerChar && OwnerChar->IsLocallyControlled())
+		{
+			FVector Away = OwnerChar->GetActorLocation() - GrabbedActor->GetActorLocation();
+			Away.Z = 0.0f;
+			if (Away.Normalize())
+			{
+				const FVector Filtered = FilterCarryInput(Away);
+				if (!Filtered.IsNearlyZero())
+				{
+					OwnerChar->AddMovementInput(Filtered, 1.0f);
+				}
+			}
+		}
+	}
+}
+
+// [리쉬] 운반 중 이동 입력 필터 — 반경 밖 원심 성분 제거 (접선 유지, 벽 따라 돌기는 가능)
+FVector UGrabComponent::FilterCarryInput(const FVector& WorldInput) const
+{
+	AActor* Grabbed = GetGrabbedActor();
+	ACharacter* OwnerChar = Cast<ACharacter>(GetOwner());
+	if (!Grabbed || !OwnerChar || WorldInput.IsNearlyZero())
+		return WorldInput;
+
+	UFurnitureGrabSystem* FGS = Grabbed->FindComponentByClass<UFurnitureGrabSystem>();
+	if (!FGS || !FGS->bLeashMovement)
+		return WorldInput;
+
+	FVector Att;
+	float   R = 0.0f;
+	if (!FGS->GetCarryLeash(OwnerChar, Att, R))
+		return WorldInput;
+
+	FVector ToAtt(Att.X - OwnerChar->GetActorLocation().X,
+	              Att.Y - OwnerChar->GetActorLocation().Y, 0.0f);
+	const float Dist = ToAtt.Size();
+	if (Dist <= R || Dist <= KINDA_SMALL_NUMBER)
+		return WorldInput;
+
+	const FVector Away = -ToAtt / Dist;
+	const float Outward = FVector::DotProduct(WorldInput, Away);
+	return (Outward > 0.0f) ? WorldInput - Away * Outward : WorldInput;
 }
 
 // 대상이 존재하면 서버로 상호작용-잡기 시도 요청
@@ -153,8 +276,9 @@ bool UGrabComponent::TryInteract()
 		// 대상이 있다면 서버로 상호작용 처리 요청
 		ServerTryInteract(CurrentBestTarget);
 
-		// 잡기에 성공했으면 true 반환
-		return true;
+		// 그랩 몽타주는 실제로 손에 들 수 있는 가구(FurnitureGrabSystem 보유)일 때만 재생한다.
+		// 문/게시판 등 단순 토글형 상호작용까지 가구 잡기 애니메이션이 나가던 문제 수정.
+		return CurrentBestTarget->FindComponentByClass<UFurnitureGrabSystem>() != nullptr;
 	}
 
 	// 이미 가구를 들고 있는 경우 (내려놓기)
@@ -185,14 +309,18 @@ void UGrabComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLi
 }
 
 // 클라이언트 - 회전 요청 전달
+
 void UGrabComponent::TryRotateFurniture(FRotator RotationDelta)
 {
+	/*
 	// 가구를 들고 있을 때만 서버에 회전 요청
 	if (GrabbedActor)
 	{
 		ServerRotateFurniture(RotationDelta);
 	}
+	*/
 }
+
 
 // 멀티 박스 트레이스 발사해서 최적 대상 판별
 void UGrabComponent::ScanBestTarget()
@@ -204,8 +332,7 @@ void UGrabComponent::ScanBestTarget()
 	const bool bDebugDraw = CVarGrabDebug.GetValueOnGameThread() != 0
 		&& OwnerPawn && OwnerPawn->IsLocallyControlled();
 
-	// 발밑 가구 제외: 스캔 박스가 발 아래까지 닿으므로(경사 보완), 올라선 가구가 후보로
-	// 잡히면 '자기가 밟고 있는 가구를 드는' 상태(가구 타고 부양)가 됨 → 바닥 액터는 제외
+	// 발밑 가구 제외: 밟고 서 있는 바닥 액터는 후보에서 제외한다 ('가구 타고 부양' 차단)
 	AActor* StandingOn = nullptr;
 	if (const ACharacter* OwnerChar = Cast<ACharacter>(OwnerActor))
 	{
@@ -223,8 +350,7 @@ void UGrabComponent::ScanBestTarget()
 	// 박스 트레이스 범위 설정 (전방 50cm 지점, 80x80 단면)
 	FVector Start = OwnerActor->GetActorLocation() + (ForwardVector * 50.0f);
 	FVector End = Start + (ForwardVector * 1.0f);
-	// 수직 반경 70: 캡슐 중심 기준이라 40이면 경사면(사선 통로)에서 낮은 가구가
-	// 위/아래로 벗어나 스캔에 안 걸림 → 잡기 자체가 안 되던 문제 보완
+	// 수직 반경 70: 경사면(사선 통로)의 낮은 가구도 스캔에 걸리도록 넓게 잡는다
 	FVector HalfSize = FVector(40.f, 40.f, 70.f);
 
 	// 충돌 검사 결과를 담기 위한 배열
@@ -245,6 +371,10 @@ void UGrabComponent::ScanBestTarget()
 
 	AActor* NewBestTarget = nullptr;
 	float HighestScore = -1.0f; // 여러 대상이 감지되면 점수로 우선 순위를 계산해서 추려내기
+
+	// 후보 수집용 (같은 액터는 최고점 하나만) — 스택 우선순위 후처리를 위해 즉시 선정하지 않는다
+	struct FGrabCandidate { AActor* Actor; float Score; FBox Bounds; };
+	TArray<FGrabCandidate> Candidates;
 
 	if (bHit)
 	{
@@ -279,10 +409,7 @@ void UGrabComponent::ScanBestTarget()
 					continue;
 				}
 
-				// 대상까지의 방향과 거리는 피벗(ActorLocation)이 아니라 '박스가 실제로 맞힌
-				// 지점' 기준 — 긴 가구(벤치 등)에 바짝 붙거나 걸터서면 피벗이 전방 반평면
-				// 뒤로 떨어져 내적<0이 되어, 눈앞의 가구가 '등 뒤'로 오판 거부되던 문제.
-				// 시작 겹침 히트는 ImpactPoint≈Start라 방향이 0벡터 → 내적 0으로 통과(최근접 최우선).
+				// 방향·거리는 피벗(ActorLocation)이 아니라 '박스가 실제로 맞힌 지점(ImpactPoint)' 기준으로 계산한다
 				const FVector AimPoint = Hit.ImpactPoint;
 				FVector DirectionToTarget = (AimPoint - Start).GetSafeNormal();
 				float Distance = FVector::Distance(Start, AimPoint);
@@ -290,8 +417,7 @@ void UGrabComponent::ScanBestTarget()
 				// 시선 방향과 대상 방향의 내적 (1.0에 가까울수록 완벽한 정면)
 				float DotProduct = FVector::DotProduct(ForwardVector, DirectionToTarget);
 
-				// [지근거리 예외] 박스가 시작부터 겹칠 만큼 붙어 있으면 ImpactPoint가
-				// 밀어내기 계산상 등 뒤로 잡힐 수 있음 → 품 안 거리는 각도 검사 생략
+				// [지근거리 예외] 품 안 거리(시작 겹침 포함)는 각도 검사를 생략한다
 				const bool bPointBlank = Hit.bStartPenetrating || Distance < 60.0f;
 
 				// 등 뒤에 있거나 시야각(약 90도)을 벗어난 대상은 무시
@@ -315,13 +441,50 @@ void UGrabComponent::ScanBestTarget()
 				// 가중치(W1, W2)는 게임 플레이에 맞춰 조정 가능
 				float Score = (DotProduct * 1000.0f) + (1000.0f / (Distance + 1.0f));
 
-				// 기존 최고 점수보다 높다면 갱신
-				if (Score > HighestScore)
+				// [지근거리 점수 보정] 품 안 후보는 방향 점수 대신 고정 최우선 점수 + 근접 보너스로 산정한다
+				if (bPointBlank)
 				{
-					HighestScore = Score;
-					NewBestTarget = HitActor;
+					const float NearDist = FVector::Distance(Start,
+						HitActor->GetComponentsBoundingBox().GetClosestPointTo(Start));
+					Score = 2000.0f + 1000.0f / (NearDist + 1.0f);
+				}
+
+				// 후보 수집 (같은 액터의 중복 히트는 최고점만 유지)
+				bool bMerged = false;
+				for (FGrabCandidate& C : Candidates)
+				{
+					if (C.Actor == HitActor)
+					{
+						C.Score = FMath::Max(C.Score, Score);
+						bMerged = true;
+						break;
+					}
+				}
+				if (!bMerged)
+				{
+					Candidates.Add({ HitActor, Score, HitActor->GetComponentsBoundingBox() });
 				}
 			}
+		}
+	}
+
+	// [겹침 스택 우선순위] 후보끼리 바운즈가 겹치면 더 큰(감싸는) 쪽을 감점해 위에 얹힌 작은 물건을 우선한다
+	for (int32 i = 0; i < Candidates.Num(); ++i)
+	{
+		for (int32 j = i + 1; j < Candidates.Num(); ++j)
+		{
+			if (!Candidates[i].Bounds.Intersect(Candidates[j].Bounds))
+				continue;
+			const bool bIBigger = Candidates[i].Bounds.GetVolume() > Candidates[j].Bounds.GetVolume();
+			(bIBigger ? Candidates[i] : Candidates[j]).Score *= 0.4f;
+		}
+	}
+	for (const FGrabCandidate& C : Candidates)
+	{
+		if (C.Score > HighestScore)
+		{
+			HighestScore = C.Score;
+			NewBestTarget = C.Actor;
 		}
 	}
 
@@ -347,9 +510,7 @@ void UGrabComponent::ScanBestTarget()
 	// 대상이 바뀌었을 때 포커스 이벤트 처리
 	if (CurrentBestTarget != NewBestTarget)
 	{
-		// 포커스 하이라이트(노랑)는 '내가 잡을 수 있음' 개인별 표시 — 이 컴포넌트는 원격
-		// 캐릭터에서도 틱마다 스캔하므로, 여기서 막지 않으면 상대가 조준한 가구까지
-		// 내 화면에 노랗게 칠해진다. 이벤트는 로컬 조종 캐릭터에서만 발화.
+		// 포커스 하이라이트(노랑)는 개인별 표시 — 포커스 이벤트는 로컬 조종 캐릭터에서만 발화한다
 		const bool bLocalViewer = OwnerPawn && OwnerPawn->IsLocallyControlled();
 
 		if (bLocalViewer && CurrentBestTarget)
@@ -382,8 +543,10 @@ bool UGrabComponent::IsGameFinishedAuthoritative() const
 }
 
 // Server - 실제 가구 회전 적용
+
 void UGrabComponent::ServerRotateFurniture_Implementation(FRotator RotationDelta)
 {
+	/*
 	if (IsGameFinishedAuthoritative())
 	{
 		return;
@@ -402,6 +565,7 @@ void UGrabComponent::ServerRotateFurniture_Implementation(FRotator RotationDelta
 			UE_LOG(LogTemp, Warning, TEXT("[Server] 가구 회전 적용(GrabSystem): %s"), *RotationDelta.ToString());
 		}
 	}
+	*/
 }
 
 // Server - 상호작용-던지기 실행
@@ -486,6 +650,7 @@ void UGrabComponent::ServerTryInteract_Implementation(AActor* TargetActor)
 				+ OwnerCharacter->GetActorForwardVector() * 50.0f;
 			if (!HasGrabLineOfSight(GetWorld(), OwnerCharacter, TargetActor, GrabOrigin))
 			{
+				UE_LOG(LogTemp, Warning, TEXT("[ServerTryInteract] HasGrabLineOfSight 실패: %s"), *TargetActor->GetName());
 				return;
 			}
 
@@ -503,10 +668,21 @@ void UGrabComponent::ServerTryInteract_Implementation(AActor* TargetActor)
 		// 대상 가구가 지금 잡을 수 있는 상태인지 검증 (정원 초과 등 확인)
 		if (ITCInteractable::Execute_CanInteract(TargetActor, OwnerCharacter))
 		{
+			UE_LOG(LogTemp, Warning, TEXT("[ServerTryInteract] OnInteract 호출: %s"), *TargetActor->GetName());
 			// 검증을 통과했다면 가구의 OnInteract 실행 (가구 쪽에서 물리 연결 처리)
 			ITCInteractable::Execute_OnInteract(TargetActor, OwnerCharacter);
-			// 방금 잡은 대상을 변수에 저장하여 기억
-			GrabbedActor = TargetActor;
+
+			// 실제로 들 수 있는 가구(FurnitureGrabSystem 보유)만 GrabbedActor로 기억한다.
+			// 문/게시판처럼 단순 토글형 상호작용 대상까지 손에 든 것으로 취급하면
+			// 이동속도 잠금(StartRun/StopRun의 GetGrabbedActor() 체크)이 잘못 걸린다.
+			if (TargetActor->FindComponentByClass<UFurnitureGrabSystem>())
+			{
+				GrabbedActor = TargetActor;
+			}
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[ServerTryInteract] 서버측 CanInteract 실패: %s"), *TargetActor->GetName());
 		}
 	}
 }

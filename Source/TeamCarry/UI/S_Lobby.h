@@ -28,7 +28,8 @@ protected:
 	virtual void NativeConstruct() override;
 	virtual void NativeDestruct() override;
 
-	// ESC = '한 단계 뒤로'(명세 5-1). Btn_Back 클릭과 동일하게 O_Confirm(방 나가기) 모달을 거친다.
+	// ESC = O_PauseMenu(Lobby 컨텍스트)를 연다(v3 내부 개정, 명세 4장-3·4장-12). 로비에서 설정에
+	// 접근할 경로가 없던 문제 해결 — Btn_Back(나가기)는 기존처럼 O_Confirm 직행 단축 경로를 유지한다.
 	virtual bool NativeOnHandleBackAction() override;
 
 	// 항상 "캐릭터 조작"(커서 숨김)을 선언한다(명세 6장-2, S_InGame과 동일 패턴). Alt 로 커서를 꺼내는
@@ -63,6 +64,11 @@ protected:
 	// --- 방 코드 표시(ATCLobbyGameState::RoomCode 복제값) ---
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
 	TObjectPtr<UTextBlock> Txt_RoomCode;
+
+	// BP_StageSelectBoard 근접 상호작용 프롬프트(명세 4장-5). MockUIController::OnInteractTargetChanged
+	// 를 구독해 표시/숨김 및 문구를 갱신한다. 방장이 아니면 애초에 Broadcast 되지 않으므로 항상 숨김 상태.
+	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
+	TObjectPtr<UTextBlock> Txt_InteractPrompt;
 
 	// --- 간이 로비 슬롯 표시(프로토타입 재량, 명세 4장-3) ---
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
@@ -107,6 +113,11 @@ private:
 
 	UFUNCTION()
 	void HandleKeyGuideClicked();
+
+	// MockUIController::OnInteractTargetChanged 구독 핸들러(명세 4장-5). BP_StageSelectBoard 가
+	// 근접 시 Broadcast 하는 프롬프트 문구를 Txt_InteractPrompt 에 반영한다.
+	UFUNCTION()
+	void HandleInteractTargetChanged(AActor* Target, FString Key);
 
 	// O_Confirm 팝업에서 '확인'을 눌렀을 때 실행될 브릿지 함수(방 나가기 → 타이틀 복귀).
 	UFUNCTION()

@@ -11,6 +11,8 @@
 #include "Camera/CameraComponent.h"
 #include "EnhancedInputComponent.h"
 #include "Engine/Engine.h"
+#include "Components/WidgetInteractionComponent.h"
+#include "Player/PlayerController/TCPlayerController.h"
 
 // 기본 컴포넌트 + 이동 속성 초기화
 ATCPlayerCharacter::ATCPlayerCharacter()
@@ -63,6 +65,16 @@ ATCPlayerCharacter::ATCPlayerCharacter()
 
 	// 운반 인원비례 속도 조절 컴포넌트
 	CarrySpeedComponent = CreateDefaultSubobject<UTCCarrySpeedComponent>(TEXT("CarrySpeedComponent"));
+
+	// 월드 스페이스 위젯(BP_StageSelectBoard 의 BoardScreen 등) 클릭 상호작용용(명세 4장-5, 게시판 UI 개정).
+	// 마우스 커서 위치를 기준으로 트레이스한다 — ATCPlayerController::EnterBoardInteractionMode() 가
+	// 커서를 노출하는 입력 모드로 전환해 줄 때만 실질적으로 클릭이 가능하다.
+	WidgetInteraction = CreateDefaultSubobject<UWidgetInteractionComponent>(TEXT("WidgetInteraction"));
+	WidgetInteraction->SetupAttachment(Camera);
+	WidgetInteraction->InteractionSource = EWidgetInteractionSource::Mouse;
+	// 게시판 클릭 모드가 아닐 때는 비활성 — 평상시 마우스 커서가 없는 상태에서 엉뚱한 월드 위젯을
+	// 건드리지 않도록 한다. ATCPlayerController::ClientEnterBoardInteractionMode()가 활성화한다.
+	WidgetInteraction->SetActive(false);
 }
 
 // 플레이어 키보드와 마우스 입력을 캐릭터 동작 함수에 연결
@@ -81,6 +93,7 @@ void ATCPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 	EIC->BindAction(RunAction, ETriggerEvent::Started, this, &ThisClass::StartRun);
 	EIC->BindAction(RunAction, ETriggerEvent::Completed, this, &ThisClass::StopRun);
 	EIC->BindAction(InteractAction, ETriggerEvent::Started, this, &ThisClass::Interact);
+	EIC->BindAction(InteractAction, ETriggerEvent::Completed, this, &ThisClass::ReleaseInteract);
 	EIC->BindAction(ThrowAction, ETriggerEvent::Started, this, &ThisClass::Throw);
 	EIC->BindAction(ToggleViewAction, ETriggerEvent::Started, this, &ThisClass::ToggleView);
 	EIC->BindAction(RotateZAction, ETriggerEvent::Triggered, this, &ThisClass::RotateZ);
@@ -159,8 +172,13 @@ void ATCPlayerCharacter::HandleMoveInput(const FInputActionValue& InValue)
 	const FVector RightDirection = FRotationMatrix(ControlYawRotation).GetUnitAxis(EAxis::Y);
 
 	// 캐릭터 이동 적용
-	AddMovementInput(ForwardDirection, InMovementVector.X);
-	AddMovementInput(RightDirection, InMovementVector.Y);
+	// [리쉬] 운반 중엔 대형 반경 밖으로 나가는 입력 성분을 제거 — 가구가 못 가는 방향으로는 걷지 못한다
+	FVector WorldInput = ForwardDirection * InMovementVector.X + RightDirection * InMovementVector.Y;
+	if (GrabComponent)
+	{
+		WorldInput = GrabComponent->FilterCarryInput(WorldInput);
+	}
+	AddMovementInput(WorldInput, 1.0f);
 }
 
 // 플레이어 카메라 시점 회전(마우스) 처리
@@ -226,6 +244,21 @@ void ATCPlayerCharacter::StopRun(const FInputActionValue& InValue)
 // 상호작용(E키) - 잡기
 void ATCPlayerCharacter::Interact(const FInputActionValue& InValue)
 {
+	// 게시판 클릭 모드 중엔 좌클릭을 가구 잡기(GrabComponent)가 아니라 WidgetInteraction의
+	// 클릭으로 넘긴다 — WidgetInteractionComponent는 매 틱 트레이스로 호버 대상만 갱신할 뿐,
+	// PressPointerKey를 직접 호출해야만 UMG에 실제 클릭 이벤트가 전달된다.
+	if (const ATCPlayerController* PC = Cast<ATCPlayerController>(GetController()))
+	{
+		if (PC->IsBoardInteractionModeActive())
+		{
+			if (WidgetInteraction)
+			{
+				WidgetInteraction->PressPointerKey(EKeys::LeftMouseButton);
+			}
+			return;
+		}
+	}
+
 	// 유효성 검사
 	if (GrabComponent)
 	{
@@ -244,6 +277,18 @@ void ATCPlayerCharacter::Interact(const FInputActionValue& InValue)
 
 		// 상호작용-잡기 실행 명령
 		// GrabComponent->TryInteract();
+	}
+}
+
+// 상호작용 입력(좌클릭) 뗄 때 - 게시판 클릭 모드 중엔 WidgetInteraction 릴리즈로 전달
+void ATCPlayerCharacter::ReleaseInteract(const FInputActionValue& InValue)
+{
+	if (const ATCPlayerController* PC = Cast<ATCPlayerController>(GetController()))
+	{
+		if (PC->IsBoardInteractionModeActive() && WidgetInteraction)
+		{
+			WidgetInteraction->ReleasePointerKey(EKeys::LeftMouseButton);
+		}
 	}
 }
 

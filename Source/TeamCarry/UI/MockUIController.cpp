@@ -49,6 +49,11 @@ void UMockUIController::Deinitialize()
 void UMockUIController::HandleTravelStarted(const FString& TargetMapPath)
 {
 	UE_LOG(LogTemp, Log, TEXT("[UI Router] Travel started -> %s. Showing S_Loading."), *TargetMapPath);
+	ShowLoadingScreenNow();
+}
+
+void UMockUIController::ShowLoadingScreenNow()
+{
 	ShowPersistentLoadingWidget();
 	ReplaceState(EE_UIState::Loading);
 }
@@ -175,7 +180,7 @@ UCommonActivatableWidget* UMockUIController::PushOverlay(const FString& OverlayN
 
 	UE_LOG(LogTemp, Log, TEXT("[UI Stack] Push Overlay: %s. Current Stack Size: %d"), *OverlayName, MockOverlayStack.Num());
 
-	//성공적으로 생성된 위젯의 포인터를 최종 반환합니다.
+	//성공적으w로 생성된 위젯의 포인터를 최종 반환합니다.
 	return Created;
 }
 

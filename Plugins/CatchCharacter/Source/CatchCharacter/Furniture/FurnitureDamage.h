@@ -59,7 +59,7 @@ protected:
 	// 물리 충돌(공중 낙하·던짐) 전용 데미지 배율. 운반 중 부딪침(스윕)은 영향 없음.
 	// 던지기/높은 곳 낙하 충격을 운반 부딪침보다 세게 만들 때 사용. 1이면 동일.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Damage")
-	float PhysicsImpactDamageScale = 1.5f;
+	float PhysicsImpactDamageScale = 2.f;
 
 	// 이 속도(cm/s) 이상의 '물리 충돌'은 무적 중이어도 데미지 관통.
 	// 던지기는 놓기와 같은 0.5초 무적이 걸리는데(GrabComponent 수정 불가), 세게 던진 충격은

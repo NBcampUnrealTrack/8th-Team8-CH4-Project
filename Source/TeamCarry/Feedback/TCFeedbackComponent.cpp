@@ -16,6 +16,7 @@
 #include "Blueprint/UserWidget.h"
 #include "Engine/Engine.h"
 #include "TimerManager.h"
+#include "EngineUtils.h"
 
 namespace
 {
@@ -27,10 +28,8 @@ namespace
 	// 놓는 순간 이 속도(cm/s) 이상이면 '던지기'로 판정 (던지기 임펄스=1000, 운반 속도≈300)
 	constexpr float ThrowSpeedThreshold = 600.f;
 
-	// 잔여시간 임박 시 남은 가구 빨간 아웃라인(스텐실 4) — 마지막 60초.
-	// BGM 배속(TCFeedbackSubsystem::BGMSpeedupRemaining=60)과 같은 순간에 발동한다.
-	// (RemainingTime 복제값을 직접 비교하므로 제한시간 폴백 상수는 더 이상 필요 없다)
-	constexpr float UrgentRemaining = 60.f;
+	// 핫타임 시 남은 가구 빨간 아웃라인(스텐실 4) — GS->bIsHotTime 으로 판정.
+	// TCFeedbackSubsystem 이 트럭 비율 기준으로 설정하고 GameState 복제로 전파한다.
 
 	// 내구도 감소(타격) 시 재생 — 2종 교대 (헤더 무수정을 위해 cpp 로컬 상수)
 	const TCHAR* DefaultHitSounds[] = {
@@ -97,6 +96,17 @@ void UTCFeedbackComponent::BeginPlay()
 	if (!PickupFX) { PickupFX = LoadObject<UNiagaraSystem>(nullptr, DefaultPickupFX); }
 	if (!BreakSound) { BreakSound = LoadObject<USoundBase>(nullptr, DefaultBreakSound); }
 	if (!BreakFX) { BreakFX = LoadObject<UNiagaraSystem>(nullptr, DefaultBreakFX); }
+	if (HitSounds.Num() == 0)   // 타격음: 미지정 시 기본 우드히트 2종
+	{
+		for (const TCHAR* Path : DefaultHitSounds)
+		{
+			if (USoundBase* HitS = LoadObject<USoundBase>(nullptr, Path))
+			{
+				HitSounds.Add(HitS);
+			}
+		}
+	}
+	if (!ThudSound) { ThudSound = LoadObject<USoundBase>(nullptr, DefaultThudSound); }
 
 	UE_LOG(LogTemp, Log, TEXT("[Feedback] %s 부착 완료 (sound: %s/%s, fx: %s)"), *GetNameSafe(Owner),
 		PickupSound ? TEXT("O") : TEXT("X"), DropSound ? TEXT("O") : TEXT("X"), PickupFX ? TEXT("O") : TEXT("X"));
@@ -152,20 +162,27 @@ void UTCFeedbackComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 				}
 			}
 		}
-		else if (LastHealth > 0.f && Health < LastHealth - KINDA_SMALL_NUMBER)
+		// 이전 값이 MaxHealth를 넘으면 스탯 초기화(생성자 기본 100 → 데이터테이블 값)로 낮아진 것 —
+		// 타격이 아니므로 연출 없이 기준만 재동기화 (레벨 시작 시 저체력 소품의 유령 쿵·별팝 방지)
+		// 인원 미달 운반의 내구도 드레인(잡힌 상태의 지속 소모)은 충돌 히트 피드백 대상이 아님
+		else if (LastHealth > 0.f && Health < LastHealth - KINDA_SMALL_NUMBER
+			&& LastHealth <= Stat->GetMaxHealth() + KINDA_SMALL_NUMBER
+			&& !(ReadGrabbed() && Stat->GetGrabbedPlayerNum() < Stat->GetRequiredPlayer()))
 		{
-			// 내구도 깎임 — 소프트 우드 히트 (2종 랜덤 + 피치 흔들림)
-			const int32 HitIdx = FMath::RandRange(0, 1);
-			if (USoundBase* HitS = LoadObject<USoundBase>(nullptr, DefaultHitSounds[HitIdx]))
+			// 내구도 깎임 — 타격음 (목록 중 랜덤 + 피치 흔들림). 가구별 커스텀은 HitSounds 프로퍼티로.
+			if (HitSounds.Num() > 0)
 			{
-				UGameplayStatics::PlaySoundAtLocation(this, HitS, Owner->GetActorLocation(),
-					1.f, FMath::RandRange(0.9f, 1.1f));
+				if (USoundBase* HitS = HitSounds[FMath::RandRange(0, HitSounds.Num() - 1)])
+				{
+					UGameplayStatics::PlaySoundAtLocation(this, HitS, Owner->GetActorLocation(),
+						1.f, FMath::RandRange(0.9f, 1.1f));
+				}
 			}
 
-			// 우드 히트 아래에 저역 '쿵'을 겹쳐 무게감을 만든다 (피치 랜덤으로 반복감 완화)
-			if (USoundBase* Thud = LoadObject<USoundBase>(nullptr, DefaultThudSound))
+			// 타격음 아래에 저역 '쿵'을 겹쳐 무게감을 만든다 (피치 랜덤으로 반복감 완화)
+			if (ThudSound)
 			{
-				UGameplayStatics::PlaySoundAtLocation(this, Thud, Owner->GetActorLocation(),
+				UGameplayStatics::PlaySoundAtLocation(this, ThudSound, Owner->GetActorLocation(),
 					1.f, FMath::RandRange(0.92f, 1.06f));
 			}
 
@@ -225,21 +242,31 @@ void UTCFeedbackComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 	}
 	else
 	{
-		// ── 시간 임박: 남아 있는(안 잡힌) 가구에 빨간 링(스텐실 4) 재주장 ──
-		// 남은 시간에 어느 가구를 옮겨야 하는지 한눈에 보이게 한다.
-		// RemainingTime 은 서버가 차감해 복제하는 '남은 시간' 그 자체이므로 직접 비교한다.
-		// (EffectiveLimit - RemainingTime 은 경과시간이 되어 게임 시작 직후에 켜지는 오동작)
+		// ── 핫타임: 남아 있는(안 잡힌) 가구에 빨간 링(스텐실 4) 재주장 ──
+		// TCFeedbackSubsystem 이 트럭 비율 기준으로 GS->bIsHotTime 을 설정하면
+		// 모든 클라이언트에 복제되어 이곳에서 빨간 링을 표시한다.
 		UWorld* W = GetWorld();
 		const ATeamCarryGameState* GS = W ? W->GetGameState<ATeamCarryGameState>() : nullptr;
 		const bool bUrgent = GS && !GS->bIsGameFinished
 			&& GS->CurrentPhase == EGamePhase::Playing
-			&& GS->RemainingTime <= UrgentRemaining;
+			&& GS->bIsHotTime;
 		if (bUrgent)
 		{
 			if (UStaticMeshComponent* MeshC = Owner->FindComponentByClass<UStaticMeshComponent>())
 			{
-				if (MeshC->CustomDepthStencilValue != 4) { MeshC->SetCustomDepthStencilValue(4); }
-				if (!MeshC->bRenderCustomDepth) { MeshC->SetRenderCustomDepth(true); }
+				// 이미 적재 공간에 들어간 가구는 재촉 대상이 아님 — 빨간 링 제외/해제
+				if (IsOwnerInTruckZone())
+				{
+					if (MeshC->bRenderCustomDepth && MeshC->CustomDepthStencilValue == 4)
+					{
+						MeshC->SetRenderCustomDepth(false);
+					}
+				}
+				else
+				{
+					if (MeshC->CustomDepthStencilValue != 4) { MeshC->SetCustomDepthStencilValue(4); }
+					if (!MeshC->bRenderCustomDepth) { MeshC->SetRenderCustomDepth(true); }
+				}
 			}
 		}
 	}
@@ -252,13 +279,27 @@ void UTCFeedbackComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 	UE_LOG(LogTemp, Log, TEXT("[Feedback] %s 잡힘 전이: %s"), *GetNameSafe(Owner),
 		bGrabbed ? TEXT("잡기") : TEXT("놓기"));
 
-	// 놓는 순간: 포커스 규칙(스텐실 1)으로 복원하고 링은 끈다 (포커스하면 다시 켜짐)
+	// 놓는 순간: 핫타임이면 빨간 링(4)을 즉시 복원, 아니면 포커스 규칙(1)으로 끈다
 	if (!bGrabbed)
 	{
 		if (UStaticMeshComponent* MeshC = Owner->FindComponentByClass<UStaticMeshComponent>())
 		{
-			MeshC->SetCustomDepthStencilValue(1);
-			MeshC->SetRenderCustomDepth(false);
+			UWorld* RW = GetWorld();
+			const ATeamCarryGameState* RGS = RW ? RW->GetGameState<ATeamCarryGameState>() : nullptr;
+			const bool bStillUrgent = RGS && !RGS->bIsGameFinished
+				&& RGS->CurrentPhase == EGamePhase::Playing
+				&& RGS->bIsHotTime;
+			// 적재 공간 안에 내려놓은 가구는 재촉 대상이 아님 — 빨간 링 복원 제외
+			if (bStillUrgent && !IsOwnerInTruckZone())
+			{
+				MeshC->SetCustomDepthStencilValue(4);
+				MeshC->SetRenderCustomDepth(true);
+			}
+			else
+			{
+				MeshC->SetCustomDepthStencilValue(1);
+				MeshC->SetRenderCustomDepth(false);
+			}
 		}
 	}
 
@@ -299,6 +340,28 @@ void UTCFeedbackComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 	}
 }
 
+
+bool UTCFeedbackComponent::IsOwnerInTruckZone()
+{
+	// 적재존(BP_TruckTrigger)은 BP 전용 클래스라 이름으로 1회 탐색 후 캐시한다
+	if (!bTruckZoneSearched)
+	{
+		bTruckZoneSearched = true;
+		if (UWorld* World = GetWorld())
+		{
+			for (TActorIterator<AActor> It(World); It; ++It)
+			{
+				if (It->GetClass()->GetName().Contains(TEXT("TruckTrigger")))
+				{
+					CachedTruckZone = *It;
+					break;
+				}
+			}
+		}
+	}
+	AActor* Owner = GetOwner();
+	return Owner && CachedTruckZone.IsValid() && CachedTruckZone->IsOverlappingActor(Owner);
+}
 
 bool UTCFeedbackComponent::ReadGrabbed() const
 {

@@ -6,10 +6,14 @@
 #include "CatchCharacter/Furniture/FurnitureStat.h"
 #include "Player/Character/TCPlayerCharacter.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/WidgetComponent.h"
+#include "Components/TextBlock.h"
+#include "Blueprint/UserWidget.h"
 #include "Materials/MaterialInterface.h"
 #include "UObject/ConstructorHelpers.h"
+#include "TimerManager.h"
 #include "Kismet/GameplayStatics.h"
-#include "Engine/StaticMeshActor.h"
+#include "Engine/StaticMesh.h"
 #include "GeometryCollection/GeometryCollectionComponent.h"
 #include "Player/Component/GrabComponent.h"
 #include "PhysicalMaterials/PhysicalMaterial.h"
@@ -18,7 +22,6 @@
 
 ATCFurnitureActor::ATCFurnitureActor()
 {
-    // 파괴 후 콜리전 꺼짐을 감시하는 용도로만 틱 사용 (평소엔 꺼둠, 파괴 시 활성화)
     PrimaryActorTick.bCanEverTick = true;
     PrimaryActorTick.bStartWithTickEnabled = false;
 
@@ -84,11 +87,23 @@ ATCFurnitureActor::ATCFurnitureActor()
         TEXT("/Game/Furniture/Material/M_Damage_level2.M_Damage_level2"));
     if (CrackMat2.Succeeded())
         CrackOverlayStage2 = CrackMat2.Object;
+
+    // 데미지 숫자 위젯 기본 클래스 자동 로드 (금 머티리얼과 같은 패턴 — 없으면 비워두고 표시 생략)
+    static ConstructorHelpers::FClassFinder<UUserWidget> DamageNumCls(
+        TEXT("/Game/Furniture/UI/WBP_DamageNumber"));
+    if (DamageNumCls.Succeeded())
+        DamageNumberWidgetClass = DamageNumCls.Class;
 }
 
 void ATCFurnitureActor::BeginPlay()
 {
     Super::BeginPlay();
+
+    // 만일 나중에 배치된가구가 처음에 안떨어지길바란다면...
+    if (FurnitureMesh)
+    {
+        FurnitureMesh->SetSimulatePhysics(true);
+    }
 
     // 파괴됨을 감지 (서버에서만 바인딩)
     if (HasAuthority() && GetFurnitureStat())
@@ -116,15 +131,74 @@ void ATCFurnitureActor::OnFurnitureDamaged(float MaxHealth, float OldHealth, flo
     if (MaxHealth <= 0.f)
         return;
 
+    // 이전 값이 MaxHealth 초과 = 스탯 초기화(생성자 기본 100 → 데이터테이블 값)로 낮아진 것 —
+    // 타격이 아니므로 금 표시 동기화만 하고 데미지 숫자는 띄우지 않는다
+    if (OldHealth > MaxHealth + KINDA_SMALL_NUMBER)
+    {
+        UpdateCrackVisual(NewHealth / MaxHealth);
+        return;
+    }
+
     UpdateCrackVisual(NewHealth / MaxHealth);
+
+    // 피해량 숫자 표시 (체력이 실제로 줄었을 때만 — 회복/동일값 복제는 무시)
+    const float Damage = OldHealth - NewHealth;
+    if (Damage > KINDA_SMALL_NUMBER)
+        SpawnDamageNumber(Damage);
+}
+
+void ATCFurnitureActor::SpawnDamageNumber(float Damage)
+{
+    // 표시 스위치(bShowDamageNumbers)로 가구별/런타임 제어. 코스메틱: 데디서버 제외, 파괴된 가구 위엔 안 띄움
+    if (!bShowDamageNumbers || !DamageNumberWidgetClass || bIsFurnitureDestroyed || GetNetMode() == NM_DedicatedServer)
+        return;
+
+    UWidgetComponent* WC = NewObject<UWidgetComponent>(this);
+    if (!WC)
+        return;
+
+    WC->SetWidgetClass(DamageNumberWidgetClass);           // Register 전에 지정해야 InitWidget에서 생성됨
+    WC->SetWidgetSpace(EWidgetSpace::Screen);              // 항상 카메라를 향하는 화면공간 표시
+    WC->SetDrawAtDesiredSize(true);
+    WC->RegisterComponent();
+
+    // 위치: 메쉬 상단 중앙 + 약간의 랜덤 흩뿌림 (연타 시 겹침 완화)
+    FVector Loc = FurnitureMesh ? FurnitureMesh->Bounds.Origin : GetActorLocation();
+    Loc.Z += (FurnitureMesh ? FurnitureMesh->Bounds.BoxExtent.Z : 50.f) + 20.f;
+    Loc.X += FMath::RandRange(-15.f, 15.f);
+    Loc.Y += FMath::RandRange(-15.f, 15.f);
+    WC->SetWorldLocation(Loc);
+
+    // 위젯 안의 텍스트 블록을 이름으로 찾아 피해량을 직접 세팅.
+    // 위젯 BP의 텍스트 블록 이름이 'DamageText'여야 함 (함수/변수 노출 불필요, 이름만 일치).
+    if (UUserWidget* W = WC->GetUserWidgetObject())
+    {
+        if (UTextBlock* DamageText = Cast<UTextBlock>(W->GetWidgetFromName(TEXT("DamageText"))))
+        {
+            DamageText->SetText(FText::AsNumber(FMath::RoundToInt(Damage)));
+        }
+    }
+
+    // 수명 뒤 자동 제거 (위젯 애니메이션 길이와 맞출 것)
+    FTimerHandle Th;
+    TWeakObjectPtr<UWidgetComponent> WeakWC = WC;
+    GetWorldTimerManager().SetTimer(Th, [WeakWC]()
+    {
+        if (WeakWC.IsValid())
+            WeakWC->DestroyComponent();
+    }, FMath::Max(DamageNumberLifetime, 0.1f), false);
 }
 
 void ATCFurnitureActor::UpdateCrackVisual(float HealthRatio)
 {
     // 체력 비율 → 금 단계 (낮은 임계값부터 검사)
+    // [파괴 가드] 체력 0(파괴) 상태는 금 표시 대상이 아님 — 원샷 파괴 시 클라에서 파괴 RPC가
+    // 체력 OnRep보다 먼저 도착하면, 파괴가 금을 숨긴 '뒤에' OnRep이 Stage 2를 다시 켜서
+    // 사라진 가구 자리에 금 껍데기만 남는 버그가 있었음 → 0 이하/파괴됨이면 무조건 숨김 단계.
     int32 Stage = 0;
-    if (HealthRatio <= CrackStage2Ratio)      Stage = 2;
-    else if (HealthRatio <= CrackStage1Ratio) Stage = 1;
+    if (HealthRatio <= 0.f || bIsFurnitureDestroyed)  Stage = 0;
+    else if (HealthRatio <= CrackStage2Ratio)         Stage = 2;
+    else if (HealthRatio <= CrackStage1Ratio)         Stage = 1;
 
     if (Stage == CurrentCrackStage)
         return;   // 단계 변화 없으면 재적용 안 함
@@ -192,7 +266,7 @@ void ATCFurnitureActor::UpdateCrackVisual(float HealthRatio)
 
     // z-파이팅 방지: '메쉬 바운드 중심' 기준으로 균일 확대 (피벗이 어디 있든 항상 표면 바깥으로 나감).
     // 컴포넌트 스케일은 피벗 기준이라, 바운드 중심 C가 고정되도록 위치를 C*(1-S)로 보정 → 균일 쉘.
-    const float   S           = 1.01f;
+    constexpr float S         = 1.01f;
     const FVector LocalCenter = Src->GetStaticMesh()->GetBounds().Origin;
     CrackMeshComp->SetRelativeScale3D(FVector(S));
     CrackMeshComp->SetRelativeLocation(LocalCenter * (1.f - S));
@@ -225,8 +299,7 @@ void ATCFurnitureActor::DestroyFurniture()
                 {
                     if (UActorComponent* Comp = Player->GetComponentByClass(UGrabComponent::StaticClass()))
                     {
-                        UGrabComponent* GrabComp = Cast<UGrabComponent>(Comp);
-                        if (GrabComp)
+                        if (UGrabComponent* GrabComp = Cast<UGrabComponent>(Comp))
                         {
                             GrabComp->TryInteract();
                         }
@@ -253,7 +326,7 @@ void ATCFurnitureActor::DestroyFurniture()
         // GM에 가구 파괴를 알림
         if (ATeamCarryGameMode* GM = Cast<ATeamCarryGameMode>(GetWorld()->GetAuthGameMode()))
         {
-            GM->OnFurnitureDestroyed();
+            GM->OnFurnitureDestroyed(this);
         }
 
         // GC 컴포넌트가 없거나, 있어도 파괴 메쉬(RestCollection)가 등록되지 않았다면
@@ -304,9 +377,14 @@ void ATCFurnitureActor::Multicast_DestroyFurniture_Implementation()
     {
         GeometryCollectionComp->SetVisibility(true);
 
-        // 바닥·벽과 충돌하는 기본 프로파일을 먼저 적용한 뒤 Pawn 채널만 무시
+        // 기본 프로파일 적용 후 불필요 채널만 무시.
+        // - Pawn: 조각이 플레이어를 밀거나 걸리적거리는 것 방지
+        // - PhysicsBody(물리 켜진 자유 가구): 조각이 주변 가구를 밀치는 것 방지
+        // - WorldDynamic은 무시하지 않는다: 운반 중 가구는 물리가 꺼져 있어 조각이 못 밀고,
+        //   Movable로 배치된 바닥/구조물이 WorldDynamic이라 무시하면 조각이 바닥을 뚫고 떨어짐.
         GeometryCollectionComp->SetCollisionProfileName(TEXT("BlockAllDynamic"));
         GeometryCollectionComp->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
+        GeometryCollectionComp->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Ignore);
 
         // 루트(StaticMesh)에서 분리: 붙어 있으면 어태치먼트 구속(부모 위치 유지)과
         // 물리 시뮬레이션(자유 낙하)이 매 프레임 상충해 조각 전체가 흔들림 → 분리해 독립 시뮬레이션.
@@ -315,8 +393,13 @@ void ATCFurnitureActor::Multicast_DestroyFurniture_Implementation()
         // TODO : GC 에셋에서 Enable Clustering=false 또는 Damage Threshold≈0 설정 필요
         GeometryCollectionComp->SetSimulatePhysics(true);
 
+        // [바닥 관통 방지] 임펄스 중심을 액터 피벗이 아니라 '조각 바운드 중심의 약간 아래'로.
+        // 피벗 기준이면 피벗보다 아래 조각들이 radial 방향=아래로 밀려 얇은 바닥을 뚫음(터널링).
+        // 중심을 낮게 잡으면 모든 조각이 바깥+위쪽으로 밀려 관통이 급감하고 파편 연출도 자연스러움.
+        const FVector BurstOrigin = GeometryCollectionComp->Bounds.Origin
+                                  - FVector(0.0f, 0.0f, GeometryCollectionComp->Bounds.BoxExtent.Z * 0.6f);
         GeometryCollectionComp->AddRadialImpulse(
-            GetActorLocation(), 100.0f, 200.0f, RIF_Linear, true);
+            BurstOrigin, 100.0f, 200.0f, RIF_Linear, true);
     }
 }
 

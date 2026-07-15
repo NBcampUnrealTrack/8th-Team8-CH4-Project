@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameModeBase.h"
@@ -13,8 +13,9 @@
 // 트럭 안 가구 정보 구조체
 struct FTruckFurnitureInfo
 {
-	FName RowName;
-	float CurrentHealth;
+	TWeakObjectPtr<AActor> FurnitureActor; // 가구 액터 식별용
+	uint32 ActorUniqueID = 0;              // GetUniqueID() — 포인터 비교 불일치 시 폴백용
+	float CurrentHealth;                   // Tick 에서 갱신되는 현재 내구도
 	float MaxHealth;
 	int32 BaseScore;
 };
@@ -40,15 +41,15 @@ public:
 
 	// 가구 트럭 진입 시 호출
 	UFUNCTION(BlueprintCallable)
-	void OnFurnitureEnterTruck(FName RowName, float CurrentHealth, float MaxHealth, int32 BaseScore);
+	void OnFurnitureEnterTruck(AActor* FurnitureActor, float CurrentHealth, float MaxHealth, int32 BaseScore);
 
 	// 가구 트럭 이탈 시 호출
 	UFUNCTION(BlueprintCallable)
-	void OnFurnitureExitTruck(FName RowName);
+	void OnFurnitureExitTruck(AActor* FurnitureActor, float CurrentHealth, float MaxHealth, int32 BaseScore);
 	
 	// 가구 파괴 시 호출
 	UFUNCTION(BlueprintCallable)
-	void OnFurnitureDestroyed();
+	void OnFurnitureDestroyed(AActor* FurnitureActor);
 
 	// 스테이지 시작 시 옮겨야 할 가구 개수 설정
 	UFUNCTION(BlueprintCallable)
@@ -56,9 +57,17 @@ public:
 	
 	// 플레이어 로그아웃 시 호출
 	virtual void Logout(AController* Exiting) override;
-	
+
 	// 플레이어 재접속 시 호출
 	virtual void PostLogin(APlayerController* NewPlayer) override;
+
+	// 로비→스테이지처럼 Seamless Travel 로 도착하는 플레이어는 PostLogin 을 타지 않는다
+	// (ATCLobbyGameMode::HandleSeamlessTravelPlayer 와 동일한 이중 훅 패턴, 로딩 화면 동기화 수정).
+	virtual void HandleSeamlessTravelPlayer(AController*& C) override;
+
+	// ATCPlayerController::ServerReportMapLoaded() 가 호출(서버 권위). 해당 플레이어의 로딩 완료를
+	// 기록하고, 전원 로딩 완료 여부에 따라 게임 시작 또는 해당 플레이어 단독 진입을 진행한다.
+	void NotifyPlayerFinishedLoading(APlayerController* PC);
 	
 	// 게임 저장
 	UFUNCTION(BlueprintCallable)
@@ -75,22 +84,8 @@ public:
 	// 카운트다운 시작
 	void StartCountdown();
 
-	// 별 3개 기준 남은 시간 (블루프린트에서 스테이지마다 수정 가능)
-	// 남은 시간이 이 값 이상이면 별 3개
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite)
-	float StarThreeTime = 240.0f; // 기본 4분 이상 남으면 별 3개
-
-	// 별 2개 기준 남은 시간
-	// 남은 시간이 이 값 이상이면 별 2개
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite)
-	float StarTwoTime = 120.0f; // 기본 2분 이상 남으면 별 2개
-
-	// 게임 제한시간(초). 경과 시 게임 종료. 0 이하 = 무제한
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite)
-	float TimeLimitSeconds = 300.0f; // 기본 5분
-
 	// 이 스테이지에서 획득 가능한 전체 목표 값어치. 가구별 BaseScore가 블루프린트 이벤트 그래프에서만
-	// 관리되어(C++/DataTable에 없음) 자동 합산이 불가능하므로, 다른 스테이지별 상수(TimeLimitSeconds 등)와
+	// 관리되어(C++/DataTable에 없음) 자동 합산이 불가능하므로, 다른 스테이지별 상수와
 	// 같은 방식으로 디자이너가 스테이지마다 직접 설정한다. S_InGame 팀 값어치 게이지(PB_TeamMoney)의
 	// Max 값으로 쓰인다(UI_Technical_Spec.md 4장-7).
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite)
@@ -103,8 +98,13 @@ protected:
 	// 게임 종료 처리
 	void FinishGame(bool bIsClear);
 	
-	// 별 개수 판정 (남은 시간 기준)
-	int32 CalculateStar(float RemainingTime);
+	// 별 개수 판정 (트럭 안 가구 비율 기준)
+	// 75% 이상 → 별 3개, 50% 이상 → 별 2개, 그 이하 → 별 1개
+	int32 CalculateStar();
+
+	// 접속 중인 모든 플레이어가 스테이지 맵 로딩을 마쳤는지(ATCLobbyGameState::AreAllPlayersReady()와
+	// 동일한 형태 — PlayerArray 스캔). 인원 0이면 false.
+	bool AreAllConnectedPlayersLoaded() const;
 
 private:
 	// 총 옮겨야 할 가구 개수
@@ -124,9 +124,17 @@ private:
 
 	// 카운트다운 타이머 핸들
 	FTimerHandle CountdownTimerHandle;
-	
+
+	// 전원 로딩 완료 대기 타임아웃 세이프티 타이머(로딩 화면 동기화 수정) — 일부 클라이언트가
+	// 응답 없이 멈추는 경우 전체가 무한 대기하지 않도록 시간 초과 시 강제로 진행한다.
+	FTimerHandle LoadingGateTimeoutHandle;
+
 	// 튕긴 플레이어 ID 목록
 	TArray<FUniqueNetIdRepl> DisconnectedPlayerIds;
+
+	// 가구별 무적 타이머 핸들 — 로컬 변수로 두면 타이머가 취소되므로 멤버로 관리.
+	TMap<TWeakObjectPtr<AActor>, FTimerHandle> InvincibleTimerHandles;
+
 
 	// GameState 캐시 (매 프레임 GetGameState 호출 방지)
 	UPROPERTY()
