@@ -22,7 +22,6 @@
 
 ATCFurnitureActor::ATCFurnitureActor()
 {
-    // 파괴 후 콜리전 꺼짐을 감시하는 용도로만 틱 사용 (평소엔 꺼둠, 파괴 시 활성화)
     PrimaryActorTick.bCanEverTick = true;
     PrimaryActorTick.bStartWithTickEnabled = false;
 
@@ -100,10 +99,10 @@ void ATCFurnitureActor::BeginPlay()
 {
     Super::BeginPlay();
 
-    // 배치 가구는 물리 꺼진 정적 상태로 시작한다 — 첫 그랩 후 Release()가 물리를 복원해 그때부터 동적
+    // 만일 나중에 배치된가구가 처음에 안떨어지길바란다면...
     if (FurnitureMesh)
     {
-        FurnitureMesh->SetSimulatePhysics(false);
+        FurnitureMesh->SetSimulatePhysics(true);
     }
 
     // 파괴됨을 감지 (서버에서만 바인딩)
@@ -150,8 +149,8 @@ void ATCFurnitureActor::OnFurnitureDamaged(float MaxHealth, float OldHealth, flo
 
 void ATCFurnitureActor::SpawnDamageNumber(float Damage)
 {
-    // 코스메틱: 데디서버 제외, 파괴된 가구 위엔 안 띄움
-    if (!DamageNumberWidgetClass || bIsFurnitureDestroyed || GetNetMode() == NM_DedicatedServer)
+    // 표시 스위치(bShowDamageNumbers)로 가구별/런타임 제어. 코스메틱: 데디서버 제외, 파괴된 가구 위엔 안 띄움
+    if (!bShowDamageNumbers || !DamageNumberWidgetClass || bIsFurnitureDestroyed || GetNetMode() == NM_DedicatedServer)
         return;
 
     UWidgetComponent* WC = NewObject<UWidgetComponent>(this);

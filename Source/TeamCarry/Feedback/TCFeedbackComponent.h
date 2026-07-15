@@ -51,6 +51,15 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Feedback")
 	TObjectPtr<USoundBase> BreakSound;
 
+	// 내구도 감소(타격) 시 랜덤 재생 목록. 비워두면 기본 우드히트 2종 자동 로드.
+	// (가구별 타격음 커스텀: BP에 이 컴포넌트를 수동 추가하고 여기에 지정)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Feedback")
+	TArray<TObjectPtr<USoundBase>> HitSounds;
+
+	// 타격음 아래에 겹치는 저역 '쿵' 레이어. 비워두면 기본 자동 로드, 없애려면 무음 에셋 지정.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Feedback")
+	TObjectPtr<USoundBase> ThudSound;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Feedback")
 	TObjectPtr<UNiagaraSystem> BreakFX;
 

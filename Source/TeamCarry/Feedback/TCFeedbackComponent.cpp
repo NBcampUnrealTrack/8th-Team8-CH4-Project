@@ -96,6 +96,17 @@ void UTCFeedbackComponent::BeginPlay()
 	if (!PickupFX) { PickupFX = LoadObject<UNiagaraSystem>(nullptr, DefaultPickupFX); }
 	if (!BreakSound) { BreakSound = LoadObject<USoundBase>(nullptr, DefaultBreakSound); }
 	if (!BreakFX) { BreakFX = LoadObject<UNiagaraSystem>(nullptr, DefaultBreakFX); }
+	if (HitSounds.Num() == 0)   // 타격음: 미지정 시 기본 우드히트 2종
+	{
+		for (const TCHAR* Path : DefaultHitSounds)
+		{
+			if (USoundBase* HitS = LoadObject<USoundBase>(nullptr, Path))
+			{
+				HitSounds.Add(HitS);
+			}
+		}
+	}
+	if (!ThudSound) { ThudSound = LoadObject<USoundBase>(nullptr, DefaultThudSound); }
 
 	UE_LOG(LogTemp, Log, TEXT("[Feedback] %s 부착 완료 (sound: %s/%s, fx: %s)"), *GetNameSafe(Owner),
 		PickupSound ? TEXT("O") : TEXT("X"), DropSound ? TEXT("O") : TEXT("X"), PickupFX ? TEXT("O") : TEXT("X"));
@@ -156,25 +167,22 @@ void UTCFeedbackComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 		else if (LastHealth > 0.f && Health < LastHealth - KINDA_SMALL_NUMBER
 			&& LastHealth <= Stat->GetMaxHealth() + KINDA_SMALL_NUMBER)
 		{
-			// 인원 미달 운반의 내구도 드레인(잡힌 상태의 지속 소모)은 충돌 히트 피드백 대상이 아님
-			const bool bUnderMannedDrain = ReadGrabbed() && Stat
-				&& Stat->GetGrabbedPlayerNum() < Stat->GetRequiredPlayer();
-			if (!bUnderMannedDrain)
+			// 내구도 깎임 — 타격음 (목록 중 랜덤 + 피치 흔들림). 가구별 커스텀은 HitSounds 프로퍼티로.
+			if (HitSounds.Num() > 0)
 			{
-				// 내구도 깎임 — 소프트 우드 히트 (2종 랜덤 + 피치 흔들림)
-				const int32 HitIdx = FMath::RandRange(0, 1);
-				if (USoundBase* HitS = LoadObject<USoundBase>(nullptr, DefaultHitSounds[HitIdx]))
+				if (USoundBase* HitS = HitSounds[FMath::RandRange(0, HitSounds.Num() - 1)])
 				{
 					UGameplayStatics::PlaySoundAtLocation(this, HitS, Owner->GetActorLocation(),
 						1.f, FMath::RandRange(0.9f, 1.1f));
 				}
+			}
 
-				// 우드 히트 아래에 저역 '쿵'을 겹쳐 무게감을 만든다 (피치 랜덤으로 반복감 완화)
-				if (USoundBase* Thud = LoadObject<USoundBase>(nullptr, DefaultThudSound))
-				{
-					UGameplayStatics::PlaySoundAtLocation(this, Thud, Owner->GetActorLocation(),
-						1.f, FMath::RandRange(0.92f, 1.06f));
-				}
+			// 타격음 아래에 저역 '쿵'을 겹쳐 무게감을 만든다 (피치 랜덤으로 반복감 완화)
+			if (ThudSound)
+			{
+				UGameplayStatics::PlaySoundAtLocation(this, ThudSound, Owner->GetActorLocation(),
+					1.f, FMath::RandRange(0.92f, 1.06f));
+			}
 
 				// 만화식 별 팝 — 가구 상단에서 터져 '띵' 하고 부딪힌 게 한눈에 보이게
 				if (UNiagaraSystem* Stars = LoadObject<UNiagaraSystem>(nullptr, DefaultHitStarsFX))
