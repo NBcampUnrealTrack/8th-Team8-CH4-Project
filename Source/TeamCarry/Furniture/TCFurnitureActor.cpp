@@ -9,7 +9,7 @@
 #include "Materials/MaterialInterface.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Kismet/GameplayStatics.h"
-#include "Engine/StaticMeshActor.h"
+#include "Engine/StaticMesh.h"
 #include "GeometryCollection/GeometryCollectionComponent.h"
 #include "Player/Component/GrabComponent.h"
 #include "PhysicalMaterials/PhysicalMaterial.h"
@@ -198,7 +198,7 @@ void ATCFurnitureActor::UpdateCrackVisual(float HealthRatio)
 
     // z-파이팅 방지: '메쉬 바운드 중심' 기준으로 균일 확대 (피벗이 어디 있든 항상 표면 바깥으로 나감).
     // 컴포넌트 스케일은 피벗 기준이라, 바운드 중심 C가 고정되도록 위치를 C*(1-S)로 보정 → 균일 쉘.
-    const float   S           = 1.01f;
+    constexpr float S         = 1.01f;
     const FVector LocalCenter = Src->GetStaticMesh()->GetBounds().Origin;
     CrackMeshComp->SetRelativeScale3D(FVector(S));
     CrackMeshComp->SetRelativeLocation(LocalCenter * (1.f - S));
@@ -231,8 +231,7 @@ void ATCFurnitureActor::DestroyFurniture()
                 {
                     if (UActorComponent* Comp = Player->GetComponentByClass(UGrabComponent::StaticClass()))
                     {
-                        UGrabComponent* GrabComp = Cast<UGrabComponent>(Comp);
-                        if (GrabComp)
+                        if (UGrabComponent* GrabComp = Cast<UGrabComponent>(Comp))
                         {
                             GrabComp->TryInteract();
                         }
