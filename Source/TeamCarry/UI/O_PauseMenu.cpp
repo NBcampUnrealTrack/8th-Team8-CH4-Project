@@ -204,8 +204,11 @@ void UO_PauseMenu::HandleLeaveRoomClicked()
 
 void UO_PauseMenu::OnConfirmLeaveRoom()
 {
-	// UTCSessionFlow::LeaveToTitle() 이 세션 파기와 타이틀 레벨 이동을 함께 처리한다.
-	// 방장뿐 아니라 참가자도 방을 나갈 수 있으므로 IsHost() 게이팅을 받지 않는다.
+	// UTCSessionFlow::LeaveToTitle() 은 호출한 로컬 플레이어의 세션 참여만 정리하고 타이틀로
+	// 이동한다 — 호스트가 호출할 때만 실제로 세션 전체가 파기되고(그래서 InGame에서는 여전히
+	// 호스트에게 숨김), 클라이언트가 호출할 때는 자신만 이탈할 뿐 다른 플레이어의 세션/스테이지
+	// 진행에는 영향이 없다(2026-07-15, RefreshContextVisibility()에서 InGame 클라이언트에게만
+	// 이 버튼을 노출하는 근거).
 	if (UTCSessionFlow* Flow = GetGameInstance()->GetSubsystem<UTCSessionFlow>())
 	{
 		UE_LOG(LogTemp, Log, TEXT("[UI PauseMenu] LeaveRoom confirmed. Requesting Leave To Title."));
@@ -252,6 +255,10 @@ void UO_PauseMenu::RefreshContextVisibility()
 		if (Btn_Save) Btn_Save->SetVisibility(HostVis);
 		if (Btn_ToLobby) Btn_ToLobby->SetVisibility(HostVis);
 		if (Btn_Reset) Btn_Reset->SetVisibility(HostVis);
-		if (Btn_LeaveRoom) Btn_LeaveRoom->SetVisibility(ESlateVisibility::Collapsed);
+
+		// 2026-07-15 추가: 인게임 중 클라이언트가 세션에서 개인적으로 이탈할 수단이 전혀 없었다
+		// (호스트는 Btn_ToLobby/Btn_Reset이 있지만 클라이언트는 대응 수단이 없었음). 반대로 호스트는
+		// 계속 숨김 처리해 파티 전체에 영향을 주는 오조작을 방지한다(명세 4장-12).
+		if (Btn_LeaveRoom) Btn_LeaveRoom->SetVisibility(bIsHost ? ESlateVisibility::Collapsed : ESlateVisibility::Visible);
 	}
 }
