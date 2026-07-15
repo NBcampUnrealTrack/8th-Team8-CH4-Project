@@ -86,6 +86,10 @@ protected:
     // 위젯 BP 계약: 'SetDamage(float)' 함수를 구현하면 피해량이 전달됨 (없어도 크래시 없음).
     // =====================================================================
 
+    // 피해량 숫자 표시 여부. false면 위젯을 아예 스폰하지 않음 (가구별 에디터 설정·런타임 BP 토글 모두 가능)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|DamageUI")
+    bool bShowDamageNumbers = false;
+
     // 피해량 표시 위젯 클래스. 비워두면 표시 안 함 (C++ 기본 경로 자동 로드 시도).
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|DamageUI")
     TSubclassOf<UUserWidget> DamageNumberWidgetClass;
@@ -106,5 +110,16 @@ protected:
 
     // 현재 적용된 금 단계 (0=없음, 1, 2) — 중복 적용 방지
     int32 CurrentCrackStage = 0;
+
+    // =====================================================================
+    // 무게 기반 중력 — 무거운 가구일수록 빨리 떨어짐.
+    // 기본 물리는 질량과 무관하게 같은 가속도로 낙하하므로, 스탯 무게(Mass)에 비례한
+    // 추가 중력 가속을 Tick에서 더해준다. GravityMassReference(100)가 1배 기준.
+    //   예) Mass 100 = 1배(추가 없음), Mass 200 = 2배, Mass 50 = 0.5배(더 천천히)
+    // =====================================================================
+
+    // 중력 1배 기준 무게. 이 값 대비 비율만큼 중력 가속이 스케일됨. 0 이하면 기능 끔.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Physics")
+    float GravityMassReference = 100.f;
 
 };

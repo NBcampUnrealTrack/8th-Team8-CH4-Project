@@ -95,6 +95,17 @@ void UTCFeedbackComponent::BeginPlay()
 	if (!PickupFX) { PickupFX = LoadObject<UNiagaraSystem>(nullptr, DefaultPickupFX); }
 	if (!BreakSound) { BreakSound = LoadObject<USoundBase>(nullptr, DefaultBreakSound); }
 	if (!BreakFX) { BreakFX = LoadObject<UNiagaraSystem>(nullptr, DefaultBreakFX); }
+	if (HitSounds.Num() == 0)   // 타격음: 미지정 시 기본 우드히트 2종
+	{
+		for (const TCHAR* Path : DefaultHitSounds)
+		{
+			if (USoundBase* HitS = LoadObject<USoundBase>(nullptr, Path))
+			{
+				HitSounds.Add(HitS);
+			}
+		}
+	}
+	if (!ThudSound) { ThudSound = LoadObject<USoundBase>(nullptr, DefaultThudSound); }
 
 	UE_LOG(LogTemp, Log, TEXT("[Feedback] %s 부착 완료 (sound: %s/%s, fx: %s)"), *GetNameSafe(Owner),
 		PickupSound ? TEXT("O") : TEXT("X"), DropSound ? TEXT("O") : TEXT("X"), PickupFX ? TEXT("O") : TEXT("X"));
@@ -152,18 +163,20 @@ void UTCFeedbackComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 		}
 		else if (LastHealth > 0.f && Health < LastHealth - KINDA_SMALL_NUMBER)
 		{
-			// 내구도 깎임 — 소프트 우드 히트 (2종 랜덤 + 피치 흔들림)
-			const int32 HitIdx = FMath::RandRange(0, 1);
-			if (USoundBase* HitS = LoadObject<USoundBase>(nullptr, DefaultHitSounds[HitIdx]))
+			// 내구도 깎임 — 타격음 (목록 중 랜덤 + 피치 흔들림). 가구별 커스텀은 HitSounds 프로퍼티로.
+			if (HitSounds.Num() > 0)
 			{
-				UGameplayStatics::PlaySoundAtLocation(this, HitS, Owner->GetActorLocation(),
-					1.f, FMath::RandRange(0.9f, 1.1f));
+				if (USoundBase* HitS = HitSounds[FMath::RandRange(0, HitSounds.Num() - 1)])
+				{
+					UGameplayStatics::PlaySoundAtLocation(this, HitS, Owner->GetActorLocation(),
+						1.f, FMath::RandRange(0.9f, 1.1f));
+				}
 			}
 
-			// 우드 히트 아래에 저역 '쿵'을 겹쳐 무게감을 만든다 (피치 랜덤으로 반복감 완화)
-			if (USoundBase* Thud = LoadObject<USoundBase>(nullptr, DefaultThudSound))
+			// 타격음 아래에 저역 '쿵'을 겹쳐 무게감을 만든다 (피치 랜덤으로 반복감 완화)
+			if (ThudSound)
 			{
-				UGameplayStatics::PlaySoundAtLocation(this, Thud, Owner->GetActorLocation(),
+				UGameplayStatics::PlaySoundAtLocation(this, ThudSound, Owner->GetActorLocation(),
 					1.f, FMath::RandRange(0.92f, 1.06f));
 			}
 

@@ -56,7 +56,9 @@ void AFurnitureActor::BeginPlay()
 			FFurnitureData* Data = FurnitureDataRow.GetRow<FFurnitureData>(TEXT("FurnitureActor_Init"));
 			if (Data && FurnitureStat)
 			{
-				FurnitureStat->InitializeStats(*Data);
+				// 로우 이름도 함께 전달 — 스탯이 보관·복제해 어디서든 GetRowName()으로 조회 가능
+				FurnitureStat->InitializeStats(*Data, FurnitureDataRow.RowName);
+				FurnitureMesh->SetMassOverrideInKg(NAME_None, FurnitureStat->GetMass(), true);
 			}
 		}
 		if (IsValid(FurnitureStat) && IsValid(DamageSystem))

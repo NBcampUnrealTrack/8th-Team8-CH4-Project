@@ -33,6 +33,7 @@ void UFurnitureStat::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLi
 
 	DOREPLIFETIME(UFurnitureStat, CurrentHealth);
 	DOREPLIFETIME(UFurnitureStat, MaxHealth);
+	DOREPLIFETIME(UFurnitureStat, RowName);
 	DOREPLIFETIME(UFurnitureStat, RequiredPlayer);
 	DOREPLIFETIME(UFurnitureStat, BaseSpeed);
 	DOREPLIFETIME(UFurnitureStat, CollisionDamageMultiplier);
@@ -42,11 +43,12 @@ void UFurnitureStat::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLi
 	DOREPLIFETIME(UFurnitureStat, Price);
 }
 
-void UFurnitureStat::InitializeStats(const FFurnitureData& Data)
+void UFurnitureStat::InitializeStats(const FFurnitureData& Data, FName InRowName)
 {
 	if (GetOwner() && !GetOwner()->HasAuthority()) return;
 
 	DefaultStats = Data;
+	RowName = InRowName;
 
 	CurrentHealth = Data.MaxHealth;
 	MaxHealth = Data.MaxHealth;
