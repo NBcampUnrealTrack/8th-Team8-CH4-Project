@@ -24,6 +24,9 @@
 > * **O_PauseMenu의 S_Lobby 재사용:** S_Lobby에는 지금까지 ESC 시 [설정]에 접근할 경로가 없어 사운드 등 설정을 바꿀 수 없었다. 별도 클래스를 신설하는 대신, 기존 S_Tutorial 호출 시의 컨텍스트별 버튼 노출 분기(4장-12) 선례를 확장해 **O_PauseMenu를 S_Lobby에서도 재사용**한다. Lobby 컨텍스트에서는 Btn_Save·Btn_ToLobby·Btn_Reset을 숨기고, 로비 전용 **Btn_LeaveRoom(나가기, 전원)** 을 노출한다(4장-3, 4장-12).
 > * **범위 제외 (별도 진행):** 인게임 폰트 조정, 버튼 세부 디자인(톤앤매너)은 담당자가 별도로 확정할 예정이라 이번 개정에서는 다루지 않는다.
 
+> **개정 요약 (v3 내부 추가, 2026-07-15 — 버전은 v3 유지, v4로 분리하지 않음)**
+> * **O_PauseMenu: S_InGame 중 클라이언트 개별 이탈 허용:** 기존에는 스테이지 진행 중(S_InGame) 오조작 방지를 위해 호스트·클라이언트 모두 타이틀로 나가는 경로가 아예 없었으나, 클라이언트가 진행 중인 세션에서 개인적으로 이탈할 수단이 전혀 없던 것은 별도 문제로 확인되어 **Btn_LeaveRoom(나가기)을 S_InGame 컨텍스트에도 확장**한다. 단 이 버튼은 **호스트에게는 계속 숨김 처리되고 일반 클라이언트에게만 노출**된다 — 호스트의 오조작이 파티 전체 진행에 영향을 주는 것을 막는 취지는 그대로 유지하면서, 클라이언트 개인의 이탈만 새로 허용한다. `LeaveToTitle()`은 호출한 로컬 플레이어만 세션에서 이탈시키는 동작이라(호스트가 호출할 때와 달리 세션 자체를 파기하지 않음) 다른 플레이어의 진행 중인 스테이지에는 영향을 주지 않는다(4장-12).
+
 ---
 
 ## 1. UI 전체 구조도 (화면 흐름도)
@@ -171,8 +174,8 @@ UI와 Steam 세션(UTCGameInstance) 사이의 단일 바인딩 계층(GameInstan
 * **O_Confirm:** 강제 모달 팝업. 기본 포커스는 '아니오'에 위치하여 오조작 방지.
 * **O_Settings:** 오디오, 비디오, 키보드/패드 설정. 비디오 변경 시 15초 카운트다운 복구 로직.
 * **O_PauseMenu:** S_InGame, S_Tutorial, **S_Lobby(v3 내부 신규)** 에서 ESC로 호출. 호출 컨텍스트(Lobby/Tutorial/InGame)에 따라 노출 항목이 다르다(4장-12).
-  * 항목: [계속하기], [설정], [수동 저장], **[로비 복귀]**, **[리셋]**, **[나가기](Lobby 컨텍스트 전용, v3 내부 신규)** (v3 개정 — [조작법], [타이틀로 돌아가기] 제거, 4장-12 참고)
-  * 권한: 멀티플레이 동기화를 위해 [수동 저장]·[로비 복귀]·[리셋]은 호스트(방장) 전용. 튜토리얼 맵에서는 [수동 저장] 강제 비활성화, [로비 복귀]·[리셋]은 노출하지 않음. **Lobby 컨텍스트에서는 [수동 저장]·[로비 복귀]·[리셋]을 노출하지 않고 [나가기](전원)를 노출한다.**
+  * 항목: [계속하기], [설정], [수동 저장], **[로비 복귀]**, **[리셋]**, **[나가기](Lobby 전원 + S_InGame 클라이언트 전용, v3 내부 신규 — 2026-07-15 S_InGame 확장)** (v3 개정 — [조작법], [타이틀로 돌아가기] 제거, 4장-12 참고)
+  * 권한: 멀티플레이 동기화를 위해 [수동 저장]·[로비 복귀]·[리셋]은 호스트(방장) 전용. 튜토리얼 맵에서는 [수동 저장] 강제 비활성화, [로비 복귀]·[리셋]은 노출하지 않음. **Lobby 컨텍스트에서는 [수동 저장]·[로비 복귀]·[리셋]을 노출하지 않고 [나가기](전원)를 노출한다. S_InGame 컨텍스트에서는 [나가기]를 클라이언트에게만 노출한다(2026-07-15 추가, 4장-12).**
   * [로비 복귀]·[리셋]·**[나가기]** 는 클릭 시 반드시 O_Confirm 재확인 후 실행된다(오조작 방지).
 * **O_SaveLoad:** O_PauseMenu에서 [수동 저장] 선택 시 호출. 현재 상태를 슬롯에 덮어쓰거나 빈 슬롯에 기록.
 
@@ -318,23 +321,24 @@ UI와 Steam 세션(UTCGameInstance) 사이의 단일 바인딩 계층(GameInstan
 ### 12) O_PauseMenu (인게임/로비 공통 메뉴 — v3 내부 개정: S_Lobby 컨텍스트 추가)
 * **역할:** S_InGame·S_Tutorial의 "일시정지 메뉴"와 S_Lobby의 "ESC 메뉴"를 하나의 클래스로 겸한다. Btn_Resume·Btn_Settings는 세 컨텍스트에서 로직이 동일하므로(둘 다 단순히 Pop / O_Settings Push), 별도 클래스(O_LobbyMenu 등)를 신설하는 대신 **호출 컨텍스트(Lobby / Tutorial / InGame)에 따라 버튼 노출만 다르게** 하는 기존 방식(S_Tutorial 노출 분기, 아래)을 S_Lobby까지 확장한다.
 * **컨텍스트 판정 방식 (v3 내부 신규 — 구현 단순화):** 초안에서는 새 `EE_PauseMenuContext` enum과 `SetupPauseMenuContext()` 호출부 배선을 계획했으나, 실제 구현 착수 시 `UMockUIController`에 이미 `GetCurrentState()`(BlueprintPure, EE_UIState 반환)가 존재함을 확인하여 그대로 재사용했다. `PushOverlay()`는 `CurrentState`(Lobby/Tutorial/InGame)를 바꾸지 않으므로, O_PauseMenu는 `NativeConstruct()`에서 `MockController->GetCurrentState()`를 조회하는 것만으로 자신이 어느 화면 위에 떠 있는지 정확히 판별할 수 있다. 호출부(S_Lobby·S_Tutorial·S_InGame) 쪽 변경은 필요 없다 — 세 곳 모두 기존과 동일하게 `PushOverlay("O_PauseMenu")`만 호출한다. (7장-6의 `EE_PauseMenuContext` 계획은 폐기되었다.)
-* **구성:** Btn_Resume(계속하기), Btn_Settings(설정), Btn_Save(수동 저장, 방장 전용), **Btn_ToLobby(로비 복귀, 방장 전용, 신규)**, **Btn_Reset(리셋, 방장 전용, 신규)**, **Btn_LeaveRoom(나가기, Lobby 컨텍스트 전용, 전원, v3 내부 신규)**.
-  * **제거:** Btn_KeyGuide(조작법) — S_InGame에 상시 노출되는 W_HelpPanel로 대체(4장-7, 4장-15). Btn_ToTitle(타이틀로) — 인게임 중 타이틀 이탈 경로 자체를 폐기(오조작 방지 목적. 타이틀로의 이탈은 O_Result의 Btn_ToTitle에서만 가능).
+* **구성:** Btn_Resume(계속하기), Btn_Settings(설정), Btn_Save(수동 저장, 방장 전용), **Btn_ToLobby(로비 복귀, 방장 전용, 신규)**, **Btn_Reset(리셋, 방장 전용, 신규)**, **Btn_LeaveRoom(나가기, Lobby 전원 + S_InGame 클라이언트 전용, v3 내부 신규 — 2026-07-15 S_InGame 확장)**.
+  * **제거:** Btn_KeyGuide(조작법) — S_InGame에 상시 노출되는 W_HelpPanel로 대체(4장-7, 4장-15). Btn_ToTitle(타이틀로) — 인게임 중 **호스트의** 타이틀 이탈 경로는 계속 폐기 상태(오조작 방지 목적 유지. 호스트가 타이틀로 이탈하려면 O_Result의 Btn_ToTitle을 거쳐야 한다). 다만 **클라이언트 개인의** 이탈은 2026-07-15부로 Btn_LeaveRoom을 통해 별도로 허용됐다(아래 "S_InGame에서 호출될 때" 참고).
   * **WBP 구현 메모:** 기존 `Btn_KeyGuide`/`Btn_ToTitle` 위젯 인스턴스를 삭제 후 재생성하는 대신 각각 `Btn_ToLobby`/`Btn_Reset`으로 리네임해 기존 슬롯·스타일을 재사용했다. `Btn_LeaveRoom`은 신규 추가(Btn_Save와 동일 버튼 클래스 재사용). 리네임된 두 버튼의 라벨 텍스트("조작법"/"타이틀로")는 아직 새 용도에 맞게 갱신되지 않았다 — 버튼 세부 디자인은 별도 진행 예정(개정 요약 참고).
 * **컨텍스트별 노출 (`GetCurrentState()` 값에 따라 적용, v3 내부 신규 — Lobby 행 추가):**
   | 호출 컨텍스트 | Btn_Resume | Btn_Settings | Btn_Save | Btn_ToLobby | Btn_Reset | Btn_LeaveRoom |
   | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
   | S_Lobby (신규) | O | O | 숨김 | 숨김 | 숨김 | O (전원) |
   | S_Tutorial | O | O | 비활성 | 숨김 | 숨김 | 숨김 |
-  | S_InGame | O | O | 방장 전용 | 방장 전용 | 방장 전용 | 숨김 |
+  | S_InGame | O | O | 방장 전용 | 방장 전용 | 방장 전용 | **클라이언트 전용**(2026-07-15 추가 — 방장에게는 계속 숨김) |
 * **입력 라우팅:**
   * Btn_Settings 클릭 시 O_Settings를 Push.
   * Btn_ToLobby 클릭 시 O_Confirm(로비로 복귀 확인) 호출. 확인 시 `HostReturnToLobby()` — 세션을 유지한 채 진행 중인 스테이지를 즉시 이탈해 [S_Loading]을 거쳐 L_Lobby(S_Lobby)로 복귀한다(O_Result의 [로비로 가기]와 동일한 의도 함수를 게임 진행 중에도 사용 — `bIsGameFinished` 여부와 무관하게 즉시 트래블).
   * Btn_Reset 클릭 시 O_Confirm(스테이지 초기화 확인) 호출. 확인 시 `RestartStage()`(2장 신규 의도 함수) — 현재 선택된 스테이지 맵으로 재트래블([S_Loading] 경유)하여 가구 배치·팀 값어치·타이머 등 인게임 상태를 초기화한다.
-  * **Btn_LeaveRoom 클릭 시(Lobby 컨텍스트 전용, v3 내부 신규):** O_Confirm(방 나가기 확인) 호출. 확인 시 `LeaveToTitle()` — 세션을 파기하고 [S_Loading]을 거쳐 S_MainMenu로 복귀한다. 호스트뿐 아니라 참가자도 누구나 방을 나갈 수 있으므로 `IsHost()` 게이팅을 받지 않는다(S_Lobby 자체의 기존 ESC 동작을 그대로 승계, 4장-3).
-* **권한:** Btn_Save·Btn_ToLobby·Btn_Reset은 멀티플레이 동기화를 위해 호스트(방장) 전용이며, `UTCSessionFlow::IsHost()`로 판정해 일반 클라이언트에게는 Collapsed 처리한다(6장-8 규칙과 동일). 노출 분기는 편의일 뿐이므로 실제 트래블/저장/리셋 실행은 서버 측에서 재검증한다. Btn_LeaveRoom은 전원에게 노출되므로 이 게이팅에서 제외된다.
+  * **Btn_LeaveRoom 클릭 시(Lobby 전원 + S_InGame 클라이언트 전용):** O_Confirm(방 나가기 확인) 호출. 확인 시 `LeaveToTitle()` — 로컬 세션 참여를 정리하고 [S_Loading]을 거쳐 S_MainMenu로 복귀한다. Lobby 컨텍스트에서는 호스트뿐 아니라 참가자도 누구나 방을 나갈 수 있으므로 `IsHost()` 게이팅을 받지 않는다(S_Lobby 자체의 기존 ESC 동작을 그대로 승계, 4장-3). **S_InGame 컨텍스트에서는 반대로 호스트에게는 숨겨지고 클라이언트에게만 노출된다**(2026-07-15 추가) — 클라이언트가 `LeaveToTitle()`을 호출해도 자신의 세션 참여만 정리될 뿐 호스트가 관리하는 세션 자체는 파기되지 않으므로, 다른 플레이어는 진행 중인 스테이지를 계속 플레이한다. 호스트가 인게임 중 세션을 끝내려면 여전히 Btn_ToLobby/Btn_Reset을 거쳐야 한다(오조작으로 파티 전체가 끊기는 것을 방지).
+* **권한:** Btn_Save·Btn_ToLobby·Btn_Reset은 멀티플레이 동기화를 위해 호스트(방장) 전용이며, `UTCSessionFlow::IsHost()`로 판정해 일반 클라이언트에게는 Collapsed 처리한다(6장-8 규칙과 동일). 노출 분기는 편의일 뿐이므로 실제 트래블/저장/리셋 실행은 서버 측에서 재검증한다. Btn_LeaveRoom은 Lobby 컨텍스트에서는 이 게이팅에서 제외되어 전원에게 노출되지만, **S_InGame 컨텍스트에서는 반대 방향으로 게이팅된다**(호스트=Collapsed, 클라이언트=Visible — 2026-07-15 추가).
 * **S_Tutorial에서 호출될 때:** Btn_Save는 강제 비활성화(기존 규칙 유지), Btn_ToLobby·Btn_Reset·Btn_LeaveRoom은 노출하지 않는다 — 튜토리얼은 `CompleteTutorial()` 단일 경로로만 로비 복귀한다(4장-6 참고).
-* **S_Lobby에서 호출될 때 (v3 내부 신규):** Btn_Save·Btn_ToLobby·Btn_Reset은 노출하지 않는다(로비에는 저장할 진행 중인 스테이지도, 복귀할 다른 곳도, 리셋할 스테이지도 없음). Btn_LeaveRoom만 신규 노출.
+* **S_Lobby에서 호출될 때 (v3 내부 신규):** Btn_Save·Btn_ToLobby·Btn_Reset은 노출하지 않는다(로비에는 저장할 진행 중인 스테이지도, 복귀할 다른 곳도, 리셋할 스테이지도 없음). Btn_LeaveRoom만 신규 노출(전원).
+* **S_InGame에서 호출될 때 (2026-07-15 추가):** Btn_Save·Btn_ToLobby·Btn_Reset은 기존대로 호스트 전용이다. Btn_LeaveRoom은 이 컨텍스트에서만 **호스트에게 Collapsed, 클라이언트에게 Visible**로 반전 게이팅된다 — 클라이언트가 진행 중인 스테이지에서 개인적으로 이탈할 수단이 그동안 전혀 없었던 공백을 메우기 위함이며, 호스트의 오조작-방지 취지(위 "제거" 항목)는 그대로 유지된다.
 
 ### 13) O_Settings (설정 창)
 * **구성:** 하위 탭은 별도 서브 위젯 클래스로 분리 — **O_AudioSettings**(오디오), **O_GraphicsSettings**(비디오). 하위 탭은 UCommonUserWidget 상속(6장 규칙).
