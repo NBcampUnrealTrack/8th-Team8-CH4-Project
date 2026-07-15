@@ -12,24 +12,9 @@
 #include "CatchCharacter/Furniture/FurnitureStat.h"
 #include "CatchCharacter/Furniture/FurnitureDamage.h"
 #include "DrawDebugHelpers.h"
-#include "HAL/IConsoleManager.h"
+#include "CatchCharacter/Furniture/FurnitureCarryShared.h"
 
-// 운반 이벤트 로그 카테고리 — Output Log에 항상 기록 ("LogCarry"로 검색)
-DEFINE_LOG_CATEGORY_STATIC(LogCarry, Log, All);
-
-namespace
-{
-	// F9(TC.GrabDebug) 운반 시각화 게이트 — CVar는 TeamCarry 모듈이 등록하므로 조회만 한다 (null이면 재시도)
-	bool IsCarryDebugEnabled()
-	{
-		static IConsoleVariable* CachedCVar = nullptr;
-		if (!CachedCVar)
-		{
-			CachedCVar = IConsoleManager::Get().FindConsoleVariable(TEXT("TC.GrabDebug"));
-		}
-		return CachedCVar && CachedCVar->GetInt() != 0;
-	}
-}
+DEFINE_LOG_CATEGORY(LogCarry);
 
 // =====================================================================
 // 생성 / 초기화
