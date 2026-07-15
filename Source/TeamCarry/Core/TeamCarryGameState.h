@@ -31,6 +31,10 @@ public:
 	UPROPERTY(Replicated, BlueprintReadOnly)
 	float ElapsedTime;
 
+	// 스테이지 전체 가구 개수 — BeginPlay 시 1회 설정. S_InGame UI 에서 사용.
+	UPROPERTY(Replicated, BlueprintReadOnly)
+	int32 TotalFurnitureCount;
+
 	// 파괴된 가구 개수 — OnFurnitureDestroyed 호출 횟수. 핫타임 비율 계산에 사용.
 	UPROPERTY(Replicated, BlueprintReadOnly)
 	int32 DestroyedFurnitureCount;
