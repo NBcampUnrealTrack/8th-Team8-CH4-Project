@@ -123,6 +123,19 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
 	float PullStartRadius = 50.0f;
 
+	// [리쉬 이동 제한] true면 견인·정지 속도 주입을 끄고, 입력 필터(+바깥 속도 감쇠)로
+	// 대형 이탈을 애초에 차단한다 — CMC 예측 위 이중 보정(러버밴딩) 제거. false=기존 견인 방식.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
+	bool bLeashMovement = true;
+
+	// 리쉬 반경(cm): 자기 대형 지점에서 이 이상 벌어지는 방향의 이동을 차단
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
+	float LeashRadius = 70.0f;
+
+	// 리쉬 계산: 플레이어의 대형 지점(Att)과 허용 반경. 서버·클라 공통(로컬 앵커+현재 트랜스폼).
+	// 막힘(잼·가구 전진 막힘·운반자 막힘) 동안은 반경을 현재 거리로 동결해 벌어짐 자체를 막는다.
+	bool GetCarryLeash(ACharacter* Player, FVector& OutAttach, float& OutRadius) const;
+
 	// 인원 미달 시 '1인당' 이동속도 기여분 (기본속도 대비). 0.2 = 1/5.
 	//   속도 = Base × min(1, 인원수 × 이 값). 예) 필요3인에 2명 = 2×0.2 = 2/5.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
@@ -179,6 +192,10 @@ private:
 
 	// [서버] 지난 틱에 운반자가 벽에 막혔는가 (Step 4 감지 → 다음 틱 Step 2에서 회전 보류)
 	bool bCarrierBlockedLastTick = false;
+
+	// [서버→클라] 가구 이동 봉인 상태(잼·전진 막힘·운반자 막힘) — 클라 입력 필터의 반경 동결용
+	UPROPERTY(Replicated)
+	bool bMoveConstrained = false;
 
 	// [서버, 들것 회전 상태] 능동 운반자의 이동이 만든 '선 회전 의도' 누적치(절대 Yaw).
 	// 피동(견인) 이동은 누적에서 제외 — 회전이 견인을 만들고 그 견인이 선을 또 돌리는

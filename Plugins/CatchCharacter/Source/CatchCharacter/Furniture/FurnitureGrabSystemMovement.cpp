@@ -32,6 +32,8 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 	MoveSweepFurniture(Ctx);          // 3 스윕 이동 + 관통 밸브 + 스텝업 + 회전 가드
 	if (!MoveReconcileAnchors(Ctx))   // 3.5~4 막힘 재기록 + 벽 막힘 감지
 		return;
+	// [리쉬] 이동 봉인 상태를 복제 플래그로 — 클라 입력 필터가 반경을 동결한다
+	bMoveConstrained = Ctx.bValveJammed || Ctx.bFurnitureStuck || bCarrierBlockedLastTick;
 	MoveDrivePlayers(Ctx);            // 5 플레이어 견인/정지 속도 주입
 	MoveFinalize(Ctx);                // 6~7 자동 해제 + 트랜스폼 브로드캐스트
 }
@@ -805,6 +807,36 @@ void UFurnitureGrabSystem::MoveSweepFurniture(FGrabMoveContext& Ctx)
 		}
 	}
 
+	// [리쉬 대칭 클램프] 가구도 모든 운반자의 리쉬 안에 묶는다 — 한 명이 서 있으면 그 리쉬
+	// 끝에서 가구가 멈추고, 걷는 쪽의 대형 지점도 동결돼 입력 필터가 걷기를 차단한다
+	// (서 있는 운반자를 끌고 가거나 대형이 자동 해제 거리까지 벌어지는 것 자체를 방지)
+	if (bLeashMovement)
+	{
+		// GetCarryLeash의 유효 반경(-25 튜닝)과 일치 + 소여유.
+		// 보정은 '원본 후보 기준으로 동시 계산 후 합산 적용' — 축차 적용하면 앞사람 보정이
+		// 뒷사람 위반을 키워 마지막 플레이어 쪽으로 매 틱 순이동(한쪽 쏠림)이 생긴다.
+		// 반대 방향 위반(줄다리기)은 합산에서 상쇄돼 가구가 중간에 머문다.
+		const float LimitR = FMath::Max(LeashRadius - 25.0f, 20.0f) + 3.0f;
+		FVector TotalFix = FVector::ZeroVector;
+		for (ACharacter* P : Players)
+		{
+			const FGrabAnchor* Anc = Anchors.Find(P);
+			if (!Anc)
+				continue;
+			const float   YC  = FMath::FindDeltaAngleDegrees(Anc->InitialFurnitureYaw, TargetYaw);
+			const FVector Off = Anc->InitialOffset.RotateAngleAxis(YC, FVector::UpVector);
+			FVector ToPlayer(P->GetActorLocation().X - (DesiredPos.X - Off.X),
+			                 P->GetActorLocation().Y - (DesiredPos.Y - Off.Y), 0.0f);
+			const float Gap = ToPlayer.Size();
+			if (Gap > LimitR)
+			{
+				TotalFix += ToPlayer.GetSafeNormal() * (Gap - LimitR);
+			}
+		}
+		DesiredPos.X += TotalFix.X;
+		DesiredPos.Y += TotalFix.Y;
+	}
+
 	const FRotator PreMoveRot = Owner->GetActorRotation();   // 회전 관통 롤백·보정 기준
 	// 피벗-중심 보정용: 이동 전 메시 중심의 로컬 오프셋 캡처 (스케일 포함)
 	const FVector PreLocalCenter = FurnitureMesh
@@ -1343,10 +1375,20 @@ void UFurnitureGrabSystem::MoveDrivePlayers(FGrabMoveContext& Ctx)
 		const float PairHoldExit   = 8.0f;
 		// 직전 틱에 도달한 직후엔 재진입도 좁게 — 완전히 정착한 뒤에만 넓은 진입 반경으로 복귀한다
 		const bool bRecentlyDragged = bWasDragged || StoppedDraggingLastTick.Contains(P);
-		const float AtTargetRadius = bPairLineValid
+		float AtTargetRadius = bPairLineValid
 			? (bRecentlyDragged ? PairHoldExit : PairHoldRadius)
 			: (bWasDragged ? CorrectionDeadzone
 			               : FMath::Max(PullStartRadius, CorrectionDeadzone));
+		// [리쉬 모드] 무입력 피동의 견인 진입은 대칭 클램프 한계(유효 48)보다 안쪽에서 —
+		// 가구가 서 있는 운반자의 리쉬 끝에 멈춰 견인 거리(70)에 못 닿아 아무도
+		// 못 움직이는 교착을 방지한다 (회전 중 축 보호는 아래 bRotationBusy 보류가 담당)
+		{
+			const bool bHasInputEarly = CMC->GetCurrentAcceleration().SizeSquared2D() > FMath::Square(10.0f);
+			if (bLeashMovement && !bHasInputEarly && !bRecentlyDragged)
+			{
+				AtTargetRadius = FMath::Min(AtTargetRadius, 25.0f);
+			}
+		}
 		// [겹침 방지] 데드존 여유는 옆·뒤 방향까지만 — 앵커 자리에서 '가구 중심 방향'으로
 		// 일정 이상 파고들면(운반자-가구 충돌은 그랩 중 꺼져 있어 몸이 가구를 관통해 보임)
 		// 도달 판정을 깨고 견인을 발동시켜 대형을 복원한다. 견인 램프(0.12s) 덕에 부드럽게 밀려남.
@@ -1368,6 +1410,9 @@ void UFurnitureGrabSystem::MoveDrivePlayers(FGrabMoveContext& Ctx)
 
 		// [입력 우선] 이동 입력 중인 운반자는 견인 대상에서 제외하고 능동으로 취급한다 (침범 밀어냄은 예외)
 		const bool bHasMoveInput = CMC->GetCurrentAcceleration().SizeSquared2D() > FMath::Square(10.0f);
+		// [리쉬/견인 분담] 입력자와 1인 운반은 리쉬(주입 없음), 2인+의 무입력 피동만 기존 견인으로
+		// 가구를 따라 끌려온다 — 서 있는 파트너가 방치되거나(리쉬만) 되끌리는(견인만) 문제의 절충
+		const bool bLeashOnly = bLeashMovement && (bHasMoveInput || Players.Num() < 2);
 		// 입력 면제는 가구가 막혀 후퇴/낀 상태가 아닐 때만 — 가구가 못 가면 입력자도 견인에
 		// 붙잡혀 함께 멈춘다 (막힌 가구를 두고 걸어가 대형이 벌어지거나 벽에 비벼 관통시키는 것 방지)
 		const bool bActiveNow    = (bAtTarget && !bWasDragged)
@@ -1439,8 +1484,13 @@ void UFurnitureGrabSystem::MoveDrivePlayers(FGrabMoveContext& Ctx)
 			// 피동 플레이어가 방금 목표에 도달 → XY 정지 (관성 슬라이딩 방지)
 			// Z는 보존: 낙하 중이면 중력 속도를 지워선 안 됨 (공중 정지/슬로모 방지)
 			// [서버+클라 동시 주입] 서버와 소유 클라가 같은 값을 주입해 move 재생 결과를 일치시킨다
-			CMC->Velocity = FVector(0.0f, 0.0f, CMC->Velocity.Z);
-			Multicast_ApplyPlayerCorrection(P, FVector::ZeroVector, DesiredYaw);
+			// [리쉬 모드] 입력자·1인 운반은 정지 주입 없음 — 입력 필터가 이탈을 막고 관성은 자연 감쇠.
+			// 견인으로 끌려온 무입력 피동은 기존대로 정지 주입 (도달 후 관성 슬라이딩 방지)
+			if (!bLeashOnly)
+			{
+				CMC->Velocity = FVector(0.0f, 0.0f, CMC->Velocity.Z);
+				Multicast_ApplyPlayerCorrection(P, FVector::ZeroVector, DesiredYaw);
+			}
 			StoppedDraggingThisTick.Add(P);
 
 			// 앵커 갱신: 도달 시점의 가구 상태를 새 기준점으로 설정
@@ -1488,6 +1538,33 @@ void UFurnitureGrabSystem::MoveDrivePlayers(FGrabMoveContext& Ctx)
 				Anc.InitialPlayerYaw    = FRotator::NormalizeAxis(Anc.InitialPlayerYaw + OldYC);
 			}
 			Anc.PrevAimYaw = CurAim;
+		}
+
+		// [리쉬 모드] 입력자·1인 운반의 견인 주입 대체 — 대형 반경 밖 '바깥 방향' 속도 성분만
+		// 깎는다 (서버 안전망; 소유 클라는 입력 필터가 같은 규칙이라 예측 보정 왕복 없음).
+		// 2인+의 무입력 피동은 여기 안 타고 아래 기존 견인으로 가구를 따라 끌려온다.
+		if (bLeashOnly)
+		{
+			FVector LeashAtt;
+			float   LeashR = 0.0f;
+			if (GetCarryLeash(P, LeashAtt, LeashR))
+			{
+				FVector ToAtt(LeashAtt.X - P->GetActorLocation().X,
+				              LeashAtt.Y - P->GetActorLocation().Y, 0.0f);
+				const float DistL = ToAtt.Size();
+				if (DistL > LeashR)
+				{
+					const FVector Away = -ToAtt / DistL;
+					const float Outward = FVector::DotProduct(
+						FVector(CMC->Velocity.X, CMC->Velocity.Y, 0.0f), Away);
+					if (Outward > 0.0f)
+					{
+						CMC->Velocity -= Away * Outward;
+					}
+				}
+			}
+			CurrentTickDragged.Add(P);   // 피동 추적 유지 (가중치·선 회전 의도 제외 계산용)
+			continue;
 		}
 
 		// !bAtTarget: 피동 → 목표를 향해 끌어당김
