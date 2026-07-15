@@ -43,8 +43,9 @@ namespace
 			}
 		}));
 
-	// 가시선 검사: 벽 등 비상호작용 차단물에 막히면 잡기 불가. 가구·폰은 차단으로 치지 않고 무시 후 재시도(최대 6겹)
-	bool HasGrabLineOfSight(UWorld* World, AActor* OwnerActor, AActor* Target, const FVector& Start)
+	// 가시선 검사(단일 시작점): 벽 등 비상호작용 차단물에 막히면 잡기 불가.
+	// 가구·폰은 차단으로 치지 않고 무시 후 재시도(최대 6겹)
+	bool HasGrabLineOfSightFrom(UWorld* World, AActor* OwnerActor, AActor* Target, const FVector& Start)
 	{
 		if (!World || !Target)
 		{
@@ -75,6 +76,23 @@ namespace
 			return false; // 벽 등 비상호작용 차단물
 		}
 		return false; // 여러 겹 가려짐 — 사실상 도달 불가로 간주
+	}
+
+	// 가시선 검사: 카메라 기준이 막혀도 '캐릭터 눈높이' 기준으로 한 번 더 본다 —
+	// 상부장 아래 조리대 위 소품처럼 카메라(머리 위)에서는 선반에 가리지만 캐릭터는
+	// 정면으로 보고 있는 배치를 잡을 수 있게 한다 (캐릭터 기준이라 벽 뒤 악용은 여전히 차단)
+	bool HasGrabLineOfSight(UWorld* World, AActor* OwnerActor, AActor* Target, const FVector& Start)
+	{
+		if (HasGrabLineOfSightFrom(World, OwnerActor, Target, Start))
+		{
+			return true;
+		}
+		if (OwnerActor)
+		{
+			const FVector EyeStart = OwnerActor->GetActorLocation() + FVector(0.0f, 0.0f, 40.0f);
+			return HasGrabLineOfSightFrom(World, OwnerActor, Target, EyeStart);
+		}
+		return false;
 	}
 }
 
