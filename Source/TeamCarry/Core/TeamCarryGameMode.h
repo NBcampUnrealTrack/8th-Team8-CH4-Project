@@ -40,11 +40,11 @@ public:
 
 	// 가구 트럭 진입 시 호출
 	UFUNCTION(BlueprintCallable)
-	void OnFurnitureEnterTruck(FName RowName, float CurrentHealth, float MaxHealth, int32 BaseScore);
+	void OnFurnitureEnterTruck(AActor* FurnitureActor, FName RowName, float CurrentHealth, float MaxHealth, int32 BaseScore);
 
 	// 가구 트럭 이탈 시 호출
 	UFUNCTION(BlueprintCallable)
-	void OnFurnitureExitTruck(FName RowName);
+	void OnFurnitureExitTruck(AActor* FurnitureActor, FName RowName);
 	
 	// 가구 파괴 시 호출
 	UFUNCTION(BlueprintCallable)
@@ -83,22 +83,8 @@ public:
 	// 카운트다운 시작
 	void StartCountdown();
 
-	// 별 3개 기준 남은 시간 (블루프린트에서 스테이지마다 수정 가능)
-	// 남은 시간이 이 값 이상이면 별 3개
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite)
-	float StarThreeTime = 240.0f; // 기본 4분 이상 남으면 별 3개
-
-	// 별 2개 기준 남은 시간
-	// 남은 시간이 이 값 이상이면 별 2개
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite)
-	float StarTwoTime = 120.0f; // 기본 2분 이상 남으면 별 2개
-
-	// 게임 제한시간(초). 경과 시 게임 종료. 0 이하 = 무제한
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite)
-	float TimeLimitSeconds = 300.0f; // 기본 5분
-
 	// 이 스테이지에서 획득 가능한 전체 목표 값어치. 가구별 BaseScore가 블루프린트 이벤트 그래프에서만
-	// 관리되어(C++/DataTable에 없음) 자동 합산이 불가능하므로, 다른 스테이지별 상수(TimeLimitSeconds 등)와
+	// 관리되어(C++/DataTable에 없음) 자동 합산이 불가능하므로, 다른 스테이지별 상수와
 	// 같은 방식으로 디자이너가 스테이지마다 직접 설정한다. S_InGame 팀 값어치 게이지(PB_TeamMoney)의
 	// Max 값으로 쓰인다(UI_Technical_Spec.md 4장-7).
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite)
@@ -111,8 +97,9 @@ protected:
 	// 게임 종료 처리
 	void FinishGame(bool bIsClear);
 	
-	// 별 개수 판정 (남은 시간 기준)
-	int32 CalculateStar(float RemainingTime);
+	// 별 개수 판정 (트럭 안 가구 비율 기준)
+	// 75% 이상 → 별 3개, 50% 이상 → 별 2개, 그 이하 → 별 1개
+	int32 CalculateStar();
 
 	// 접속 중인 모든 플레이어가 스테이지 맵 로딩을 마쳤는지(ATCLobbyGameState::AreAllPlayersReady()와
 	// 동일한 형태 — PlayerArray 스캔). 인원 0이면 false.
@@ -143,6 +130,10 @@ private:
 
 	// 튕긴 플레이어 ID 목록
 	TArray<FUniqueNetIdRepl> DisconnectedPlayerIds;
+
+	// 가구별 무적 타이머 핸들 — 로컬 변수로 두면 타이머가 취소되므로 멤버로 관리.
+	TMap<TWeakObjectPtr<AActor>, FTimerHandle> InvincibleTimerHandles;
+
 
 	// GameState 캐시 (매 프레임 GetGameState 호출 방지)
 	UPROPERTY()

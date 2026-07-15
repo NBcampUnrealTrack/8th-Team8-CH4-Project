@@ -3,6 +3,8 @@
 #include "Kismet/GameplayStatics.h"
 #include "TCSaveGame.h"
 #include "Furniture/TCFurnitureActor.h"
+#include "CatchCharacter/Furniture/FurnitureActor.h"
+#include "CatchCharacter/Furniture/FurnitureDamage.h"
 #include "GameFramework/PlayerState.h"
 #include "Network/Session/TCGameInstance.h"
 #include "Player/PlayerState/TCPlayerState.h"
@@ -62,8 +64,8 @@ void ATeamCarryGameMode::BeginPlay()
     ATeamCarryGameState* GS = GetCachedGameState();
     if (GS)
     {
-        // 남은 시간을 제한시간으로 초기화
-        GS->RemainingTime = TimeLimitSeconds;
+        // 스톱워치 초기화
+        GS->ElapsedTime = 0.0f;
 
         // 팀 값어치 게이지의 Max 값(전체 목표 값어치)을 스테이지 시작 시 1회 복제한다. 스테이지 중 불변.
         GS->TotalLevelValue = TotalLevelValue;
@@ -182,19 +184,11 @@ void ATeamCarryGameMode::Tick(float DeltaTime)
     ATeamCarryGameState* GS = GetCachedGameState();
     if (!GS || GS->bIsGameFinished) return;
     
-    // Playing 단계일 때만 타이머 작동 (디버그 정지 CVar가 켜져 있으면 차감 보류)
+    // Playing 단계일 때만 스톱워치 작동 (디버그 정지 CVar가 켜져 있으면 보류)
     if (GS->CurrentPhase == EGamePhase::Playing && CVarTimerPause.GetValueOnGameThread() == 0)
     {
-        // 남은 시간 차감
-        GS->RemainingTime -= DeltaTime;
-
-        // 제한시간 초과 시 게임 종료 (TimeLimitSeconds <= 0 이면 무제한)
-        if (TimeLimitSeconds > 0.0f && GS->RemainingTime <= 0.0f)
-        {
-            GS->RemainingTime = 0.0f;
-            UE_LOG(LogTemp, Warning, TEXT("제한시간 초과 — 게임 종료"));
-            FinishGame(true);
-        }
+        // 경과 시간 증가 (시간 제한 없음 — 모든 가구가 트럭에 들어오면 게임 종료)
+        GS->ElapsedTime += DeltaTime;
     }
 }
 
@@ -422,7 +416,7 @@ void ATeamCarryGameMode::StartCountdown()
     }, 1.0f, true);
 }
 
-void ATeamCarryGameMode::OnFurnitureEnterTruck(FName RowName, float CurrentHealth, float MaxHealth, int32 BaseScore)
+void ATeamCarryGameMode::OnFurnitureEnterTruck(AActor* FurnitureActor, FName RowName, float CurrentHealth, float MaxHealth, int32 BaseScore)
 {
     ATeamCarryGameState* GS = GetCachedGameState();
     if (!GS || GS->bIsGameFinished) return;
@@ -448,6 +442,27 @@ void ATeamCarryGameMode::OnFurnitureEnterTruck(FName RowName, float CurrentHealt
     UE_LOG(LogTemp, Warning, TEXT("가구 트럭 진입: %s | 예상 점수: %d | 남은 가구: %d"),
         *RowName.ToString(), GS->TotalScore, GS->RemainingFurniture);
 
+    // 3초 후 가구 무적 설정 — DamageSystem 이 BeginPlay 이후 유효해지므로 딜레이 적용.
+    // 타이머 핸들을 멤버 맵에 보관해 로컬 변수 소멸로 타이머가 취소되는 문제를 방지한다.
+    if (AFurnitureActor* Furniture = Cast<AFurnitureActor>(FurnitureActor))
+    {
+        TWeakObjectPtr<AFurnitureActor> WeakFurniture = Furniture;
+        TWeakObjectPtr<ATeamCarryGameMode> WeakThis = this;
+        FTimerHandle& Handle = InvincibleTimerHandles.FindOrAdd(FurnitureActor);
+        GetWorldTimerManager().SetTimer(Handle, [WeakFurniture, WeakThis]()
+        {
+            if (!WeakFurniture.IsValid() || !WeakThis.IsValid()) return;
+            if (!WeakFurniture->GetDamageSystem())
+            {
+                UE_LOG(LogTemp, Warning, TEXT("[GameMode] %s DamageSystem nullptr — 무적 설정 불가"), *WeakFurniture->GetName());
+                return;
+            }
+            WeakFurniture->GetDamageSystem()->SetSuperInvincible(true);
+            UE_LOG(LogTemp, Log, TEXT("[GameMode] %s 무적 ON (3초 경과)"), *WeakFurniture->GetName());
+            WeakThis->InvincibleTimerHandles.Remove(WeakFurniture.Get());
+        }, 3.0f, false);
+    }
+
     // 모든 가구가 트럭 안에 들어오면 게임 종료
     if (GS->RemainingFurniture <= 0)
     {
@@ -455,10 +470,28 @@ void ATeamCarryGameMode::OnFurnitureEnterTruck(FName RowName, float CurrentHealt
     }
 }
 
-void ATeamCarryGameMode::OnFurnitureExitTruck(FName RowName)
+void ATeamCarryGameMode::OnFurnitureExitTruck(AActor* FurnitureActor, FName RowName)
 {
     ATeamCarryGameState* GS = GetCachedGameState();
     if (!GS || GS->bIsGameFinished) return;
+
+    // 트럭 이탈 시 무적 해제 + 진행 중인 3초 타이머도 취소
+    if (AFurnitureActor* Furniture = Cast<AFurnitureActor>(FurnitureActor))
+    {
+        // 3초 타이머가 아직 진행 중이면 취소
+        if (FTimerHandle* Handle = InvincibleTimerHandles.Find(FurnitureActor))
+        {
+            GetWorldTimerManager().ClearTimer(*Handle);
+            InvincibleTimerHandles.Remove(FurnitureActor);
+            UE_LOG(LogTemp, Log, TEXT("[GameMode] %s 무적 타이머 취소 (트럭 이탈)"), *Furniture->GetName());
+        }
+        // 이미 무적 상태면 해제
+        if (Furniture->GetDamageSystem())
+        {
+            Furniture->GetDamageSystem()->SetSuperInvincible(false);
+            UE_LOG(LogTemp, Log, TEXT("[GameMode] %s 무적 OFF (트럭 이탈)"), *Furniture->GetName());
+        }
+    }
 
     // 같은 RowName 중 첫 번째 하나만 제거
     for (int32 i = 0; i < FurnitureInTruck.Num(); i++)
@@ -495,7 +528,10 @@ void ATeamCarryGameMode::OnFurnitureDestroyed()
     GS->DestroyedFurnitureCount++;
     GS->OnRep_RemainingFurniture();
 
-    UE_LOG(LogTemp, Warning, TEXT("가구 파괴 | 남은 가구: %d"), GS->RemainingFurniture);
+    // 파괴된 가구 개수 증가 — TCFeedbackSubsystem 핫타임 비율 계산에 사용
+    GS->DestroyedFurnitureCount++;
+
+    UE_LOG(LogTemp, Warning, TEXT("가구 파괴 | 남은 가구: %d | 파괴 누계: %d"), GS->RemainingFurniture, GS->DestroyedFurnitureCount);
 
     if (GS->RemainingFurniture <= 0)
     {
@@ -503,12 +539,16 @@ void ATeamCarryGameMode::OnFurnitureDestroyed()
     }
 }
 
-int32 ATeamCarryGameMode::CalculateStar(float RemainingTime)
+int32 ATeamCarryGameMode::CalculateStar()
 {
-    // 남은 시간 기준 별 판정
-    if (RemainingTime >= StarThreeTime) return 3; // 4분 이상 남으면 별 3개
-    if (RemainingTime >= StarTwoTime)  return 2;  // 2분 이상 남으면 별 2개
-    return 1;                                     // 그 이하는 별 1개
+    // 트럭 안 가구 비율 기준 별 판정
+    if (TotalFurnitureCount <= 0) return 1;
+
+    const float Ratio = (float)FurnitureInTruck.Num() / (float)TotalFurnitureCount;
+
+    if (Ratio >= 0.75f) return 3; // 75% 이상 트럭 안 → 별 3개
+    if (Ratio >= 0.50f) return 2; // 50% 이상 → 별 2개
+    return 1;                     // 그 이하 → 별 1개
 }
 
 int32 ATeamCarryGameMode::CalculateFinalScore()
@@ -547,8 +587,8 @@ void ATeamCarryGameMode::FinishGame(bool bIsClear)
     GS->TotalScore = AccumulatedScore;
     GS->OnRep_TotalScore();
 
-    // 남은 시간 기준으로 별 판정
-    GS->StarCount = CalculateStar(GS->RemainingTime);
+    // 트럭 안 가구 비율 기준으로 별 판정
+    GS->StarCount = CalculateStar();
 
     // 명세 4장-8: 로컬 Pause 대신 타이머류도 명시적으로 정지시킨다(카운트다운 중 조기 종료되는 경우 대비).
     GetWorldTimerManager().ClearTimer(CountdownTimerHandle);
@@ -577,8 +617,8 @@ void ATeamCarryGameMode::FinishGame(bool bIsClear)
             WeakThis->SaveGame(WeakThis->GetWorld()->GetMapName());
         }
 
-        UE_LOG(LogTemp, Warning, TEXT("게임 종료 | 최종 점수: %d | 별: %d개 | 남은 시간: %.1f초"),
-            GS->TotalScore, GS->StarCount, GS->RemainingTime);
+        UE_LOG(LogTemp, Warning, TEXT("게임 종료 | 최종 점수: %d | 별: %d개 | 소요 시간: %.1f초"),
+            GS->TotalScore, GS->StarCount, GS->ElapsedTime);
 
     }, 5.0f, false);
 }

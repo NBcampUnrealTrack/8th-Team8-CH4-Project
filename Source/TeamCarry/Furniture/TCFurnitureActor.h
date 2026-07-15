@@ -8,6 +8,7 @@
 #include "TCFurnitureActor.generated.h"
 
 class UMaterialInterface;
+class UUserWidget;
 
 /**
  * 
@@ -79,7 +80,24 @@ protected:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Crack", meta = (ClampMin = "0.0", ClampMax = "1.0"))
     float CrackStage2Ratio = 0.3f;
 
-    // 체력 변화 콜백 (서버·클라 공통). 금 단계 갱신.
+    // =====================================================================
+    // 데미지 숫자 UI — 피해를 입을 때마다 가구 위에 피해량 위젯을 띄움 (전 클라, 각자 로컬 표시).
+    // 체력 감지는 금 표시와 같은 OnFurnitureDamage(서버 TakeDamage + 클라 OnRep) 경로 재사용.
+    // 위젯 BP 계약: 'SetDamage(float)' 함수를 구현하면 피해량이 전달됨 (없어도 크래시 없음).
+    // =====================================================================
+
+    // 피해량 표시 위젯 클래스. 비워두면 표시 안 함 (C++ 기본 경로 자동 로드 시도).
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|DamageUI")
+    TSubclassOf<UUserWidget> DamageNumberWidgetClass;
+
+    // 위젯 자동 제거까지의 시간(초). 위젯 애니메이션 길이와 맞출 것.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|DamageUI")
+    float DamageNumberLifetime = 1.2f;
+
+    // 피해량 위젯 스폰 (스크린 스페이스 위젯 컴포넌트, Lifetime 후 자동 제거)
+    void SpawnDamageNumber(float Damage);
+
+    // 체력 변화 콜백 (서버·클라 공통). 금 단계 갱신 + 데미지 숫자 표시.
     UFUNCTION()
     void OnFurnitureDamaged(float MaxHealth, float OldHealth, float NewHealth);
 

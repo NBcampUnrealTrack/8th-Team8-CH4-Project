@@ -65,10 +65,9 @@ protected:
 	void ServerRotateFurniture(FRotator RotationDelta);
 
 	// 가구를 들고 떨어질 때 강제로 놓치게 되는 최대 체공 시간
-	// 0.01f는 사실상 '1프레임 공중 = 드랍'이라 경사/턱/계단에서 공동 운반이
-	// 수시로 붕괴하던 원인 — 틱 로직 주석의 의도값(0.8초)으로 복원
+	// 0.01 = 공중에 뜨는 즉시 드랍 (점프 운반 방지)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interaction")
-	float MaxFallTimeToDrop = 0.8f;
+	float MaxFallTimeToDrop = 0.01f;
 
 private:
 	// 현재 체공 시간 추적용
