@@ -132,6 +132,14 @@ void ATCFurnitureActor::OnFurnitureDamaged(float MaxHealth, float OldHealth, flo
     if (MaxHealth <= 0.f)
         return;
 
+    // 이전 값이 MaxHealth 초과 = 스탯 초기화(생성자 기본 100 → 데이터테이블 값)로 낮아진 것 —
+    // 타격이 아니므로 금 표시 동기화만 하고 데미지 숫자는 띄우지 않는다
+    if (OldHealth > MaxHealth + KINDA_SMALL_NUMBER)
+    {
+        UpdateCrackVisual(NewHealth / MaxHealth);
+        return;
+    }
+
     UpdateCrackVisual(NewHealth / MaxHealth);
 
     // 피해량 숫자 표시 (체력이 실제로 줄었을 때만 — 회복/동일값 복제는 무시)

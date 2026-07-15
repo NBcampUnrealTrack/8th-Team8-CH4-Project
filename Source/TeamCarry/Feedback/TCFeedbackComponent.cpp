@@ -150,7 +150,10 @@ void UTCFeedbackComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 				}
 			}
 		}
-		else if (LastHealth > 0.f && Health < LastHealth - KINDA_SMALL_NUMBER)
+		// 이전 값이 MaxHealth를 넘으면 스탯 초기화(생성자 기본 100 → 데이터테이블 값)로 낮아진 것 —
+		// 타격이 아니므로 연출 없이 기준만 재동기화 (레벨 시작 시 저체력 소품의 유령 쿵·별팝 방지)
+		else if (LastHealth > 0.f && Health < LastHealth - KINDA_SMALL_NUMBER
+			&& LastHealth <= Stat->GetMaxHealth() + KINDA_SMALL_NUMBER)
 		{
 			// 인원 미달 운반의 내구도 드레인(잡힌 상태의 지속 소모)은 충돌 히트 피드백 대상이 아님
 			const bool bUnderMannedDrain = ReadGrabbed() && Stat
