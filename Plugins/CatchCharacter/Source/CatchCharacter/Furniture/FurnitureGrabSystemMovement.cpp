@@ -788,7 +788,23 @@ void UFurnitureGrabSystem::MoveSweepFurniture(FGrabMoveContext& Ctx)
 	}
 
 	// HeightOffset 대신 보간된 CurrentHeightOffset 적용
-	const FVector DesiredPos = TargetLoc + FVector(0.0f, 0.0f, CurrentHeightOffset);
+	FVector DesiredPos = TargetLoc + FVector(0.0f, 0.0f, CurrentHeightOffset);
+
+	// [목표 이동 상한] 2인 동시 입력으로 제안이 어긋나면 거리 비례 가중 평균이 틱마다
+	// 반대편으로 출렁여 가구가 달달거린다 — 한 틱 XY 이동량을 운반 속도 기준으로 제한해
+	// 평형점으로 수렴시킨다 (정상 주행의 틱당 이동량은 상한보다 훨씬 작아 영향 없음)
+	{
+		const FVector CurLoc = Owner->GetActorLocation();
+		FVector StepXY(DesiredPos.X - CurLoc.X, DesiredPos.Y - CurLoc.Y, 0.0f);
+		const float MaxStep = (ComputeCarrySpeed() * 1.5f + 200.0f) * DeltaTime;
+		if (MaxStep > 0.0f && StepXY.SizeSquared() > FMath::Square(MaxStep))
+		{
+			StepXY = StepXY.GetClampedToMaxSize(MaxStep);
+			DesiredPos.X = CurLoc.X + StepXY.X;
+			DesiredPos.Y = CurLoc.Y + StepXY.Y;
+		}
+	}
+
 	const FRotator PreMoveRot = Owner->GetActorRotation();   // 회전 관통 롤백·보정 기준
 	// 피벗-중심 보정용: 이동 전 메시 중심의 로컬 오프셋 캡처 (스케일 포함)
 	const FVector PreLocalCenter = FurnitureMesh
