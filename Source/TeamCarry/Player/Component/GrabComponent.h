@@ -35,6 +35,10 @@ public:
 	// 현재 잡고 있는 액터 반환
 	AActor* GetGrabbedActor() const { return GrabbedActor; }
 
+	// [리쉬] 운반 중 이동 입력 필터 — 대형 반경 밖으로 나가는(원심) 성분만 제거, 접선 유지.
+	// 소유 클라 입력 단계에서 잘라 ServerMove가 같은 가속을 재생 → 예측 보정 왕복이 없다.
+	FVector FilterCarryInput(const FVector& WorldInput) const;
+
 	// 플레이어가 가구 회전을 요청할 때 호출할 함수
 	void TryRotateFurniture(FRotator RotationDelta);
 

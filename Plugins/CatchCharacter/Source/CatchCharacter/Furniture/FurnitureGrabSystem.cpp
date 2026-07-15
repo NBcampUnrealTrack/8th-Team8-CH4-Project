@@ -50,6 +50,7 @@ void UFurnitureGrabSystem::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>&
 	DOREPLIFETIME(UFurnitureGrabSystem, GrabbedPlayers);
 	DOREPLIFETIME(UFurnitureGrabSystem, ServerLocation);
 	DOREPLIFETIME(UFurnitureGrabSystem, ServerRotation);
+	DOREPLIFETIME(UFurnitureGrabSystem, bMoveConstrained);
 }
 
 // =====================================================================
@@ -320,6 +321,7 @@ void UFurnitureGrabSystem::Release(ACharacter* Grabber)
 
 		bYawStalemate = false;            // 다음 그랩에 교착 상태 누출 방지
 		bCarrierBlockedLastTick = false;  // 다음 그랩에 막힘 상태 누출 방지
+		bMoveConstrained = false;         // 다음 그랩에 리쉬 동결 상태 누출 방지
 	}
 
 	// 놓는 순간 무적: 물리 복원 직후 바닥 낙하 접촉(Hit 이벤트)으로
@@ -497,7 +499,48 @@ FVector UFurnitureGrabSystem::GetAttachedLocation(ACharacter* Player, const FVec
 float UFurnitureGrabSystem::GetDesiredYaw(ACharacter* Player, float FurnitureYaw) const
 {
 	const FGrabAnchor& A = Anchors[Player];
-	return A.InitialPlayerYaw + FMath::FindDeltaAngleDegrees(A.InitialFurnitureYaw, FurnitureYaw);
+	float Desired = A.InitialPlayerYaw + FMath::FindDeltaAngleDegrees(A.InitialFurnitureYaw, FurnitureYaw);
+
+	// [가구 바라봄 보정] 가구가 막혀 몸 정면으로 못 오는 동안 몸통 목표가 가구 방향에서
+	// 30° 넘게 벗어나면 초과분만큼 가구 쪽으로 굽힌다 — 정면 복원이 끝나면 자연히 0으로.
+	// 무상태 계산이라 서버·소유 클라가 같은 결과 → 이중 회전 없음 (30uu 미만은 방향 노이즈 가드)
+	if (FurnitureMesh && Player)
+	{
+		const FVector ToFurn = FurnitureMesh->Bounds.Origin - Player->GetActorLocation();
+		if (ToFurn.SizeSquared2D() > FMath::Square(30.0f))
+		{
+			const float FurnDirYaw = FMath::RadiansToDegrees(FMath::Atan2(ToFurn.Y, ToFurn.X));
+			const float Miss   = FMath::FindDeltaAngleDegrees(Desired, FurnDirYaw);
+			const float Excess = FMath::Max(FMath::Abs(Miss) - 30.0f, 0.0f);
+			if (Excess > 0.0f)
+			{
+				Desired = FRotator::NormalizeAxis(Desired + FMath::Sign(Miss) * Excess);
+			}
+		}
+	}
+	return Desired;
+}
+
+bool UFurnitureGrabSystem::GetCarryLeash(ACharacter* Player, FVector& OutAttach, float& OutRadius) const
+{
+	AActor* Owner = GetOwner();
+	if (!Owner || !Player || !GrabbedPlayers.Contains(Player) || !Anchors.Contains(Player))
+		return false;
+
+	OutAttach = GetAttachedLocation(Player,
+		Owner->GetActorLocation() - FVector(0.0f, 0.0f, CurrentHeightOffset),
+		Owner->GetActorRotation().Yaw);
+	// 클라 필터는 서버 한계보다 '좁게' — 클라가 먼저 멈추면 서버의 속도 클램프에 닿지 않아
+	// 예측 보정 왕복이 아예 없다 (넓게 주면 클라가 한계 밖까지 걸었다 되끌려와 밴딩).
+	// (-25: 줄다리기 벌어짐 완화 튜닝 — 다음 풀빌드 때 LeashRadius 기본값 45로 정리 예정)
+	OutRadius = FMath::Max(LeashRadius - 25.0f, 20.0f) - (Owner->HasAuthority() ? 0.0f : 8.0f);
+	// 이동 봉인 중엔 반경을 현재 거리로 동결 — 어느 방향으로도 더 벌어질 수 없다
+	if (bMoveConstrained)
+	{
+		const float Dist = FVector::Dist2D(Player->GetActorLocation(), OutAttach);
+		OutRadius = FMath::Min(OutRadius, Dist + 2.0f);
+	}
+	return true;
 }
 
 
