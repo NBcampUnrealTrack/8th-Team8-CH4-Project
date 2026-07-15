@@ -152,28 +152,34 @@ void UTCFeedbackComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 		}
 		else if (LastHealth > 0.f && Health < LastHealth - KINDA_SMALL_NUMBER)
 		{
-			// 내구도 깎임 — 소프트 우드 히트 (2종 랜덤 + 피치 흔들림)
-			const int32 HitIdx = FMath::RandRange(0, 1);
-			if (USoundBase* HitS = LoadObject<USoundBase>(nullptr, DefaultHitSounds[HitIdx]))
+			// 인원 미달 운반의 내구도 드레인(잡힌 상태의 지속 소모)은 충돌 히트 피드백 대상이 아님
+			const bool bUnderMannedDrain = ReadGrabbed() && Stat
+				&& Stat->GetGrabbedPlayerNum() < Stat->GetRequiredPlayer();
+			if (!bUnderMannedDrain)
 			{
-				UGameplayStatics::PlaySoundAtLocation(this, HitS, Owner->GetActorLocation(),
-					1.f, FMath::RandRange(0.9f, 1.1f));
-			}
+				// 내구도 깎임 — 소프트 우드 히트 (2종 랜덤 + 피치 흔들림)
+				const int32 HitIdx = FMath::RandRange(0, 1);
+				if (USoundBase* HitS = LoadObject<USoundBase>(nullptr, DefaultHitSounds[HitIdx]))
+				{
+					UGameplayStatics::PlaySoundAtLocation(this, HitS, Owner->GetActorLocation(),
+						1.f, FMath::RandRange(0.9f, 1.1f));
+				}
 
-			// 우드 히트 아래에 저역 '쿵'을 겹쳐 무게감을 만든다 (피치 랜덤으로 반복감 완화)
-			if (USoundBase* Thud = LoadObject<USoundBase>(nullptr, DefaultThudSound))
-			{
-				UGameplayStatics::PlaySoundAtLocation(this, Thud, Owner->GetActorLocation(),
-					1.f, FMath::RandRange(0.92f, 1.06f));
-			}
+				// 우드 히트 아래에 저역 '쿵'을 겹쳐 무게감을 만든다 (피치 랜덤으로 반복감 완화)
+				if (USoundBase* Thud = LoadObject<USoundBase>(nullptr, DefaultThudSound))
+				{
+					UGameplayStatics::PlaySoundAtLocation(this, Thud, Owner->GetActorLocation(),
+						1.f, FMath::RandRange(0.92f, 1.06f));
+				}
 
-			// 만화식 별 팝 — 가구 상단에서 터져 '띵' 하고 부딪힌 게 한눈에 보이게
-			if (UNiagaraSystem* Stars = LoadObject<UNiagaraSystem>(nullptr, DefaultHitStarsFX))
-			{
-				FVector Origin, Extent;
-				Owner->GetActorBounds(false, Origin, Extent);
-				const FVector Top(Origin.X, Origin.Y, Origin.Z + Extent.Z * 0.6f);
-				UNiagaraFunctionLibrary::SpawnSystemAtLocation(this, Stars, Top);
+				// 만화식 별 팝 — 가구 상단에서 터져 '띵' 하고 부딪힌 게 한눈에 보이게
+				if (UNiagaraSystem* Stars = LoadObject<UNiagaraSystem>(nullptr, DefaultHitStarsFX))
+				{
+					FVector Origin, Extent;
+					Owner->GetActorBounds(false, Origin, Extent);
+					const FVector Top(Origin.X, Origin.Y, Origin.Z + Extent.Z * 0.6f);
+					UNiagaraFunctionLibrary::SpawnSystemAtLocation(this, Stars, Top);
+				}
 			}
 		}
 		LastHealth = Health;
@@ -249,13 +255,26 @@ void UTCFeedbackComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 	UE_LOG(LogTemp, Log, TEXT("[Feedback] %s 잡힘 전이: %s"), *GetNameSafe(Owner),
 		bGrabbed ? TEXT("잡기") : TEXT("놓기"));
 
-	// 놓는 순간: 포커스 규칙(스텐실 1)으로 복원하고 링은 끈다 (포커스하면 다시 켜짐)
+	// 놓는 순간: 핫타임이면 빨간 링(4)을 즉시 복원, 아니면 포커스 규칙(1)으로 끈다
 	if (!bGrabbed)
 	{
 		if (UStaticMeshComponent* MeshC = Owner->FindComponentByClass<UStaticMeshComponent>())
 		{
-			MeshC->SetCustomDepthStencilValue(1);
-			MeshC->SetRenderCustomDepth(false);
+			UWorld* RW = GetWorld();
+			const ATeamCarryGameState* RGS = RW ? RW->GetGameState<ATeamCarryGameState>() : nullptr;
+			const bool bStillUrgent = RGS && !RGS->bIsGameFinished
+				&& RGS->CurrentPhase == EGamePhase::Playing
+				&& RGS->bIsHotTime;
+			if (bStillUrgent)
+			{
+				MeshC->SetCustomDepthStencilValue(4);
+				MeshC->SetRenderCustomDepth(true);
+			}
+			else
+			{
+				MeshC->SetCustomDepthStencilValue(1);
+				MeshC->SetRenderCustomDepth(false);
+			}
 		}
 	}
 
