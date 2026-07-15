@@ -48,9 +48,12 @@ namespace
 		{
 			return false;
 		}
-		// 피벗(ActorLocation)은 바닥 높이인 가구가 많아 경사면에서 라인이 지형에 스치며
-		// 막힘 오탐이 남 → 실제 몸통인 바운즈 중심을 향해 쏜다.
-		const FVector TargetPoint = Target->GetComponentsBoundingBox().GetCenter();
+		// 피벗(ActorLocation)은 바닥 높이인 가구가 많아 경사면에서 지형 오탐이 나고,
+		// 바운즈 '중심'은 TV·벽 틈에 낀 가구(스피커 등)에서 중심이 이웃 가구/벽 뒤에 있어
+		// 차단 오탐이 남 → '플레이어에서 가장 가까운 바운즈 지점'을 향해 쏜다.
+		// (박스 안에 서 있으면 그 지점=Start라 길이 0 트레이스 → 자동 통과. 진짜 벽 뒤
+		//  가구는 앞면 지점까지 가는 길도 벽에 막히므로 여전히 정상 차단된다.)
+		const FVector TargetPoint = Target->GetComponentsBoundingBox().GetClosestPointTo(Start);
 		FCollisionQueryParams Params(SCENE_QUERY_STAT(GrabLOS), /*bTraceComplex=*/false);
 		Params.AddIgnoredActor(OwnerActor);
 		for (int32 Depth = 0; Depth < 6; ++Depth)
@@ -104,6 +107,22 @@ void UGrabComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorC
 	// 휠 줌(HandleZoomInput)이 TargetArmLength 를 직접 제어하는 것과 매 틱 충돌해 제거함.
 	// 운반 시야 확보는 '잡힌 가구의 카메라 채널 무시'(FurnitureGrabSystem::Grab)로 처리한다.
 
+	// [유령 잡기 정리] 대형 이탈 자동 해제처럼 GrabSystem 쪽에서만 해제되는 경로는
+	// GrabbedActor를 정리하지 못해 '가구는 떨어졌는데 잡은 판정'이 남는다(E를 눌러
+	// 유령 해제를 해야 풀림) → 서버가 매 틱 GrabSystem과 대조해 남은 참조를 지운다.
+	// GrabbedActor는 Replicated라 클라 판정도 함께 복구된다.
+	if (GrabbedActor && GetOwner() && GetOwner()->HasAuthority())
+	{
+		ACharacter* OwnerCharForHeal = Cast<ACharacter>(GetOwner());
+		const UFurnitureGrabSystem* GrabSys = GrabbedActor->FindComponentByClass<UFurnitureGrabSystem>();
+		if (OwnerCharForHeal && GrabSys && !GrabSys->IsGrabbedBy(OwnerCharForHeal))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[운반] 유령 잡기 정리: %s → %s (GrabSystem엔 이미 없음)"),
+				*OwnerCharForHeal->GetName(), *GrabbedActor->GetName());
+			GrabbedActor = nullptr;
+		}
+	}
+
 	// 가구를 들고 체공 시 강제 드랍
 	if (GrabbedActor)
 	{
@@ -116,12 +135,25 @@ void UGrabComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorC
 				{
 					CurrentFallTime += DeltaTime;
 
-					// 설정한 체공 시간(0.8초)을 초과하면 강제로 놓기
+					// 설정한 체공 시간을 초과하면 강제로 놓기
 					if (CurrentFallTime >= MaxFallTimeToDrop)
 					{
 						// 로컬 클라 + 서버에서 실행 (중복 통신 방지)
 						if (OwnerChar->IsLocallyControlled() || OwnerChar->HasAuthority())
 						{
+							if (CVarGrabDebug.GetValueOnGameThread() != 0 && GEngine)
+							{
+								// '들다 갑자기 놓침' 스크린샷용 — 체공 자동 드랍이 원인일 때 이 문구가 뜬다
+								// (허용 체공이 짧아 견인·턱·요철의 순간 공중 판정만으로도 드랍될 수 있음)
+								GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Red,
+									FString::Printf(TEXT("[운반] 체공 자동 드랍: %s 체공 %.2fs (허용 %.2fs)"),
+										*OwnerChar->GetName(), CurrentFallTime, MaxFallTimeToDrop));
+								DrawDebugSphere(GetWorld(), OwnerChar->GetActorLocation(), 40.0f, 12,
+									FColor::Red, false, 5.0f, 0, 3.0f);
+							}
+							// 사후 로그 분석용 — F9 여부와 무관하게 기록 (Output Log에서 "체공" 검색)
+							UE_LOG(LogTemp, Warning, TEXT("[운반] 체공 자동 드랍: %s 체공 %.2fs (허용 %.2fs)"),
+								*OwnerChar->GetName(), CurrentFallTime, MaxFallTimeToDrop);
 							// 가구 내려놓기 로직 호출
 							TryInteract();
 						}
@@ -246,6 +278,10 @@ void UGrabComponent::ScanBestTarget()
 	AActor* NewBestTarget = nullptr;
 	float HighestScore = -1.0f; // 여러 대상이 감지되면 점수로 우선 순위를 계산해서 추려내기
 
+	// 후보 수집용 (같은 액터는 최고점 하나만) — 스택 우선순위 후처리를 위해 즉시 선정하지 않는다
+	struct FGrabCandidate { AActor* Actor; float Score; FBox Bounds; };
+	TArray<FGrabCandidate> Candidates;
+
 	if (bHit)
 	{
 		for (const FHitResult& Hit : HitResults)
@@ -315,13 +351,54 @@ void UGrabComponent::ScanBestTarget()
 				// 가중치(W1, W2)는 게임 플레이에 맞춰 조정 가능
 				float Score = (DotProduct * 1000.0f) + (1000.0f / (Distance + 1.0f));
 
-				// 기존 최고 점수보다 높다면 갱신
-				if (Score > HighestScore)
+				// [지근거리 점수 보정] 시작 겹침 히트의 ImpactPoint는 방향이 무의미하게
+				// (등 뒤·원점 등으로) 계산되어 내적이 음수면 점수가 초기 문턱(-1)보다 낮아져
+				// '품 안' 가구가 후보에서 통째로 탈락하던 버그. 각도 면제만으로는 부족했음 —
+				// 품 안 후보는 방향 점수 대신 고정 최우선 점수 + 실제 근접 보너스로 산정한다.
+				if (bPointBlank)
 				{
-					HighestScore = Score;
-					NewBestTarget = HitActor;
+					const float NearDist = FVector::Distance(Start,
+						HitActor->GetComponentsBoundingBox().GetClosestPointTo(Start));
+					Score = 2000.0f + 1000.0f / (NearDist + 1.0f);
+				}
+
+				// 후보 수집 (같은 액터의 중복 히트는 최고점만 유지)
+				bool bMerged = false;
+				for (FGrabCandidate& C : Candidates)
+				{
+					if (C.Actor == HitActor)
+					{
+						C.Score = FMath::Max(C.Score, Score);
+						bMerged = true;
+						break;
+					}
+				}
+				if (!bMerged)
+				{
+					Candidates.Add({ HitActor, Score, HitActor->GetComponentsBoundingBox() });
 				}
 			}
+		}
+	}
+
+	// [겹침 스택 우선순위] 후보끼리 바운즈가 겹치면(매트리스가 침대 프레임 박스 안에 안기는
+	// 배치 등) 더 큰(감싸는) 쪽을 감점 — 겹친 쌍에서는 위에 얹힌 작은 물건이 먼저 잡힌다.
+	for (int32 i = 0; i < Candidates.Num(); ++i)
+	{
+		for (int32 j = i + 1; j < Candidates.Num(); ++j)
+		{
+			if (!Candidates[i].Bounds.Intersect(Candidates[j].Bounds))
+				continue;
+			const bool bIBigger = Candidates[i].Bounds.GetVolume() > Candidates[j].Bounds.GetVolume();
+			(bIBigger ? Candidates[i] : Candidates[j]).Score *= 0.4f;
+		}
+	}
+	for (const FGrabCandidate& C : Candidates)
+	{
+		if (C.Score > HighestScore)
+		{
+			HighestScore = C.Score;
+			NewBestTarget = C.Actor;
 		}
 	}
 
