@@ -17,10 +17,20 @@ void UFurnitureDamage::BeginPlay()
 	PreviousLocation = GetOwner()->GetActorLocation();
 	PreviousQuat     = GetOwner()->GetActorQuat();
 
-	// 스폰 직후 낙하/배치 접촉으로 즉시 데미지 입는 것 방지 (서버 전용)
+	// 스폰 직후 낙하/배치 정착 접촉으로 즉시 데미지 입는 것 방지 (서버 전용).
+	// 일반 무적은 강한 물리 충격이 관통하므로(던지기 즉시 등록용) 정착 임펄스가 뚫고 들어와
+	// 시작하자마자 내구도가 깎이고 타격음이 났다 — 시작 구간은 관통 불가 완전 무적으로 덮는다
 	if (GetOwner() && GetOwner()->HasAuthority())
 	{
+		SetSuperInvincible(true);
 		SetInvincible(3.f);
+		if (UWorld* World = GetWorld())
+		{
+			FTimerHandle SettleTimer;
+			World->GetTimerManager().SetTimer(SettleTimer,
+				FTimerDelegate::CreateWeakLambda(this, [this]() { SetSuperInvincible(false); }),
+				3.0f, false);
+		}
 	}
 }
 
