@@ -16,6 +16,7 @@
 #include "Blueprint/UserWidget.h"
 #include "Engine/Engine.h"
 #include "TimerManager.h"
+#include "EngineUtils.h"
 
 namespace
 {
@@ -244,8 +245,19 @@ void UTCFeedbackComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 		{
 			if (UStaticMeshComponent* MeshC = Owner->FindComponentByClass<UStaticMeshComponent>())
 			{
-				if (MeshC->CustomDepthStencilValue != 4) { MeshC->SetCustomDepthStencilValue(4); }
-				if (!MeshC->bRenderCustomDepth) { MeshC->SetRenderCustomDepth(true); }
+				// 이미 적재 공간에 들어간 가구는 재촉 대상이 아님 — 빨간 링 제외/해제
+				if (IsOwnerInTruckZone())
+				{
+					if (MeshC->bRenderCustomDepth && MeshC->CustomDepthStencilValue == 4)
+					{
+						MeshC->SetRenderCustomDepth(false);
+					}
+				}
+				else
+				{
+					if (MeshC->CustomDepthStencilValue != 4) { MeshC->SetCustomDepthStencilValue(4); }
+					if (!MeshC->bRenderCustomDepth) { MeshC->SetRenderCustomDepth(true); }
+				}
 			}
 		}
 	}
@@ -268,7 +280,8 @@ void UTCFeedbackComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 			const bool bStillUrgent = RGS && !RGS->bIsGameFinished
 				&& RGS->CurrentPhase == EGamePhase::Playing
 				&& RGS->bIsHotTime;
-			if (bStillUrgent)
+			// 적재 공간 안에 내려놓은 가구는 재촉 대상이 아님 — 빨간 링 복원 제외
+			if (bStillUrgent && !IsOwnerInTruckZone())
 			{
 				MeshC->SetCustomDepthStencilValue(4);
 				MeshC->SetRenderCustomDepth(true);
@@ -318,6 +331,28 @@ void UTCFeedbackComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 	}
 }
 
+
+bool UTCFeedbackComponent::IsOwnerInTruckZone()
+{
+	// 적재존(BP_TruckTrigger)은 BP 전용 클래스라 이름으로 1회 탐색 후 캐시한다
+	if (!bTruckZoneSearched)
+	{
+		bTruckZoneSearched = true;
+		if (UWorld* World = GetWorld())
+		{
+			for (TActorIterator<AActor> It(World); It; ++It)
+			{
+				if (It->GetClass()->GetName().Contains(TEXT("TruckTrigger")))
+				{
+					CachedTruckZone = *It;
+					break;
+				}
+			}
+		}
+	}
+	AActor* Owner = GetOwner();
+	return Owner && CachedTruckZone.IsValid() && CachedTruckZone->IsOverlappingActor(Owner);
+}
 
 bool UTCFeedbackComponent::ReadGrabbed() const
 {

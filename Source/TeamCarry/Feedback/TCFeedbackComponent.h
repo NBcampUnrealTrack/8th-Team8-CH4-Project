@@ -10,6 +10,7 @@ class USoundBase;
 class UNiagaraSystem;
 class UFurnitureGrabSystem;
 class UFurnitureStat;
+class AActor;
 
 /**
  * 가구 잡기/놓기 피드백 컴포넌트.
@@ -69,6 +70,11 @@ private:
 
 	bool bLastGrabbed = false;
 
+	// 적재존(BP_TruckTrigger) 캐시 — 핫타임 빨간 링에서 존 안 가구를 제외할 때 사용
+	TWeakObjectPtr<AActor> CachedTruckZone;
+	bool bTruckZoneSearched = false;
+
 	bool ReadGrabbed() const;
 	FVector GetFXLocation() const;
+	bool IsOwnerInTruckZone();
 };
