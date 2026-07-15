@@ -13,8 +13,9 @@
 // 트럭 안 가구 정보 구조체
 struct FTruckFurnitureInfo
 {
-	FName RowName;
-	float CurrentHealth;
+	TWeakObjectPtr<AActor> FurnitureActor; // 가구 액터 식별용
+	uint32 ActorUniqueID = 0;              // GetUniqueID() — 포인터 비교 불일치 시 폴백용
+	float CurrentHealth;                   // Tick 에서 갱신되는 현재 내구도
 	float MaxHealth;
 	int32 BaseScore;
 };
@@ -40,15 +41,15 @@ public:
 
 	// 가구 트럭 진입 시 호출
 	UFUNCTION(BlueprintCallable)
-	void OnFurnitureEnterTruck(AActor* FurnitureActor, FName RowName, float CurrentHealth, float MaxHealth, int32 BaseScore);
+	void OnFurnitureEnterTruck(AActor* FurnitureActor, float CurrentHealth, float MaxHealth, int32 BaseScore);
 
 	// 가구 트럭 이탈 시 호출
 	UFUNCTION(BlueprintCallable)
-	void OnFurnitureExitTruck(AActor* FurnitureActor, FName RowName);
+	void OnFurnitureExitTruck(AActor* FurnitureActor, float CurrentHealth, float MaxHealth, int32 BaseScore);
 	
 	// 가구 파괴 시 호출
 	UFUNCTION(BlueprintCallable)
-	void OnFurnitureDestroyed();
+	void OnFurnitureDestroyed(AActor* FurnitureActor);
 
 	// 스테이지 시작 시 옮겨야 할 가구 개수 설정
 	UFUNCTION(BlueprintCallable)

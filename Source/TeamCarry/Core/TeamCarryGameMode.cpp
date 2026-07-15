@@ -3,6 +3,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "TCSaveGame.h"
 #include "Furniture/TCFurnitureActor.h"
+#include "CatchCharacter/Furniture/FurnitureStat.h"
 #include "CatchCharacter/Furniture/FurnitureActor.h"
 #include "CatchCharacter/Furniture/FurnitureDamage.h"
 #include "GameFramework/PlayerState.h"
@@ -189,6 +190,36 @@ void ATeamCarryGameMode::Tick(float DeltaTime)
     {
         // 경과 시간 증가 (시간 제한 없음 — 모든 가구가 트럭에 들어오면 게임 종료)
         GS->ElapsedTime += DeltaTime;
+    }
+
+    // 트럭 안 가구 내구도 변화 감지 — 변화 시 즉시 점수 갱신
+    if (GS->CurrentPhase == EGamePhase::Playing && FurnitureInTruck.Num() > 0)
+    {
+        bool bScoreChanged = false;
+        int32 NewAccumulatedScore = 0;
+        for (FTruckFurnitureInfo& Info : FurnitureInTruck)
+        {
+            if (Info.FurnitureActor.IsValid() && Info.ActorUniqueID != 0)
+            {
+                // FurnitureStat 컴포넌트에서 현재 내구도 읽기
+                if (UFurnitureStat* Stat = Info.FurnitureActor->FindComponentByClass<UFurnitureStat>())
+                {
+                    const float NewHealth = Stat->GetCurrentHealth();
+                    if (!FMath::IsNearlyEqual(NewHealth, Info.CurrentHealth))
+                    {
+                        Info.CurrentHealth = NewHealth;
+                        bScoreChanged = true;
+                    }
+                }
+            }
+            NewAccumulatedScore += CalculateScore(Info.CurrentHealth, Info.MaxHealth, Info.BaseScore);
+        }
+        if (bScoreChanged)
+        {
+            AccumulatedScore = NewAccumulatedScore;
+            GS->TotalScore = AccumulatedScore;
+            GS->OnRep_TotalScore();
+        }
     }
 }
 
@@ -416,20 +447,21 @@ void ATeamCarryGameMode::StartCountdown()
     }, 1.0f, true);
 }
 
-void ATeamCarryGameMode::OnFurnitureEnterTruck(AActor* FurnitureActor, FName RowName, float CurrentHealth, float MaxHealth, int32 BaseScore)
+void ATeamCarryGameMode::OnFurnitureEnterTruck(AActor* FurnitureActor, float CurrentHealth, float MaxHealth, int32 BaseScore)
 {
     ATeamCarryGameState* GS = GetCachedGameState();
     if (!GS || GS->bIsGameFinished) return;
 
-    // 트럭 안 가구 목록에 추가
+    // 트럭 안 가구 목록에 추가 — 액터 포인터 + UniqueID 로 개별 추적
     FTruckFurnitureInfo Info;
-    Info.RowName = RowName;
+    Info.FurnitureActor = FurnitureActor;
+    Info.ActorUniqueID = FurnitureActor ? FurnitureActor->GetUniqueID() : 0;
     Info.CurrentHealth = CurrentHealth;
     Info.MaxHealth = MaxHealth;
     Info.BaseScore = BaseScore;
     FurnitureInTruck.Add(Info);
 
-    // 누적 점수 갱신 (전체 순회 대신 추가분만 계산)
+    // 진입 시 현재 내구도로 점수 추가
     AccumulatedScore += CalculateScore(CurrentHealth, MaxHealth, BaseScore);
 
     // 남은 가구 차감
@@ -439,8 +471,8 @@ void ATeamCarryGameMode::OnFurnitureEnterTruck(AActor* FurnitureActor, FName Row
     GS->TotalScore = AccumulatedScore;
     GS->OnRep_TotalScore();
 
-    UE_LOG(LogTemp, Warning, TEXT("가구 트럭 진입: %s | 예상 점수: %d | 남은 가구: %d"),
-        *RowName.ToString(), GS->TotalScore, GS->RemainingFurniture);
+    UE_LOG(LogTemp, Warning, TEXT("가구 트럭 진입 | 예상 점수: %d | 남은 가구: %d"),
+        GS->TotalScore, GS->RemainingFurniture);
 
     // 3초 후 가구 무적 설정 — DamageSystem 이 BeginPlay 이후 유효해지므로 딜레이 적용.
     // 타이머 핸들을 멤버 맵에 보관해 로컬 변수 소멸로 타이머가 취소되는 문제를 방지한다.
@@ -470,10 +502,17 @@ void ATeamCarryGameMode::OnFurnitureEnterTruck(AActor* FurnitureActor, FName Row
     }
 }
 
-void ATeamCarryGameMode::OnFurnitureExitTruck(AActor* FurnitureActor, FName RowName)
+void ATeamCarryGameMode::OnFurnitureExitTruck(AActor* FurnitureActor, float CurrentHealth, float MaxHealth, int32 BaseScore)
 {
     ATeamCarryGameState* GS = GetCachedGameState();
     if (!GS || GS->bIsGameFinished) return;
+
+    // 파괴된 가구면 OnFurnitureDestroyed 에서 처리하므로 무시
+    // (가구 파괴 시 물리 이벤트로 End Overlap 이 먼저 호출되는 경우 방지)
+    if (ATCFurnitureActor* TCFurniture = Cast<ATCFurnitureActor>(FurnitureActor))
+    {
+        if (TCFurniture->bIsFurnitureDestroyed) return;
+    }
 
     // 트럭 이탈 시 무적 해제 + 진행 중인 3초 타이머도 취소
     if (AFurnitureActor* Furniture = Cast<AFurnitureActor>(FurnitureActor))
@@ -493,20 +532,19 @@ void ATeamCarryGameMode::OnFurnitureExitTruck(AActor* FurnitureActor, FName RowN
         }
     }
 
-    // 같은 RowName 중 첫 번째 하나만 제거
+    // UniqueID 로 찾아서 목록에서 제거 (포인터 비교 불일치 방지)
+    const uint32 TargetID = FurnitureActor ? FurnitureActor->GetUniqueID() : 0;
     for (int32 i = 0; i < FurnitureInTruck.Num(); i++)
     {
-        if (FurnitureInTruck[i].RowName == RowName)
+        if (FurnitureInTruck[i].ActorUniqueID == TargetID)
         {
-            // 누적 점수에서 해당 가구 점수 차감
-            AccumulatedScore -= CalculateScore(
-                FurnitureInTruck[i].CurrentHealth,
-                FurnitureInTruck[i].MaxHealth,
-                FurnitureInTruck[i].BaseScore);
             FurnitureInTruck.RemoveAt(i);
             break;
         }
     }
+
+    // 이탈 시 현재 내구도로 점수 차감
+    AccumulatedScore -= CalculateScore(CurrentHealth, MaxHealth, BaseScore);
 
     GS->RemainingFurniture++;
     GS->OnRep_RemainingFurniture();
@@ -514,22 +552,40 @@ void ATeamCarryGameMode::OnFurnitureExitTruck(AActor* FurnitureActor, FName RowN
     GS->TotalScore = AccumulatedScore;
     GS->OnRep_TotalScore();
 
-    UE_LOG(LogTemp, Warning, TEXT("가구 트럭 이탈: %s | 예상 점수: %d | 남은 가구: %d"),
-        *RowName.ToString(), GS->TotalScore, GS->RemainingFurniture);
+    UE_LOG(LogTemp, Warning, TEXT("가구 트럭 이탈 | 예상 점수: %d | 남은 가구: %d"),
+        GS->TotalScore, GS->RemainingFurniture);
 }
 
-void ATeamCarryGameMode::OnFurnitureDestroyed()
+void ATeamCarryGameMode::OnFurnitureDestroyed(AActor* FurnitureActor)
 {
     ATeamCarryGameState* GS = GetCachedGameState();
     if (!GS || GS->bIsGameFinished) return;
 
+    for (int32 i = 0; i < FurnitureInTruck.Num(); i++)
+    {
+        if (FurnitureInTruck[i].FurnitureActor.Get() == FurnitureActor)
+        {
+            GS->RemainingFurniture++;
+            FurnitureInTruck.RemoveAt(i);
+
+            // 파괴된 가구 제외한 나머지 가구들로 점수 재계산
+            AccumulatedScore = 0;
+            for (const FTruckFurnitureInfo& Info : FurnitureInTruck)
+            {
+                AccumulatedScore += CalculateScore(Info.CurrentHealth, Info.MaxHealth, Info.BaseScore);
+            }
+
+            GS->TotalScore = AccumulatedScore;
+            GS->OnRep_TotalScore();
+            UE_LOG(LogTemp, Warning, TEXT("[GameMode] 트럭 안 가구 파괴 — 점수 재계산: %d"), AccumulatedScore);
+            break;
+        }
+    }
+
     GS->RemainingFurniture--;
-    // Txt_FurnitureCount 분모(전체 상자 개수)에서도 파괴된 것은 제외해 동적으로 줄어들게 한다(명세 4장-7).
+    // 파괴된 가구 개수 증가 — Txt_FurnitureCount 분모 갱신 및 TCFeedbackSubsystem 핫타임 비율 계산에 사용
     GS->DestroyedFurnitureCount++;
     GS->OnRep_RemainingFurniture();
-
-    // 파괴된 가구 개수 증가 — TCFeedbackSubsystem 핫타임 비율 계산에 사용
-    GS->DestroyedFurnitureCount++;
 
     UE_LOG(LogTemp, Warning, TEXT("가구 파괴 | 남은 가구: %d | 파괴 누계: %d"), GS->RemainingFurniture, GS->DestroyedFurnitureCount);
 
@@ -567,9 +623,9 @@ int32 ATeamCarryGameMode::CalculateScore(float CurrentHealth, float MaxHealth, i
     if (HealthRatio > 0.8f)       PayoutRate =  1.0f;
     else if (HealthRatio > 0.6f)  PayoutRate =  0.8f;
     else if (HealthRatio > 0.4f)  PayoutRate =  0.6f;
-    else if (HealthRatio > 0.2f)  PayoutRate = -0.2f;
-    else if (HealthRatio > 0.0f)  PayoutRate = -0.3f;
-    else                          PayoutRate = -0.5f;
+    else if (HealthRatio > 0.2f)  PayoutRate =  0.4f;
+    else if (HealthRatio > 0.0f)  PayoutRate =  0.2f;
+    else                          PayoutRate =  0.0f;
 
     return FMath::FloorToInt(BaseScore * PayoutRate);
 }
