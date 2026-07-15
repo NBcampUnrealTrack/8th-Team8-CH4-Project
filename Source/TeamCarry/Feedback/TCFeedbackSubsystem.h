@@ -59,9 +59,17 @@ protected:
 	UPROPERTY()
 	TObjectPtr<UAudioComponent> BGMComp;
 
-	// 제한시간(초). 잔여시간이 BGMSpeedupRemaining 이하로 내려가면 BGM 배속으로 긴박감 연출
-	UPROPERTY(EditDefaultsOnly, Category = "Feedback|BGM")
-	float TimeLimitSeconds = 300.f;
+	// 핫타임 진입 기준 경과시간(초). 이 시간이 지난 뒤 트럭 비율이 낮으면 핫타임 시작.
+	UPROPERTY(EditDefaultsOnly, Category = "Feedback|HotTime")
+	float HotTimeElapsedThreshold = 300.f; // 기본 5분
+
+	// 핫타임 진입 비율 (트럭 안 가구 / 유효 가구). 이 값 이하면 핫타임 시작.
+	UPROPERTY(EditDefaultsOnly, Category = "Feedback|HotTime")
+	float HotTimeStartRatio = 0.2f; // 20% 이하
+
+	// 핫타임 종료 비율. 이 값 이상이면 핫타임 종료.
+	UPROPERTY(EditDefaultsOnly, Category = "Feedback|HotTime")
+	float HotTimeEndRatio = 0.5f; // 50% 이상
 
 	UPROPERTY(EditDefaultsOnly, Category = "Feedback|BGM")
 	float BGMSpeedupRemaining = 60.f;
@@ -77,6 +85,7 @@ private:
 	FTimerHandle BGMStartTimer;
 	bool bBGMFadedOut = false;
 	bool bBGMBoosted = false;
+	bool bIsHotTime = false; // 핫타임 활성 여부 (GS->bIsHotTime 과 동기화)
 
 	FDelegateHandle ActorSpawnedHandle;
 
