@@ -55,7 +55,7 @@ private:
 	UFUNCTION()
 	void HandleResetClicked();
 
-	// Btn_LeaveRoom: 방 나가기(전원, Lobby 컨텍스트 전용) → O_Confirm 경유 → LeaveToTitle()
+	// Btn_LeaveRoom: 방 나가기(Lobby=전원, InGame=클라이언트 전용, 2026-07-15 InGame 확장) → O_Confirm 경유 → LeaveToTitle()
 	UFUNCTION()
 	void HandleLeaveRoomClicked();
 
@@ -94,7 +94,9 @@ public:
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
 	TObjectPtr<UCommonButtonBase> Btn_Reset;
 
-	// 나가기 버튼: 전원, Lobby 컨텍스트 전용(v3 내부 신규). 호스트 전용 게이팅을 받지 않는다.
+	// 나가기 버튼: Lobby 컨텍스트=전원 노출. InGame 컨텍스트=클라이언트 전용 노출(2026-07-15 추가,
+	// 호스트에게는 계속 숨김 — 호스트의 파티 전체 영향 오조작 방지 취지 유지). Lobby에서는 호스트 전용
+	// 게이팅을 받지 않지만, InGame에서는 정반대 방향(호스트만 숨김)으로 게이팅된다.
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
 	TObjectPtr<UCommonButtonBase> Btn_LeaveRoom;
 
