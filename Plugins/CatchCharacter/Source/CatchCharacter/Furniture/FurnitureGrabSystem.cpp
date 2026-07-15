@@ -1725,6 +1725,9 @@ void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 	LocalSyncTargetYaw = ServerRotation.Yaw;
 
 #if !UE_BUILD_SHIPPING
+	// F9 디버그가 켜진 동안만 발사 — 상시 발사하면 팀 패키지(Development)에서 속도 HUD가
+	// 계속 뜨고 매 틱 멀티캐스트 대역폭을 소모한다
+	if (IsCarryDebugEnabled())
 	{
 		const float FurnActualSpeed = FVector(ServerLocation - CurFurnLoc).Size2D() / DeltaTime;
 		const int32 Required        = FurnitureStat->GetRequiredPlayer();
