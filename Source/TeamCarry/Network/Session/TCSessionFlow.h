@@ -8,6 +8,9 @@
 #include "TCSessionFlow.generated.h"
 
 class UTCGameInstance;
+class UWorld;
+class UUserWidget;
+class UW_MovieLoadingScreen;
 
 // 스테이지 정의(명세 2장·7장-3). DT_Stages(DataTable) 의 행 구조체.
 // 현재는 StageId=1 / L_LevelProto 단일 폴백 행만 존재하지만, 행이 늘어나도
@@ -90,8 +93,16 @@ class TEAMCARRY_API UTCSessionFlow : public UGameInstanceSubsystem
 	GENERATED_BODY()
 
 public:
+	UTCSessionFlow();
+
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
+
+	// 스테이지 맵(S_InGame) 진입 "전원 대기 게이트"가 이 세션에서 준비 완료를 확정했을 때 호출한다.
+	// (현재 호출부: ATCPlayerController::ClientNotifyAllPlayersLoaded_Implementation()). MoviePlayer가
+	// bWaitForManualStop=true로 대기 중이 아니면(비-스테이지 맵 트래블 등) 안전하게 no-op이다.
+	UFUNCTION(BlueprintCallable, Category = "TeamCarry|Session|Loading")
+	void StopMovieLoadingScreen();
 
 	// ── UI 단계 통지 ──
 	UPROPERTY(BlueprintAssignable, Category = "TeamCarry|Session")
@@ -243,6 +254,38 @@ private:
 	UTCGameInstance* GetTCGameInstance() const;
 	void BindGameInstanceEvents();
 	void UnbindGameInstanceEvents();
+
+	// ── MoviePlayer 로딩 화면(hard travel 전용 보강, 2장·4장-9 "로딩 화면 동기화 문제") ──
+	// UW_MovieLoadingScreen 클래스(생성자에서 ConstructorHelpers::FClassFinder로 기본값 지정).
+	// 기존 CommonUI S_Loading(OnTravelStarted/ClientShowLoadingScreen 경로)은 그대로 두고,
+	// MoviePlayer는 게임 스레드가 블로킹되는 hard travel 구간까지 추가로 덮는 용도로만 붙는다 —
+	// 두 시스템이 동시에 존재해도 문제 없다(MoviePlayer가 먼저 화면을 가리고, 이후 CommonUI가
+	// 자연스럽게 이어받는다).
+	UPROPERTY()
+	TSubclassOf<class UUserWidget> MovieLoadingWidgetClass;
+
+	// SetupLoadingScreen()에 넘긴 위젯 인스턴스. StopMovieLoadingScreen()/상태 문구 갱신에 쓰기
+	// 위해 참조를 유지한다(MoviePlayer 쪽 TakeWidget()은 SWidget만 가져가므로 UObject 수명은
+	// 이쪽에서 별도로 관리해야 한다).
+	UPROPERTY()
+	TObjectPtr<class UW_MovieLoadingScreen> ActiveMovieLoadingWidget;
+
+	// FCoreUObjectDelegates::PreLoadMap 핸들러 — 트래블 대상 맵이 결정된 직후(로드 시작 직전)
+	// MoviePlayer 로딩 화면을 띄운다. 스테이지 맵(S_InGame)이면 bWaitForManualStop=true로
+	// StopMovieLoadingScreen() 호출 전까지 유지하고, 그 외(Title/Lobby/Tutorial)는
+	// bAutoCompleteWhenLoadingCompletes=true로 로드 완료 시 자동으로 사라진다.
+	void HandlePreLoadMap(const FString& MapName);
+
+	// FCoreUObjectDelegates::PostLoadMapWithWorld 핸들러 — 이 프로세스의 로컬 로딩이 끝난 시점.
+	// 스테이지 맵 도착이면 "전원 대기" 문구로 전환한다(StopMovie는 아직 호출하지 않음).
+	void HandlePostLoadMap(UWorld* LoadedWorld);
+
+	// MapName이 Title/Lobby/Tutorial 중 하나인지(=스테이지 맵이 아닌지) 판정한다. 스테이지 데이터
+	// (DT_Stages)가 여러 맵으로 늘어나도 이 세 경로만 비교하면 되므로 별도 목록 관리가 불필요하다.
+	bool IsKnownNonStageMapPath(const FString& MapName) const;
+
+	FDelegateHandle PreLoadMapHandle;
+	FDelegateHandle PostLoadMapHandle;
 
 	// UTCGameInstance 세션 콜백 핸들러.
 	UFUNCTION()
