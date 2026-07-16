@@ -4,6 +4,7 @@
 #include "Network/Session/TCGameInstance.h"
 #include "Network/Session/TCLobbyGameState.h"
 #include "Network/Net/TCNetStatics.h"
+#include "Core/TeamCarryGameState.h"
 #include "Core/TCSaveGame.h"
 #include "Player/PlayerController/TCPlayerController.h"
 #include "TeamCarry/UI/W_MovieLoadingScreen.h"
@@ -264,6 +265,25 @@ void UTCSessionFlow::HostReturnToLobby()
 	{
 		return;
 	}
+
+	// [스테이지 진행] 클리어(게임 종료) 상태로 로비에 복귀하면 다음 스테이지를 기본 선택 —
+	// 로비에서 준비 후 재시작하면 다음 레벨로 이어진다. 마지막 스테이지면 유지,
+	// 일시정지 메뉴의 중도 포기 복귀(미종료)는 진행하지 않는다.
+	if (const UWorld* World = GetWorld())
+	{
+		const ATeamCarryGameState* GS = World->GetGameState<ATeamCarryGameState>();
+		if (GS && GS->bIsGameFinished)
+		{
+			FStageInfo NextInfo;
+			const int32 NextId = GetSelectedStageId() + 1;
+			if (FindStageInfo(NextId, NextInfo))
+			{
+				SetStageSelection(NextId);
+				UE_LOG(LogTCNet, Log, TEXT("[SessionFlow] 스테이지 클리어 — 다음 스테이지(%d) 자동 선택"), NextId);
+			}
+		}
+	}
+
 	HostServerTravel(LobbyMapPath);
 }
 
