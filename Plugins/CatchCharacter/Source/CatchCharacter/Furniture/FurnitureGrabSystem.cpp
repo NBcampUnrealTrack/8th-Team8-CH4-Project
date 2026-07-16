@@ -12,6 +12,7 @@
 #include "CatchCharacter/Furniture/FurnitureStat.h"
 #include "CatchCharacter/Furniture/FurnitureDamage.h"
 #include "DrawDebugHelpers.h"
+#include "Engine/Engine.h"
 #include "CatchCharacter/Furniture/FurnitureCarryShared.h"
 
 DEFINE_LOG_CATEGORY(LogCarry);
@@ -499,19 +500,27 @@ FVector UFurnitureGrabSystem::GetAttachedLocation(ACharacter* Player, const FVec
 float UFurnitureGrabSystem::GetDesiredYaw(ACharacter* Player, float FurnitureYaw) const
 {
 	const FGrabAnchor& A = Anchors[Player];
-	float Desired = A.InitialPlayerYaw + FMath::FindDeltaAngleDegrees(A.InitialFurnitureYaw, FurnitureYaw);
+	// 몸통 목표 기준: 인원 충족 1인은 매 틱 카메라 정면 — 앵커 경유는 벽 회전막힘·의도
+	// 리셋이 쌓이면 카메라와 몸의 관계가 영구히 틀어진다. 끌기(미달)·2인+ 들것은 앵커 방식.
+	const bool bSoloFull = GrabbedPlayers.Num() == 1
+		&& (!FurnitureStat || FurnitureStat->GetRequiredPlayer() <= 1);
+	float Desired = (bSoloFull && Player)
+		? FRotator::NormalizeAxis(Player->GetBaseAimRotation().Yaw)
+		: A.InitialPlayerYaw + FMath::FindDeltaAngleDegrees(A.InitialFurnitureYaw, FurnitureYaw);
 
-	// [가구 바라봄 보정] 가구가 막혀 몸 정면으로 못 오는 동안 몸통 목표가 가구 방향에서
-	// 30° 넘게 벗어나면 초과분만큼 가구 쪽으로 굽힌다 — 정면 복원이 끝나면 자연히 0으로.
-	// 무상태 계산이라 서버·소유 클라가 같은 결과 → 이중 회전 없음 (30uu 미만은 방향 노이즈 가드)
+	// [가구 바라봄 보정] 가구가 정면에서 10° 넘게 벗어난 초과분만 가구 쪽으로 굽힌다 (최대 45°).
+	// 몸통 Yaw는 운반 물리에 안 쓰이는 코스메틱, 무상태 계산이라 서버·소유 클라 결과 동일.
 	if (FurnitureMesh && Player)
 	{
 		const FVector ToFurn = FurnitureMesh->Bounds.Origin - Player->GetActorLocation();
-		if (ToFurn.SizeSquared2D() > FMath::Square(30.0f))
+		if (ToFurn.SizeSquared2D() > FMath::Square(30.0f))   // 30uu 미만은 방향 노이즈 가드
 		{
 			const float FurnDirYaw = FMath::RadiansToDegrees(FMath::Atan2(ToFurn.Y, ToFurn.X));
 			const float Miss   = FMath::FindDeltaAngleDegrees(Desired, FurnDirYaw);
-			const float Excess = FMath::Max(FMath::Abs(Miss) - 30.0f, 0.0f);
+			// 가구가 거의 뒤(120°+)면 굽힘을 0으로 페이드 — 몸을 획 꺾지 않고 정면 복원이 데려오게 둔다
+			const float AbsMiss = FMath::Abs(Miss);
+			const float Fade    = FMath::Clamp((130.0f - AbsMiss) / 40.0f, 0.0f, 1.0f);
+			const float Excess  = FMath::Min(FMath::Max(AbsMiss - 10.0f, 0.0f), 45.0f) * Fade;
 			if (Excess > 0.0f)
 			{
 				Desired = FRotator::NormalizeAxis(Desired + FMath::Sign(Miss) * Excess);
