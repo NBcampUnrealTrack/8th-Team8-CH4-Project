@@ -39,6 +39,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "TeamCarry|Lobby")
 	int32 GetCharacterIndex() const { return CharacterIndex; }
 
+	// ColorIndex 추가
+	UFUNCTION(BlueprintPure, Category = "TeamCarry|Color")
+	int32 GetColorIndex() const { return ColorIndex; }
+
 	// ── 쓰기(서버 권위 전용) ──
 	// HasAuthority() 가드 내장. 클라가 직접 부르면 무시된다(로그만).
 
@@ -53,6 +57,8 @@ public:
 
 	void SetHasLoadedCurrentMapAuthoritative(bool bInLoaded);
 
+	void SetColorIndexAuthoritative(int32 InColorIndex);
+
 protected:
 	// 준비 완료 플래그.
 	UPROPERTY(ReplicatedUsing = OnRep_LobbyInfo, VisibleAnywhere, Category = "TeamCarry|Lobby")
@@ -65,6 +71,10 @@ protected:
 	// 캐릭터 외형(스킨) 인덱스(클라 선택, 서버 권위 확정).
 	UPROPERTY(ReplicatedUsing = OnRep_LobbyInfo, VisibleAnywhere, Category = "TeamCarry|Lobby")
 	int32 CharacterIndex = 0;
+
+	// ColorIndex 변수
+	UPROPERTY(Replicated, VisibleAnywhere, BlueprintReadOnly, Category = "TeamCarry|Color")
+	int32 ColorIndex = -1;
 
 	UFUNCTION()
 	void OnRep_LobbyInfo();

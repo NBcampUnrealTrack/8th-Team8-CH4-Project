@@ -157,4 +157,7 @@ private:
 	// SaveGame()/SaveGameToSlot() 공용 저장 실행부. 지정한 SlotName 에 기존 세이브를 불러와
 	// StageName 기록만 갱신한 뒤 다시 저장한다.
 	void SaveGameToSlotInternal(const FString& StageName, const FString& SlotName);
+
+	// 컬러 인덱스 카운터 추가
+	int32 ColorIndexCounter = 0;
 };
