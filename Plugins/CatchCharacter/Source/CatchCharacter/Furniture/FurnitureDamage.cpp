@@ -63,7 +63,7 @@ void UFurnitureDamage::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, U
 
 	// (무적 체크는 아래로 이동 — 강한 물리 충격은 무적 관통시키기 위해 ImpactSpeed 계산 후 판정)
 
-	FString NetMode = Owner->HasAuthority() ? TEXT("Server") : TEXT("Client");
+	//FString NetMode = Owner->HasAuthority() ? TEXT("Server") : TEXT("Client");
 
 	// TODO : 플레이어나 특정 사물에는 부딪쳐도 데미지 안입으려면 조건논의 필요
 	// 타겟이 아닌 대상 : 부딪친대상이 존재해야함, 자기자신
