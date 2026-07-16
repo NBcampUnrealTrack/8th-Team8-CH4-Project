@@ -634,11 +634,6 @@ void ATCPlayerCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& O
 // 던져진 가구에 맞음 서버 권한에서만 진입
 void ATCPlayerCharacter::ReceiveStun_Implementation(float Duration, AActor* DamageInstigator)
 {
-	GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Cyan,
-		FString::Printf(TEXT("ReceiveStun! Auth:%d | AlreadyStunned:%d | Dur:%.1f"),
-			HasAuthority() ? 1 : 0, bIsStunned ? 1 : 0, Duration));
-
-
 	if (!HasAuthority() || bIsStunned)
 		return;   // 이미 스턴 중이면 무시
 

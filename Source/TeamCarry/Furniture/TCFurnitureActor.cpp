@@ -460,16 +460,6 @@ void ATCFurnitureActor::OnUnfocus_Implementation()
 void ATCFurnitureActor::OnFurnitureHit(UPrimitiveComponent* HitComp, AActor* OtherActor,
     UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit)
 {
-    if (GEngine && OtherActor)
-    {
-        GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Orange,
-            FString::Printf(TEXT("HIT %s | Auth:%d | Stunnable:%d | Impulse:%.0f"),
-                *OtherActor->GetName(),
-                HasAuthority() ? 1 : 0,
-                OtherActor->Implements<UTCStunnable>() ? 1 : 0,
-                NormalImpulse.Size()));
-    }
-
     if (!HasAuthority() || !OtherActor || bIsFurnitureDestroyed)
         return;
 
@@ -484,16 +474,10 @@ void ATCFurnitureActor::OnFurnitureHit(UPrimitiveComponent* HitComp, AActor* Oth
         {
             if (FGS->IsGrabbedBy(*It))
             {
-                {
-                    GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Red,
-                        FString::Printf(TEXT("BLOCKED: still grabbed by %s"), *It->GetName()));
-                    return;
-                }
+               return;
             }
         }
     }
-
-    GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Green, TEXT("PASSED grab check"));
 
     // 충격량 미달이면 기절X
     if (NormalImpulse.Size() < StunImpulseThreshold)
