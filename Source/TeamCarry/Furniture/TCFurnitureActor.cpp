@@ -99,10 +99,10 @@ void ATCFurnitureActor::BeginPlay()
 {
     Super::BeginPlay();
 
-    // 만일 나중에 배치된가구가 처음에 안떨어지길바란다면...
+    // 배치 가구는 물리 꺼진 정적 상태로 시작한다 — 첫 그랩 후 Release()가 물리를 복원해 그때부터 동적
     if (FurnitureMesh)
     {
-        FurnitureMesh->SetSimulatePhysics(true);
+        FurnitureMesh->SetSimulatePhysics(false);
     }
 
     // 파괴됨을 감지 (서버에서만 바인딩)
