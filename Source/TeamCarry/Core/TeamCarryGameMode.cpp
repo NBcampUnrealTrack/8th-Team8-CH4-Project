@@ -7,6 +7,7 @@
 #include "CatchCharacter/Furniture/FurnitureDamage.h"
 #include "GameFramework/PlayerState.h"
 #include "Network/Session/TCGameInstance.h"
+#include "Network/Session/TCSessionFlow.h"
 #include "Player/PlayerState/TCPlayerState.h"
 #include "Player/PlayerController/TCPlayerController.h"
 #include "Engine/Engine.h"
@@ -39,6 +40,14 @@ ATeamCarryGameMode::ATeamCarryGameMode()
     PrimaryActorTick.bCanEverTick = true;
     TotalFurnitureCount = 0;
     AccumulatedScore = 0;
+
+    // Seamless Travel(ATCLobbyGameMode::ATCLobbyGameMode() 와 동일 이유 — 리슨 소켓 유지,
+    // SteamSockets 재바인딩 실패 방지). 이 값이 비어 있으면(기본값 false) 로비→스테이지 트래블이
+    // hard travel로 실행되어 LoadMap 이 게임 스레드를 수 초간 동기 블로킹하고, 그동안 렌더링이
+    // 멈춰 로딩 게이지 화면이 검은 화면(+로그)처럼 보이는 문제가 있었다. HandleSeamlessTravelPlayer()/
+    // PostLogin() 은 이미 이 경로(PostLogin 을 안 타는 seamless 합류)를 전제로 로딩 게이트를
+    // 리셋하도록 구현되어 있었으므로, 실제로는 이 플래그만 누락되어 있었다.
+    bUseSeamlessTravel = true;
 
     // GameState 클래스 설정
     GameStateClass = ATeamCarryGameState::StaticClass();
@@ -322,11 +331,32 @@ void ATeamCarryGameMode::HandleSeamlessTravelPlayer(AController*& C)
 
 void ATeamCarryGameMode::SaveGame(const FString& StageName)
 {
+    SaveGameToSlotInternal(StageName, GetActiveSaveSlotName());
+}
+
+void ATeamCarryGameMode::SaveGameToSlot(const FString& SlotName)
+{
+    // 이후 이 세션의 RestartStage/자동저장(FinishGame)도 같은 슬롯을 계속 쓰도록 활성 슬롯을 갱신한다.
+    if (UTCSessionFlow* Flow = GetGameInstance() ? GetGameInstance()->GetSubsystem<UTCSessionFlow>() : nullptr)
+    {
+        Flow->SetSaveSelection(SlotName, true);
+    }
+
+    const FString StageName = GetWorld() ? GetWorld()->GetMapName() : FString();
+    SaveGameToSlotInternal(StageName, SlotName);
+}
+
+void ATeamCarryGameMode::SaveGameToSlotInternal(const FString& StageName, const FString& SlotName)
+{
     ATeamCarryGameState* GS = GetCachedGameState();
     if (!GS) return;
 
-    // 기존 세이브 불러오기 (없으면 새로 생성)
-    UTCSaveGame* SaveData = LoadGame();
+    // 지정한 슬롯의 기존 세이브를 불러온다(없으면 새로 생성) — GetActiveSaveSlotName() 이 아니라
+    // SlotName 을 직접 조회해야, SaveGameToSlot() 이 활성 슬롯과 다른 슬롯을 대상으로 할 때도
+    // 그 슬롯 자신의 기존 데이터를 정확히 불러온다.
+    UTCSaveGame* SaveData = UGameplayStatics::DoesSaveGameExist(SlotName, 0)
+        ? Cast<UTCSaveGame>(UGameplayStatics::LoadGameFromSlot(SlotName, 0))
+        : nullptr;
     if (!SaveData)
     {
         SaveData = Cast<UTCSaveGame>(UGameplayStatics::CreateSaveGameObject(UTCSaveGame::StaticClass()));
@@ -340,19 +370,33 @@ void ATeamCarryGameMode::SaveGame(const FString& StageName)
     SaveData->LastPlayedStage = StageName;
 
     // 저장
-    UGameplayStatics::SaveGameToSlot(SaveData, TEXT("TCGameSave"), 0);
+    UGameplayStatics::SaveGameToSlot(SaveData, SlotName, 0);
 
-    UE_LOG(LogTemp, Warning, TEXT("게임 저장 완료 | 스테이지: %s | 별: %d | 점수: %d"),
-        *StageName, Record.BestStar, Record.BestScore);
+    UE_LOG(LogTemp, Warning, TEXT("게임 저장 완료 | 슬롯: %s | 스테이지: %s | 별: %d | 점수: %d"),
+        *SlotName, *StageName, Record.BestStar, Record.BestScore);
 }
 
 UTCSaveGame* ATeamCarryGameMode::LoadGame()
 {
-    if (UGameplayStatics::DoesSaveGameExist(TEXT("TCGameSave"), 0))
+    const FString SlotName = GetActiveSaveSlotName();
+    if (UGameplayStatics::DoesSaveGameExist(SlotName, 0))
     {
-        return Cast<UTCSaveGame>(UGameplayStatics::LoadGameFromSlot(TEXT("TCGameSave"), 0));
+        return Cast<UTCSaveGame>(UGameplayStatics::LoadGameFromSlot(SlotName, 0));
     }
     return nullptr;
+}
+
+FString ATeamCarryGameMode::GetActiveSaveSlotName() const
+{
+    if (const UTCSessionFlow* Flow = GetGameInstance() ? GetGameInstance()->GetSubsystem<UTCSessionFlow>() : nullptr)
+    {
+        const FString Selected = Flow->GetSelectedSlotName();
+        if (!Selected.IsEmpty())
+        {
+            return Selected;
+        }
+    }
+    return TEXT("TCGameSave"); // 슬롯 미선택(구버전 호환) 시 폴백
 }
 
 void ATeamCarryGameMode::SetGamePhase(EGamePhase NewPhase)

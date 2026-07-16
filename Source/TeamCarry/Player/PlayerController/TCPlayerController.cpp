@@ -8,6 +8,9 @@
 #include "Network/Net/TCNetStatics.h"
 #include "Core/TeamCarryGameMode.h"
 #include "Components/WidgetInteractionComponent.h"
+#include "Level/Struct/TCStageSelectBoard.h"
+#include "TeamCarry/UI/W_StageBoardScreen.h"
+#include "Blueprint/UserWidget.h"
 
 // --- UI 테스트용 MockUIController, GameInstance ---
 #include "TeamCarry/UI/MockUIController.h"
@@ -50,6 +53,23 @@ void ATCPlayerController::BeginPlay()
 			if (IMC_GlobalUI)
 			{
 				EILPS->AddMappingContext(IMC_GlobalUI, 1);
+			}
+		}
+
+		// 게시판 클릭 모드용 빨간 점 커서 위젯을 미리 만들어 둔다(뷰포트 추가/제거는 게시판
+		// 클릭 모드 진입/종료 시점에 한다). PlayerTick()이 매 프레임 마우스 위치로 옮긴다.
+		if (BoardSelectCursorWidgetClass)
+		{
+			BoardSelectCursorWidgetInstance = CreateWidget<UUserWidget>(this, BoardSelectCursorWidgetClass);
+			if (BoardSelectCursorWidgetInstance)
+			{
+				BoardSelectCursorWidgetInstance->SetAlignmentInViewport(FVector2D(0.5f, 0.5f));
+
+				// 커서는 순수 시각 표시일 뿐이어야 한다. 기본값(Visible)이면 마우스가 이 위젯 위에
+				// 있을 때(=항상, 마우스를 따라다니므로) Slate 2D 히트 테스트가 이 위젯을 클릭 대상으로
+				// 잡아버려, WidgetInteractionComponent가 노리는 게시판(월드 스페이스) 클릭이 새는
+				// 원인이 됐다 — 클릭할 때마다 커서가 잠깐 (0,0) 쪽으로 튀고 클릭도 씹히던 버그.
+				BoardSelectCursorWidgetInstance->SetVisibility(ESlateVisibility::HitTestInvisible);
 			}
 		}
 
@@ -102,11 +122,18 @@ void ATCPlayerController::BeginPlay()
 			// 4. 그 외 실제 인게임 맵 폴백(스테이지 등, 캐릭터 조작 필요)
 			else
 			{
-				// 전원 로딩 완료 게이트(로딩 화면 동기화 수정): 내 화면의 로딩이 끝나도 즉시
-				// InGame 으로 전환하지 않고, 서버에 로딩 완료를 보고한 뒤 전원(또는 재접속 시
-				// 나 혼자) 준비 완료 통지를 기다린다. 실제 전환은 ClientNotifyAllPlayersLoaded()가 수행.
+				// 내 화면의 로딩이 끝나는 즉시 InGame 으로 전환한다 — ESC 등 글로벌 입력이
+				// Input_ToggleESCUI() 의 CurrentState 게이트(InGame/Tutorial/Lobby)를 처음부터
+				// 통과하도록 하기 위함(다른 클라이언트를 기다리는 동안 CurrentState 가 Loading에
+				// 머물러 ESC 가 무반응으로 보이던 문제 수정). "전원 로딩 완료" 대기는 더 이상 UI
+				// 상태와 묶지 않고 GameState::CurrentPhase(WaitingToStart -> Countdown, 서버 권위)로만
+				// 게이팅한다 — ClientNotifyAllPlayersLoaded()는 그 신호 전달용으로 남는다.
+				MockController->ReplaceState(EE_UIState::InGame);
+				bShowMouseCursor = true;
+				SetInputMode(FInputModeGameAndUI());
+
 				ServerReportMapLoaded();
-				UE_LOG(LogTCNet, Log, TEXT("[PlayerController] 인게임 맵 진입: 로딩 완료 보고, 전원 대기 중."));
+				UE_LOG(LogTCNet, Log, TEXT("[PlayerController] 인게임 맵 진입: InGame 전환 완료, 로딩 완료 보고."));
 			}
 		}
 	}
@@ -144,6 +171,8 @@ void ATCPlayerController::SetupInputComponent()
 		EIC->BindAction(IA_ToggleESCUI, ETriggerEvent::Started, this, &ThisClass::Input_ToggleESCUI);
 		EIC->BindAction(IA_SkipTutorial, ETriggerEvent::Started, this, &ThisClass::Input_SkipTutorial);
 		EIC->BindAction(IA_ToggleLobbyCursor, ETriggerEvent::Started, this, &ThisClass::Input_ToggleLobbyCursor);
+		EIC->BindAction(IA_BoardListUp, ETriggerEvent::Started, this, &ThisClass::Input_BoardListUp);
+		EIC->BindAction(IA_BoardListDown, ETriggerEvent::Started, this, &ThisClass::Input_BoardListDown);
 	}
 }
 
@@ -198,20 +227,25 @@ void ATCPlayerController::ServerReportMapLoaded_Implementation()
 
 void ATCPlayerController::ClientNotifyAllPlayersLoaded_Implementation()
 {
+	// BeginPlay() 의 스테이지 맵 분기가 로컬 로딩 완료 시점에 이미 InGame 전환 + 입력 모드를
+	// 적용해 두었으므로, 정상 경로에서는 아래 호출들이 전부 idempotent no-op이다(ReplaceState는
+	// CurrentState == NewState 면 즉시 리턴). 이 함수는 "전원 로딩 완료(또는 재접속 단독 합류)"를
+	// 서버가 확정했다는 신호 전달용으로 남아 있으며, ReplaceState/SetInputMode 호출은 응답 없는
+	// 클라이언트를 강제 진입시키는 타임아웃 폴백(ATeamCarryGameMode::BeginPlay 세이프티 타이머)
+	// 경로에 대한 안전망으로 유지한다.
 	if (UMockUIController* MockController = GetGameInstance() ? GetGameInstance()->GetSubsystem<UMockUIController>() : nullptr)
 	{
 		MockController->ReplaceState(EE_UIState::InGame);
 	}
 
-	// 인게임은 캐릭터 조작이 필요하므로 입력 모드를 덮어씁니다(BeginPlay() 의 구 로직 이관).
 	bShowMouseCursor = true;
 	FInputModeGameAndUI GameAndUIMode;
 	SetInputMode(GameAndUIMode);
 
-	UE_LOG(LogTCNet, Log, TEXT("[PlayerController] 전원 로딩 완료 확인. InGame 진입, 조작 모드 활성화."));
+	UE_LOG(LogTCNet, Log, TEXT("[PlayerController] 전원 로딩 완료 확인."));
 }
 
-void ATCPlayerController::ClientEnterBoardInteractionMode_Implementation()
+void ATCPlayerController::ClientEnterBoardInteractionMode_Implementation(ATCStageSelectBoard* Board)
 {
 	UE_LOG(LogTemp, Warning, TEXT("[PlayerController] ClientEnterBoardInteractionMode 진입"));
 	if (bBoardInteractionModeActive)
@@ -219,11 +253,19 @@ void ATCPlayerController::ClientEnterBoardInteractionMode_Implementation()
 		return;
 	}
 	bBoardInteractionModeActive = true;
+	ActiveBoard = Board;
 
 	// 마우스 커서를 노출해 WidgetInteractionComponent 가 BoardScreen 을 클릭할 수 있게 한다
 	// (S_Lobby 의 Alt 커서 토글, SetLobbyCursorActive 와 동일한 입력 모드 패턴).
 	bShowMouseCursor = true;
 	SetInputMode(FInputModeGameAndUI());
+
+	// 게시판 클릭(선택) 모드임을 한눈에 알 수 있도록 빨간 점 위젯을 뷰포트에 띄운다.
+	// PlayerTick()이 매 프레임 위치를 마우스로 옮긴다.
+	if (BoardSelectCursorWidgetInstance && !BoardSelectCursorWidgetInstance->IsInViewport())
+	{
+		BoardSelectCursorWidgetInstance->AddToViewport(9999);
+	}
 
 	if (const ATCPlayerCharacter* Char = Cast<ATCPlayerCharacter>(GetPawn()))
 	{
@@ -269,7 +311,28 @@ void ATCPlayerController::ExitBoardInteractionMode()
 			// 캐릭터 조작 모드로 복귀. 커서를 숨기고 게임 전용 입력으로 전환한다.
 			StrongThis->bShowMouseCursor = false;
 			StrongThis->SetInputMode(FInputModeGameOnly());
+			StrongThis->ActiveBoard = nullptr;
+
+			if (StrongThis->BoardSelectCursorWidgetInstance && StrongThis->BoardSelectCursorWidgetInstance->IsInViewport())
+			{
+				StrongThis->BoardSelectCursorWidgetInstance->RemoveFromParent();
+			}
 		}));
+	}
+}
+
+void ATCPlayerController::PlayerTick(float DeltaTime)
+{
+	Super::PlayerTick(DeltaTime);
+
+	if (bBoardInteractionModeActive && BoardSelectCursorWidgetInstance && BoardSelectCursorWidgetInstance->IsInViewport())
+	{
+		float MouseX = 0.f;
+		float MouseY = 0.f;
+		if (GetMousePosition(MouseX, MouseY))
+		{
+			BoardSelectCursorWidgetInstance->SetPositionInViewport(FVector2D(MouseX, MouseY), true);
+		}
 	}
 }
 
@@ -321,6 +384,36 @@ void ATCPlayerController::Input_ToggleLobbyCursor()
 	}
 
 	SetLobbyCursorActive(!bLobbyCursorActive);
+}
+
+void ATCPlayerController::Input_BoardListUp()
+{
+	if (!bBoardInteractionModeActive)
+	{
+		return;
+	}
+	if (ATCStageSelectBoard* Board = ActiveBoard.Get())
+	{
+		if (UW_StageBoardScreen* BoardScreen = Board->GetBoardScreenWidget())
+		{
+			BoardScreen->NavigateStageSelection(-1);
+		}
+	}
+}
+
+void ATCPlayerController::Input_BoardListDown()
+{
+	if (!bBoardInteractionModeActive)
+	{
+		return;
+	}
+	if (ATCStageSelectBoard* Board = ActiveBoard.Get())
+	{
+		if (UW_StageBoardScreen* BoardScreen = Board->GetBoardScreenWidget())
+		{
+			BoardScreen->NavigateStageSelection(1);
+		}
+	}
 }
 
 void ATCPlayerController::Input_SkipTutorial()

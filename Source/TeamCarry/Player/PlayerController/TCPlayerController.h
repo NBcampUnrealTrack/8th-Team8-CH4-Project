@@ -9,6 +9,8 @@
 
 class UInputMappingContext;
 class UInputAction;
+class ATCStageSelectBoard;
+class UUserWidget;
 
 /**
  * ATCPlayerController - UI 호스트(AGameUIPlayerController) + 로비 네트워크 RPC.
@@ -54,14 +56,15 @@ public:
 	UFUNCTION(Client, Reliable, Category = "TeamCarry|Session")
 	void ClientShowLoadingScreen();
 
-	// 스테이지 맵(S_InGame) 진입 전원 대기 게이트(로딩 화면 동기화 수정). 내 화면의 로딩이 끝나면
-	// 즉시 InGame으로 전환하지 않고, 서버에 로딩 완료를 보고한 뒤 ClientNotifyAllPlayersLoaded()를
-	// 기다린다(2장 참고). BeginPlay() 의 스테이지 맵 분기가 호출한다.
+	// 스테이지 맵(S_InGame) 진입 로딩 완료 보고. 내 화면은 BeginPlay() 의 스테이지 맵 분기에서
+	// 이미 즉시 InGame으로 전환되며(ESC 등 글로벌 입력이 처음부터 동작하도록), 이 RPC는 서버에
+	// "전원 로딩 완료" 판정(GameState::CurrentPhase 게이팅, 카운트다운 시작)용 보고만 한다.
 	UFUNCTION(Server, Reliable, Category = "TeamCarry|Session")
 	void ServerReportMapLoaded();
 
 	// ATeamCarryGameMode::NotifyPlayerFinishedLoading() 이 전원 로딩 완료(또는 재접속/후발 합류) 시
-	// 호출한다. 실제 InGame 화면 전환 + 조작 모드 활성화를 수행한다(BeginPlay() 의 구 로직 이관).
+	// 호출한다. 정상 경로에서는 BeginPlay() 가 이미 InGame 전환을 마쳐 두어 idempotent no-op이며,
+	// 응답 없는 클라이언트를 강제 진입시키는 타임아웃 폴백의 안전망으로 남아 있다.
 	UFUNCTION(Client, Reliable, Category = "TeamCarry|Session")
 	void ClientNotifyAllPlayersLoaded();
 
@@ -69,8 +72,10 @@ public:
 	// 마우스 커서를 노출해 캐릭터의 WidgetInteractionComponent로 BoardScreen(월드 스페이스 위젯)의
 	// 목록/확인/취소 버튼을 클릭할 수 있게 한다. ATCStageSelectBoard::OnInteract_Implementation(서버)이
 	// 상호작용한 플레이어의 PC에 Client RPC로 호출한다.
+	// Board: 레벨에 배치된 액터라 클라이언트에도 동일 인스턴스가 존재 — Input_BoardListUp/Down이
+	// 리스트 탐색을 위임할 대상을 찾을 수 있도록 ActiveBoard에 저장해 둔다.
 	UFUNCTION(Client, Reliable, Category = "TeamCarry|Lobby")
-	void ClientEnterBoardInteractionMode();
+	void ClientEnterBoardInteractionMode(ATCStageSelectBoard* Board);
 
 	// 게시판 클릭 모드 종료. W_StageBoardScreen의 확인/취소 클릭 시(호스트 자신의 로컬 호출,
 	// 리슨 서버이므로 서버=호스트 프로세스) 또는 ESC 시 호출한다.
@@ -87,6 +92,12 @@ protected:
 
 	// 글로벌 UI 단축키(IA_ToggleESCUI/IA_SkipTutorial) 바인딩.
 	virtual void SetupInputComponent() override;
+
+	// 게시판 클릭 모드 중 BoardSelectCursorWidgetInstance를 매 프레임 마우스 위치로 옮긴다.
+	// (EMouseCursor::Custom + SetSoftwareCursorWidget 방식은 이 프로젝트 창 설정에서 실제로
+	// 렌더링되지 않는 것을 확인해 — 화면에 아무 커서 변화도 없었다 — 위젯을 직접 뷰포트에 얹어
+	// 마우스를 따라다니게 하는 방식으로 대체했다.)
+	virtual void PlayerTick(float DeltaTime) override;
 
 	// --- 글로벌 UI 입력 컨텍스트/액션 ---
 	// 캐릭터(ATCPlayerCharacter)의 이동 IMC 와는 별개로, 폰 스폰 여부·HUD 포커스 상태와 무관하게
@@ -106,6 +117,22 @@ protected:
 	// 있고, 다시 누르면 캐릭터 조작으로 복귀한다.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input|UI")
 	TObjectPtr<UInputAction> IA_ToggleLobbyCursor;
+
+	// 게시판 클릭 모드 중 마우스를 따라다니며 표시할 위젯 클래스(빨간 점).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input|UI")
+	TSubclassOf<UUserWidget> BoardSelectCursorWidgetClass;
+
+	// BoardSelectCursorWidgetClass의 실제 인스턴스. BeginPlay()에서 한 번 생성해 두고,
+	// 게시판 클릭 모드 진입/종료 시 뷰포트에 추가/제거만 한다.
+	UPROPERTY()
+	TObjectPtr<UUserWidget> BoardSelectCursorWidgetInstance;
+
+	// 게시판 클릭 모드(bBoardInteractionModeActive) 중에만 유효한 리스트 탐색(위/아래 화살표).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input|UI")
+	TObjectPtr<UInputAction> IA_BoardListUp;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input|UI")
+	TObjectPtr<UInputAction> IA_BoardListDown;
 
 private:
 	UFUNCTION(Server, Reliable)
@@ -129,11 +156,19 @@ private:
 	// (오버레이가 열려 있으면 그쪽 GetDesiredInputConfig 가 이미 입력을 소유하므로 끼어들지 않는다).
 	void Input_ToggleLobbyCursor();
 
+	// IA_BoardListUp/Down 핸들러: 게시판 클릭 모드 중에만 ActiveBoard의 BoardScreen에 위임한다.
+	void Input_BoardListUp();
+	void Input_BoardListDown();
+
 	// 현재 로비 커서가 켜져 있는지(Alt 토글 상태).
 	bool bLobbyCursorActive = false;
 
 	// 현재 게시판 클릭 모드(ExitBoardInteractionMode 참고)가 켜져 있는지.
 	bool bBoardInteractionModeActive = false;
+
+	// ClientEnterBoardInteractionMode(Board)로 진입한 게시판. Input_BoardListUp/Down이
+	// 리스트 탐색을 위임할 대상을 여기서 찾는다.
+	TWeakObjectPtr<ATCStageSelectBoard> ActiveBoard;
 
 	// UMockUIController::OnStateChanged 구독 핸들러.
 	// 오버레이를 2단 이상 중첩해서 열고 닫으면(예: O_PauseMenu 위에서 O_Settings/O_KeyGuide/
