@@ -5,6 +5,7 @@
 #include "Player/Component/TCCarrySpeedComponent.h"
 #include "Furniture/TCFurnitureActor.h"
 #include "CatchCharacter/Furniture/FurnitureGrabSystem.h"
+#include "CatchCharacter/Furniture/FurnitureStat.h"
 #include "EnhancedInputSubsystems.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/SpringArmComponent.h"
@@ -215,7 +216,14 @@ void ATCPlayerCharacter::StartRun(const FInputActionValue& InValue)
 	// 보정(ClientAdjustPosition)되며 러버밴딩이 남 — 1인 운반도 동일.
 	if (GrabComponent && GrabComponent->GetGrabbedActor())
 	{
-		return;
+		UFurnitureGrabSystem* FGS = GrabComponent->GetGrabbedActor()->FindComponentByClass<UFurnitureGrabSystem>();
+		UFurnitureStat* Stat = GrabComponent->GetGrabbedActor()->FindComponentByClass<UFurnitureStat>();
+
+		// 2명 이상 들고 있거나, 애초에 2인 이상 요구 가구라면 달리기 불가
+		if (FGS && Stat && (FGS->GetGrabbedPlayers().Num() >= 2 || Stat->GetRequiredPlayer() >= 2))
+		{
+			return;
+		}
 	}
 
 	// 달리기 최대 속도 500
@@ -231,7 +239,13 @@ void ATCPlayerCharacter::StopRun(const FInputActionValue& InValue)
 	// 운반 중이면 속도 복원도 건너뜀 — 250 하드코딩이 운반 속도를 덮어쓰는 것 방지 (StartRun과 대칭)
 	if (GrabComponent && GrabComponent->GetGrabbedActor())
 	{
-		return;
+		UFurnitureGrabSystem* FGS = GrabComponent->GetGrabbedActor()->FindComponentByClass<UFurnitureGrabSystem>();
+		UFurnitureStat* Stat = GrabComponent->GetGrabbedActor()->FindComponentByClass<UFurnitureStat>();
+
+		if (FGS && Stat && (FGS->GetGrabbedPlayers().Num() >= 2 || Stat->GetRequiredPlayer() >= 2))
+		{
+			return;
+		}
 	}
 
 	// 걷기 속도 250
@@ -303,9 +317,11 @@ void ATCPlayerCharacter::Throw(const FInputActionValue& InValue)
 		{
 			// 가구 시스템을 가져와서 현재 잡고 있는 인원수 확인
 			UFurnitureGrabSystem* FGS = GrabbedActor->FindComponentByClass<UFurnitureGrabSystem>();
-			
+			UFurnitureStat* Stat = GrabbedActor->FindComponentByClass<UFurnitureStat>();
+
 			// 2명 이상이면 애니메이션 X 던지기 요청 중단
-			if (FGS && FGS->GetGrabbedPlayers().Num() >= 2)
+			// 2명 이상 들고 있거나, 2인 이상 요구 가구라면 애니메이션 재생 및 던지기 중단
+			if (FGS && Stat && (FGS->GetGrabbedPlayers().Num() >= 2 || Stat->GetRequiredPlayer() >= 2))
 			{
 				return;
 			}
@@ -560,7 +576,13 @@ void ATCPlayerCharacter::ServerStopRun_Implementation()
 	// 운반 중 도착한 낡은 RPC(그랩 직전 발사) 무시 — 서버 운반 속도 덮어쓰기 방지
 	if (GrabComponent && GrabComponent->GetGrabbedActor())
 	{
-		return;
+		UFurnitureGrabSystem* FGS = GrabComponent->GetGrabbedActor()->FindComponentByClass<UFurnitureGrabSystem>();
+		UFurnitureStat* Stat = GrabComponent->GetGrabbedActor()->FindComponentByClass<UFurnitureStat>();
+
+		if (FGS && Stat && (FGS->GetGrabbedPlayers().Num() >= 2 || Stat->GetRequiredPlayer() >= 2))
+		{
+			return;
+		}
 	}
 	GetCharacterMovement()->MaxWalkSpeed = 250.f;
 }
@@ -570,7 +592,13 @@ void ATCPlayerCharacter::ServerStartRun_Implementation()
 {
 	if (GrabComponent && GrabComponent->GetGrabbedActor())
 	{
-		return;
+		UFurnitureGrabSystem* FGS = GrabComponent->GetGrabbedActor()->FindComponentByClass<UFurnitureGrabSystem>();
+		UFurnitureStat* Stat = GrabComponent->GetGrabbedActor()->FindComponentByClass<UFurnitureStat>();
+
+		if (FGS && Stat && (FGS->GetGrabbedPlayers().Num() >= 2 || Stat->GetRequiredPlayer() >= 2))
+		{
+			return;
+		}
 	}
 	GetCharacterMovement()->MaxWalkSpeed = 500.f;
 }
