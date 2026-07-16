@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 #pragma once
 
@@ -113,5 +113,18 @@ protected:
 
     // 현재 적용된 금 단계 (0=없음, 1, 2) — 중복 적용 방지
     int32 CurrentCrackStage = 0;
+    
+    //기절 관련 함수 추가
+    UFUNCTION()
+    void OnFurnitureHit(UPrimitiveComponent* HitComp, AActor* OtherActor,
+        UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit);
+
+    // 이 임펄스 이상으로 맞아야 스턴 (가구별로 BP에서 조절)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Stun")
+    float StunImpulseThreshold = 60000.f;
+
+    // 기절 지속 시간(초)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Stun")
+    float StunDuration = 2.0f;
 
 };

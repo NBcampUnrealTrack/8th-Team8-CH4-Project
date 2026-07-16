@@ -1,10 +1,11 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 
 #include "Furniture/TCFurnitureActor.h"
 #include "CatchCharacter/Furniture/FurnitureGrabSystem.h"
 #include "CatchCharacter/Furniture/FurnitureStat.h"
 #include "Player/Character/TCPlayerCharacter.h"
+#include "Core/TCStunnable.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/WidgetComponent.h"
 #include "Components/TextBlock.h"
@@ -103,6 +104,8 @@ void ATCFurnitureActor::BeginPlay()
     if (FurnitureMesh)
     {
         FurnitureMesh->SetSimulatePhysics(false);
+
+        FurnitureMesh->OnComponentHit.AddDynamic(this, &ATCFurnitureActor::OnFurnitureHit);
     }
 
     // 파괴됨을 감지 (서버에서만 바인딩)
@@ -452,4 +455,33 @@ void ATCFurnitureActor::OnFocus_Implementation()
 void ATCFurnitureActor::OnUnfocus_Implementation() 
 { 
     SetHighlight(false); 
+}
+
+void ATCFurnitureActor::OnFurnitureHit(UPrimitiveComponent* HitComp, AActor* OtherActor,
+    UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit)
+{
+    if (!HasAuthority() || !OtherActor || bIsFurnitureDestroyed)
+        return;
+
+    // 스턴 가능 대상만 기절하도록
+    if (!OtherActor->Implements<UTCStunnable>())
+        return;
+
+    // 운반 중일떄 스턴X 던져진 것만 인정
+    if (UFurnitureGrabSystem* FGS = GetGrabSystem())
+    {
+        for (TActorIterator<ATCPlayerCharacter> It(GetWorld()); It; ++It)
+        {
+            if (FGS->IsGrabbedBy(*It))
+            {
+               return;
+            }
+        }
+    }
+
+    // 충격량 미달이면 기절X
+    if (NormalImpulse.Size() < StunImpulseThreshold)
+        return;
+
+    ITCStunnable::Execute_ReceiveStun(OtherActor, StunDuration, this);
 }

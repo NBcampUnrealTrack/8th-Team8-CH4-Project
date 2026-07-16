@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "InputActionValue.h"
+#include "Core/TCStunnable.h"
 #include "TCPlayerCharacter.generated.h"
 
 // 전방 선언
@@ -17,7 +18,7 @@ class UTCCarrySpeedComponent;
 class UWidgetInteractionComponent;
 
 UCLASS()
-class TEAMCARRY_API ATCPlayerCharacter : public ACharacter
+class TEAMCARRY_API ATCPlayerCharacter : public ACharacter, public ITCStunnable
 {
 	GENERATED_BODY()
 
@@ -32,6 +33,8 @@ public:
 
 	// BeginPlay
 	virtual void BeginPlay() override;
+
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 #pragma endregion
 
@@ -233,4 +236,36 @@ protected:
 	void MulticastStopActionMontage(int32 ActionID);
 
 #pragma endregion
+
+#pragma region Stun
+
+public:
+	// 던져진 가구가 서버에서 호출한다
+	virtual void ReceiveStun_Implementation(float Duration, AActor* DamageInstigator) override;
+
+	FORCEINLINE bool IsStunned() const { return bIsStunned; }
+
+protected:
+	// 레그돌 진입/해제 연출 각 클라 로컬 처리
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_EnterRagdoll();
+
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_ExitRagdoll();
+
+	// 서버 타이머 콜백
+	void RecoverFromStun();
+
+	// 스턴 상태
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "TCPlayerCharacter|Stun")
+	bool bIsStunned = false;
+
+	FTimerHandle StunTimerHandle;
+
+	// 레그돌 해제 시 메쉬를 캡슐 기준 원위치로 되돌리기 위한 캐시
+	FVector CachedMeshRelLocation;
+	FRotator CachedMeshRelRotation;
+
+#pragma endregion
 };
+
