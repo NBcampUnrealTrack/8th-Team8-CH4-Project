@@ -99,6 +99,38 @@ void UTCSessionFlow::SetSaveSelection(const FString& InSlotName, bool bInContinu
 	UE_LOG(LogTCNet, Log, TEXT("[SessionFlow] SaveSelection: slot='%s' continue=%d"), *InSlotName, bInContinue);
 }
 
+TArray<FSaveSlotInfo> UTCSessionFlow::GetAllSaveSlotInfos() const
+{
+	TArray<FSaveSlotInfo> Result;
+	Result.Reserve(NumSaveSlots);
+
+	for (int32 Index = 0; Index < NumSaveSlots; ++Index)
+	{
+		FSaveSlotInfo Info;
+		Info.SlotIndex = Index;
+		Info.SlotName = MakeSaveSlotName(Index);
+		Info.bHasSaveData = UGameplayStatics::DoesSaveGameExist(Info.SlotName, 0);
+
+		if (Info.bHasSaveData)
+		{
+			if (const UTCSaveGame* SaveData = Cast<UTCSaveGame>(UGameplayStatics::LoadGameFromSlot(Info.SlotName, 0)))
+			{
+				Info.LastPlayedStage = SaveData->LastPlayedStage;
+			}
+		}
+
+		Result.Add(Info);
+	}
+
+	return Result;
+}
+
+void UTCSessionFlow::DeleteSaveSlot(const FString& SlotName)
+{
+	const bool bDeleted = UGameplayStatics::DeleteGameInSlot(SlotName, 0);
+	UE_LOG(LogTCNet, Log, TEXT("[SessionFlow] 세이브 슬롯 삭제: '%s' (성공=%d)"), *SlotName, bDeleted);
+}
+
 // ── 스테이지 선택 ──
 void UTCSessionFlow::SetStageSelection(int32 InStageId)
 {
@@ -225,15 +257,17 @@ void UTCSessionFlow::CompleteTutorial()
 		return;
 	}
 
-	// 세이브에 튜토리얼 완료 플래그 기록(명세 5장). 슬롯 시스템이 아직 단일 슬롯("TCGameSave")만
-	// 지원하므로 ATeamCarryGameMode::SaveGame()/LoadGame() 과 동일한 슬롯을 사용한다.
-	UTCSaveGame* SaveData = Cast<UTCSaveGame>(UGameplayStatics::LoadGameFromSlot(TEXT("TCGameSave"), 0));
+	// 세이브에 튜토리얼 완료 플래그 기록(명세 5장). 이 세션이 선택한 슬롯(SelectedSlotName)에 기록해,
+	// ATeamCarryGameMode::SaveGame()/LoadGame() 이 같은 슬롯을 계속 사용하도록 한다. 슬롯 미선택
+	// (구버전 호환) 시에만 "TCGameSave" 로 폴백한다.
+	const FString SlotName = SelectedSlotName.IsEmpty() ? TEXT("TCGameSave") : SelectedSlotName;
+	UTCSaveGame* SaveData = Cast<UTCSaveGame>(UGameplayStatics::LoadGameFromSlot(SlotName, 0));
 	if (!SaveData)
 	{
 		SaveData = Cast<UTCSaveGame>(UGameplayStatics::CreateSaveGameObject(UTCSaveGame::StaticClass()));
 	}
 	SaveData->bTutorialCompleted = true;
-	UGameplayStatics::SaveGameToSlot(SaveData, TEXT("TCGameSave"), 0);
+	UGameplayStatics::SaveGameToSlot(SaveData, SlotName, 0);
 
 	// 같은 방의 다음 HostStartGame() 이 이어하기(스테이지 직행) 경로를 타도록 전환.
 	bContinueMode = true;

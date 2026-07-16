@@ -10,6 +10,7 @@
 class UStaticMeshComponent;
 class UWidgetComponent;
 class ATCPlayerCharacter;
+class UW_StageBoardScreen;
 
 /**
  * ATCStageSelectBoard - 로비 게시판 액터(명세 4장-5, 6장-9).
@@ -44,6 +45,11 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "StageSelectBoard")
 	FRotator GetTeleportRotation() const;
+
+	// ATCPlayerController::Input_BoardListUp/Down이 게시판 클릭 모드 중 키보드 탐색을 전달할 대상을
+	// 찾을 때 사용한다(ClientEnterBoardInteractionMode(this)로 저장해 둔 보드에서 역참조).
+	UFUNCTION(BlueprintPure, Category = "StageSelectBoard")
+	UW_StageBoardScreen* GetBoardScreenWidget() const;
 
 protected:
 	UPROPERTY(VisibleAnywhere, Category = "StageSelectBoard")

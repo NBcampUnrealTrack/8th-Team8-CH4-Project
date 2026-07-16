@@ -155,6 +155,31 @@ void UW_StageBoardScreen::HandleStageItemClicked(UObject* Item)
 	}
 }
 
+void UW_StageBoardScreen::NavigateStageSelection(int32 Delta)
+{
+	if (!List_Stages)
+	{
+		return;
+	}
+
+	const TArray<UObject*>& Items = List_Stages->GetListItems();
+	if (Items.Num() == 0)
+	{
+		return;
+	}
+
+	int32 CurrentIndex = Items.IndexOfByKey(List_Stages->GetSelectedItem());
+	if (CurrentIndex == INDEX_NONE)
+	{
+		CurrentIndex = 0;
+	}
+
+	const int32 NewIndex = FMath::Clamp(CurrentIndex + Delta, 0, Items.Num() - 1);
+	UObject* NewItem = Items[NewIndex];
+	HandleStageItemClicked(NewItem);
+	List_Stages->RequestScrollItemIntoView(NewItem);
+}
+
 void UW_StageBoardScreen::HandleConfirmClicked()
 {
 	// 명세: 하이라이트된 스테이지가 있을 때만 확정. 없으면 변경 없이 닫혀 기존 선택(미선택 시 기본
