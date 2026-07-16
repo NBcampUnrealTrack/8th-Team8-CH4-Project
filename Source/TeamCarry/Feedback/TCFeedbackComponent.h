@@ -63,6 +63,10 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Feedback")
 	TObjectPtr<UNiagaraSystem> BreakFX;
 
+	// 파손 팝업 위젯 클래스 — 파괴 순간의 동기 로드(히치·디버거 브레이크) 방지를 위해 BeginPlay에서 선로딩
+	UPROPERTY()
+	TObjectPtr<UClass> BreakPenaltyClass;
+
 private:
 	// 잡힘 상태 소스 1: 플러그인 GrabSystem 컴포넌트 (TCFurnitureActor 계열)
 	UPROPERTY()
