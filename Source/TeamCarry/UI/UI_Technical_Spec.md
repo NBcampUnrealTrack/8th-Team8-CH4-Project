@@ -25,7 +25,12 @@
 > * **범위 제외 (별도 진행):** 인게임 폰트 조정, 버튼 세부 디자인(톤앤매너)은 담당자가 별도로 확정할 예정이라 이번 개정에서는 다루지 않는다.
 
 > **개정 요약 (v3 내부 추가, 2026-07-15 — 버전은 v3 유지, v4로 분리하지 않음)**
-> * **O_PauseMenu: S_InGame 중 클라이언트 개별 이탈 허용:** 기존에는 스테이지 진행 중(S_InGame) 오조작 방지를 위해 호스트·클라이언트 모두 타이틀로 나가는 경로가 아예 없었으나, 클라이언트가 진행 중인 세션에서 개인적으로 이탈할 수단이 전혀 없던 것은 별도 문제로 확인되어 **Btn_LeaveRoom(나가기)을 S_InGame 컨텍스트에도 확장**한다. 단 이 버튼은 **호스트에게는 계속 숨김 처리되고 일반 클라이언트에게만 노출**된다 — 호스트의 오조작이 파티 전체 진행에 영향을 주는 것을 막는 취지는 그대로 유지하면서, 클라이언트 개인의 이탈만 새로 허용한다. `LeaveToTitle()`은 호출한 로컬 플레이어만 세션에서 이탈시키는 동작이라(호스트가 호출할 때와 달리 세션 자체를 파기하지 않음) 다른 플레이어의 진행 중인 스테이지에는 영향을 주지 않는다(4장-12).
+> * **O_PauseMenu: S_InGame 중 클라이언트 개별 이탈 허용:** 기존에는 스테이지 진행 중(S_InGame) 오조작 방지를 위해 호스트·클라이언트 모두 타이틀로 나가는 경로가 아예 없었으나, 클라이언트가 진행 중인 세션에서 개인적으로 이탈할 수단이 전혀 없던 것은 별도 문제로 확인되어 **Btn_LeaveRoom(나가기)을 S_InGame 컨텍스트에도 확장**한다. 단 이 버튼은 **호스트에게는 계속 숨김 처리되고 일반 클라이언트에게만 노출**된다 — 호스트의 오조작이 파티 전체 진행에 영향을 주는 것을 막는 취지는 그대로 유지하면서, 클라이언트 개인의 이탈만 새로 허용한다. `LeaveToTitle()`은 호출한 로컬 플레이어만 세션에서 이탈시키는 동작이라(호스트가 호출할 때와 달리 세션 자체를 파기하지 않음) 다른 플레이어의 진행 중인 스테이지에는 영향을 주지 않는다(4장-12). **(아래 2026-07-16 항목에서 이 호스트 숨김 방침이 재조정된다.)**
+
+> **개정 요약 (v3 내부 추가, 2026-07-16 — 버전은 v3 유지, v4로 분리하지 않음)**
+> * **O_PauseMenu: Btn_LeaveRoom 게이팅 재조정 — S_InGame에서도 호스트 포함 전원 노출:** 위 2026-07-15 항목에서 "호스트에게는 계속 숨김"으로 정했던 방침을 재검토해 폐기한다. `LeaveToTitle()`은 애초에 호출자 권한에 따라 이미 다르게 동작한다 — 호스트가 호출하면 세션(`NAME_GameSession`) 자체가 파기되어 다른 플레이어 전원이 함께 끊기고, 클라이언트가 호출하면 본인만 이탈한다. 이 비대칭 동작이 이미 안전장치 역할을 하므로, Visibility 게이팅으로 호스트를 숨기는 대신 **Btn_LeaveRoom을 Lobby·S_InGame 컨텍스트 모두에서 호스트/클라이언트 구분 없이 노출**하고, 클릭 시 뜨는 O_Confirm 경고 문구만 호출자 권한에 따라 다르게 표시한다: 호스트에게는 "정말로 방을 나가시겠습니까? 진행 중인 스테이지가 종료되며, 모든 플레이어가 게임에서 나가게 됩니다."를, 클라이언트에게는 기존과 동일한 "정말로 방을 나가시겠습니까?"를 보여준다. 오조작 방지는 Visibility 숨김이 아니라 이 경고 문구 + O_Confirm 재확인 절차가 담당하는 것으로 취지가 바뀐다(4장-12).
+> * **세이브 슬롯 시스템 구현 완료 (S_SlotSelect/O_SaveLoad 공용):** 기존에 "미구현"으로 남아 있던 슬롯 카드 UI가 고정 4슬롯(`SaveSlot_0`~`SaveSlot_3`) 구조로 실제 구현됐다. `UTCSessionFlow`에 `FSaveSlotInfo`/`GetAllSaveSlotInfos()`/`DeleteSaveSlot()`/`MakeSaveSlotName()` 신규 추가. 슬롯마다 `Switcher_X` 하위에 `Card_New_X`(빈 슬롯)/`Card_Saved_X`(저장 데이터 있음, 신규 위젯 `UW_GameSlotCard_Saved`) 쌍을 배치해 저장 존재 여부로 자동 전환한다. `ATeamCarryGameMode::SaveGame()`/`LoadGame()`도 고정 슬롯("TCGameSave") 대신 세션이 선택한 슬롯을 사용하도록 변경되고, 인게임 O_SaveLoad에서 다른 슬롯에 저장하면(`SaveGameToSlot()`) 그 슬롯이 세션의 활성 슬롯으로 갱신된다(4장-2, 4장-14, 5장, 7장).
+> * **BP_StageSelectBoard 상호작용 확장:** 근접 시 아웃라인 하이라이트(CustomDepth) 추가. 게시판 클릭 모드 중 기존 마우스 클릭(WidgetInteractionComponent)에 더해 **키보드 리스트 탐색**(`IA_BoardListUp`/`IA_BoardListDown` → `W_StageBoardScreen::NavigateStageSelection()`)이 새로 지원된다. 클릭 모드 진입 시 마우스를 따라다니는 전용 커서 위젯도 추가됐다(Slate 기본 소프트웨어 커서 미표시 우회)(4장-5).
 
 ---
 
@@ -174,8 +179,8 @@ UI와 Steam 세션(UTCGameInstance) 사이의 단일 바인딩 계층(GameInstan
 * **O_Confirm:** 강제 모달 팝업. 기본 포커스는 '아니오'에 위치하여 오조작 방지.
 * **O_Settings:** 오디오, 비디오, 키보드/패드 설정. 비디오 변경 시 15초 카운트다운 복구 로직.
 * **O_PauseMenu:** S_InGame, S_Tutorial, **S_Lobby(v3 내부 신규)** 에서 ESC로 호출. 호출 컨텍스트(Lobby/Tutorial/InGame)에 따라 노출 항목이 다르다(4장-12).
-  * 항목: [계속하기], [설정], [수동 저장], **[로비 복귀]**, **[리셋]**, **[나가기](Lobby 전원 + S_InGame 클라이언트 전용, v3 내부 신규 — 2026-07-15 S_InGame 확장)** (v3 개정 — [조작법], [타이틀로 돌아가기] 제거, 4장-12 참고)
-  * 권한: 멀티플레이 동기화를 위해 [수동 저장]·[로비 복귀]·[리셋]은 호스트(방장) 전용. 튜토리얼 맵에서는 [수동 저장] 강제 비활성화, [로비 복귀]·[리셋]은 노출하지 않음. **Lobby 컨텍스트에서는 [수동 저장]·[로비 복귀]·[리셋]을 노출하지 않고 [나가기](전원)를 노출한다. S_InGame 컨텍스트에서는 [나가기]를 클라이언트에게만 노출한다(2026-07-15 추가, 4장-12).**
+  * 항목: [계속하기], [설정], [수동 저장], **[로비 복귀]**, **[리셋]**, **[나가기](Lobby·S_InGame 공통, 호스트/클라이언트 모두 노출, v3 내부 신규 — 2026-07-16 재조정)** (v3 개정 — [조작법], [타이틀로 돌아가기] 제거, 4장-12 참고)
+  * 권한: 멀티플레이 동기화를 위해 [수동 저장]·[로비 복귀]·[리셋]은 호스트(방장) 전용. 튜토리얼 맵에서는 [수동 저장] 강제 비활성화, [로비 복귀]·[리셋]은 노출하지 않음. **Lobby 컨텍스트에서는 [수동 저장]·[로비 복귀]·[리셋]을 노출하지 않고 [나가기]를 노출한다. S_InGame 컨텍스트에서도 [나가기]는 호스트/클라이언트 구분 없이 노출된다(2026-07-16 재조정, 4장-12) — 오조작 방지는 Visibility 숨김이 아니라 클릭 시 뜨는 O_Confirm의 경고 문구(호스트에게는 세션 파기 경고를 별도 표시)가 담당한다.**
   * [로비 복귀]·[리셋]·**[나가기]** 는 클릭 시 반드시 O_Confirm 재확인 후 실행된다(오조작 방지).
 * **O_SaveLoad:** O_PauseMenu에서 [수동 저장] 선택 시 호출. 현재 상태를 슬롯에 덮어쓰거나 빈 슬롯에 기록.
 
@@ -196,14 +201,14 @@ UI와 Steam 세션(UTCGameInstance) 사이의 단일 바인딩 계층(GameInstan
 * **입력 라우팅:** Btn_Start 클릭 시 O_JoinRoom 모달 팝업을 호출(PushOverlay).
 
 ### 2) S_SlotSelect (게임 선택 슬롯)
-* **역할:** 세이브 데이터 진입 및 관리 (호스트 권한). **v1과 동일.**
-* **구성:** 맵 썸네일과 진행도가 포함된 가로형 카드 슬롯. 내부에 명시적 삭제 버튼 [ X ] 존재.
-  * ※ 미구현 요구사항: 슬롯 카드에 필요한 메타데이터(썸네일, 진행도 요약, 마지막 플레이 날짜)는 현재 UTCSaveGame 스키마에 없다. 슬롯 UI 완성 시 스키마 확장 필요(5장 참고).
+* **역할:** 세이브 데이터 진입 및 관리 (호스트 권한).
+* **구성 (구현 완료 — 기존 "가로형 카드 + 임시 테스트 버튼" 프로토타입에서 전환):** 고정 4슬롯(`Switcher_0`~`Switcher_3`), 각 Switcher 하위에 `Card_New_X`(빈 슬롯 카드)/`Card_Saved_X`(저장 데이터 있는 슬롯 카드, `UW_GameSlotCard_Saved`) 쌍이 배치된다. `NativeConstruct()`에서 `UTCSessionFlow::GetAllSaveSlotInfos()`(슬롯 0~3의 `UGameplayStatics::DoesSaveGameExist` 스캔 결과, `FSaveSlotInfo` 배열)를 조회해, 슬롯별로 `bHasSaveData` 값에 따라 해당 Switcher를 Card_New/Card_Saved 중 하나로 전환한다(`RefreshSlotCards()`). 기존 임시 테스트 버튼(`Btn_TempEmptySlot`)은 제거됐다.
+  * ※ 남은 미구현 요구사항: 카드 표시용 부가 메타데이터(맵 썸네일, 진행도 요약, 마지막 플레이 **날짜**, CurrentTeamMoney)는 여전히 UTCSaveGame에 없다. 다만 `FSaveSlotInfo.LastPlayedStage`(마지막 플레이 **스테이지**)는 이제 조회 가능하다(5장 참고).
 * **선택 로직 (UTCSessionFlow 연동):**
-  * **데이터 슬롯:** 이어하기. `SetSaveSelection(슬롯명, true)` 호출 후 `HostCreateRoom()`으로 Continue 모드 방 생성.
-  * **빈 슬롯:** O_Confirm 확인 후 `SetSaveSelection(슬롯명, false)` 호출, `HostCreateRoom()`으로 NewGame 모드 방 생성.
+  * **Card_Saved_X 클릭(이어하기):** O_Confirm("이어하기" / "이 게임을 이어하시겠습니까?") 확인 후 `ConfirmSlotAndCreateRoom(UTCSessionFlow::MakeSaveSlotName(SlotIndex), true)` → 내부에서 `SetSaveSelection(슬롯명, true)` 호출 후 `HostCreateRoom()`으로 Continue 모드 방 생성.
+  * **Card_New_X 클릭(새 게임):** O_Confirm("새 게임" / "새로운 게임을 생성하시겠습니까?") 확인 후 `ConfirmSlotAndCreateRoom(UTCSessionFlow::MakeSaveSlotName(SlotIndex), false)` → `SetSaveSelection(슬롯명, false)` 호출 후 `HostCreateRoom()`으로 NewGame 모드 방 생성.
   * 방 생성 성공 시 세션 계층이 L_Lobby로 ServerTravel한다 (구간 중 S_Loading 표시).
-* **삭제 로직:** [ X ] 클릭 시 O_Confirm 호출 후 데이터 삭제.
+* **삭제 로직 (구현 완료):** Card_Saved_X 내부의 Btn_Delete 클릭 시 `UW_GameSlotCard_Saved::OnDeleteRequested(SlotName)` 델리게이트가 브로드캐스트되고, S_SlotSelect가 이를 구독해 O_Confirm("저장 데이터 삭제" / "정말로 이 저장 데이터를 삭제하시겠습니까? 되돌릴 수 없습니다.") 확인 후 `UTCSessionFlow::DeleteSaveSlot(SlotName)`(`UGameplayStatics::DeleteGameInSlot`)을 호출한다. 삭제 후 `RefreshSlotCards()`로 해당 슬롯이 Card_New로 즉시 전환된다.
 
 ### 3) S_Lobby (플레이어블 로비)
 * **역할:** 모든 플레이어의 집결지(L_Lobby)이자 게임 준비의 허브. **S_InGame처럼 캐릭터를 직접 조작하며 돌아다닐 수 있다.**
@@ -245,6 +250,8 @@ UI와 Steam 세션(UTCGameInstance) 사이의 단일 바인딩 계층(GameInstan
   * **상호작용 시스템 (v3 내부 결정 — 기존 시스템 재사용):** 가구 상호작용에 이미 쓰이는 `IA_Interact` 입력 액션과 `OnInteractTargetChanged(AActor* Target, FString Key)` 델리게이트(4장-7, W_FurnitureStatus와 동일 경로)를 그대로 재사용한다. 별도의 트리거 볼륨·입력 시스템을 새로 만들지 않는다. 근접 시 `OnInteractTargetChanged`가 Broadcast되고, `IA_Interact` 입력 시 `PushOverlay("O_StageSelect")`를 호출한다. 기존 O_StageSelect의 Push/Pop, 입력 차단(GetDesiredInputConfig), 확인/취소 로직은 그대로 유지되며 **호출 경로만** 변경된다.
     * **프롬프트 표시 위젯은 별도 필요:** W_FurnitureStatus는 가구 전용(내구도 게이지 포함) 위젯이라 "좌클릭 - 스테이지 선택"(실제 IMC 기준 상호작용 키는 E가 아니라 좌클릭 — 4장-15 참고) 같은 보드 프롬프트에 그대로 재사용할 수 없다. S_Lobby HUD에 `OnInteractTargetChanged`를 구독하는 경량 프롬프트 텍스트(예: `Txt_InteractPrompt`, Target 타입에 따라 문구만 다르게 표시)를 별도로 둔다 — 재사용되는 것은 입력 액션·델리게이트 경로뿐이며, 표시 위젯 자체는 화면(S_Lobby vs S_InGame)마다 별개다.
   * **방장 판정 (v3 내부 결정):** `UTCSessionFlow::IsHost()`가 false인 플레이어에게는 상호작용 프롬프트 자체가 노출되지 않는다(비활성 표시가 아니라 완전히 숨김) — 오버레이 자체가 열리지 않는다.
+  * **포커스 시각 피드백 (신규, 구현 완료):** `OnFocus_Implementation()`/`OnUnfocus_Implementation()`이 보드 액터에 붙은 모든 `UStaticMeshComponent`에 CustomDepth-Stencil 아웃라인(스텐실 값 1)을 켜고 끈다(ATCMapInteractable/InteractableDoor와 동일한 포스트프로세스 아웃라인 패턴). `SetRenderCustomDepth`는 로컬 렌더 플래그라 리플리케이트되지 않으므로, "상호작용 가능한 오브젝트" 시각 표시는 `IsHost()` 게이팅과 무관하게 근접한 모든 플레이어에게 동일하게 보인다(실제 상호작용 자체는 여전히 방장 전용, 위 항목 참고).
+  * **게시판 클릭 모드 내 선택 방식 (신규, 구현 완료 — 마우스 + 키보드 병행):** `IA_Interact` 입력으로 `ATCStageSelectBoard::OnInteract_Implementation()`(서버)이 실행되면 `ATCPlayerController::ClientEnterBoardInteractionMode(Board)`가 Client RPC로 호출되어 마우스 커서를 노출하고 캐릭터의 `WidgetInteractionComponent`로 W_StageBoardScreen(월드 스페이스 위젯)의 목록/확인/취소를 클릭할 수 있게 한다. **여기에 더해**, 이 모드 중에는 `IA_BoardListUp`/`IA_BoardListDown` 입력으로도 리스트를 탐색할 수 있다 — `ATCPlayerController::Input_BoardListUp/Down()`이 진입 시 저장해 둔 대상 보드(`ActiveBoard`)의 `GetBoardScreenWidget()`을 찾아 `UW_StageBoardScreen::NavigateStageSelection(±1)`을 호출하며, 마우스 클릭과 동일한 경로(`HandleStageItemClicked`)로 선택을 반영해 하이라이트 테두리까지 동일하게 갱신된다. 클릭 모드 중에는 마우스 위치를 매 프레임 따라다니는 별도 커서 위젯(빨간 점, `PlayerTick()`에서 갱신)도 표시된다 — Slate 기본 소프트웨어 커서가 이 프로젝트 창 설정에서 렌더링되지 않아 대체한 것.
   * **Btn_StageSelect와의 관계 (v3 내부 결정 — 액터 참조/텔레포트 목적지):** S_Lobby의 Btn_StageSelect(방장 전용)는 더 이상 오버레이를 직접 열지 않고, 방장 캐릭터를 BP_StageSelectBoard 앞 지정 위치로 순간이동시키는 편의 기능으로 축소된다(4장-3). BP_StageSelectBoard는 신규 네이티브 베이스 클래스(예: `ATCStageSelectBoard`)의 블루프린트 자식으로 만들고(BP_ 접두는 블루프린트 에셋, 네이티브 클래스는 프로젝트 관례상 A 접두 — TCPlayerState 등과 동일), 클릭 시 `UGameplayStatics::GetActorOfClass(this, ATCStageSelectBoard::StaticClass())`로 씬의 유일한 보드 액터를 검색해 액터에 부착된 전용 `USceneComponent`(예: `TeleportAnchor`)의 위치/회전값으로 캐릭터를 텔레포트한다. 실제 오버레이는 텔레포트 후 보드와의 상호작용(위 `IA_Interact`)으로 연다.
 * **W_StageBoardScreen (게시판 월드 스크린, 신규):** BP_StageSelectBoard에 부착되는 월드 스페이스 위젯(3장 참고). 현재 `ATCLobbyGameState::SelectedStageId`를 실시간으로 표시하여, **방장이 아닌 플레이어도 로비를 돌아다니며 어떤 스테이지가 선택되어 있는지 실시간으로 확인**할 수 있다. 표시 내용은 "선택됨" 여부와 스테이지 이름 정도의 경량 텍스트다(FStageInfo에 썸네일 필드가 아직 없으므로 — 7장-3 — 현재는 텍스트만 표시하고 썸네일은 데이터 도입 후 확장). O_StageSelect 오버레이 UI 전체를 복제하지 않는다(가벼운 갱신 유지).
   * 갱신 경로: `SetStageSelection(StageId)` 성공 시 `ATCLobbyGameState`의 `SelectedStageId` RepNotify가 `OnSelectedStageChanged(int32)` 델리게이트를 Broadcast → W_StageBoardScreen과 O_StageSelect 내부 하이라이트가 함께 갱신(7장 참고). CommonUI 화면 스택 경로(ReplaceState/PushOverlay)를 타지 않는 예외 위젯이므로 UMockUIController를 거치지 않는다(6장-9).
@@ -321,31 +328,38 @@ UI와 Steam 세션(UTCGameInstance) 사이의 단일 바인딩 계층(GameInstan
 ### 12) O_PauseMenu (인게임/로비 공통 메뉴 — v3 내부 개정: S_Lobby 컨텍스트 추가)
 * **역할:** S_InGame·S_Tutorial의 "일시정지 메뉴"와 S_Lobby의 "ESC 메뉴"를 하나의 클래스로 겸한다. Btn_Resume·Btn_Settings는 세 컨텍스트에서 로직이 동일하므로(둘 다 단순히 Pop / O_Settings Push), 별도 클래스(O_LobbyMenu 등)를 신설하는 대신 **호출 컨텍스트(Lobby / Tutorial / InGame)에 따라 버튼 노출만 다르게** 하는 기존 방식(S_Tutorial 노출 분기, 아래)을 S_Lobby까지 확장한다.
 * **컨텍스트 판정 방식 (v3 내부 신규 — 구현 단순화):** 초안에서는 새 `EE_PauseMenuContext` enum과 `SetupPauseMenuContext()` 호출부 배선을 계획했으나, 실제 구현 착수 시 `UMockUIController`에 이미 `GetCurrentState()`(BlueprintPure, EE_UIState 반환)가 존재함을 확인하여 그대로 재사용했다. `PushOverlay()`는 `CurrentState`(Lobby/Tutorial/InGame)를 바꾸지 않으므로, O_PauseMenu는 `NativeConstruct()`에서 `MockController->GetCurrentState()`를 조회하는 것만으로 자신이 어느 화면 위에 떠 있는지 정확히 판별할 수 있다. 호출부(S_Lobby·S_Tutorial·S_InGame) 쪽 변경은 필요 없다 — 세 곳 모두 기존과 동일하게 `PushOverlay("O_PauseMenu")`만 호출한다. (7장-6의 `EE_PauseMenuContext` 계획은 폐기되었다.)
-* **구성:** Btn_Resume(계속하기), Btn_Settings(설정), Btn_Save(수동 저장, 방장 전용), **Btn_ToLobby(로비 복귀, 방장 전용, 신규)**, **Btn_Reset(리셋, 방장 전용, 신규)**, **Btn_LeaveRoom(나가기, Lobby 전원 + S_InGame 클라이언트 전용, v3 내부 신규 — 2026-07-15 S_InGame 확장)**.
-  * **제거:** Btn_KeyGuide(조작법) — S_InGame에 상시 노출되는 W_HelpPanel로 대체(4장-7, 4장-15). Btn_ToTitle(타이틀로) — 인게임 중 **호스트의** 타이틀 이탈 경로는 계속 폐기 상태(오조작 방지 목적 유지. 호스트가 타이틀로 이탈하려면 O_Result의 Btn_ToTitle을 거쳐야 한다). 다만 **클라이언트 개인의** 이탈은 2026-07-15부로 Btn_LeaveRoom을 통해 별도로 허용됐다(아래 "S_InGame에서 호출될 때" 참고).
+* **구성:** Btn_Resume(계속하기), Btn_Settings(설정), Btn_Save(수동 저장, 방장 전용), **Btn_ToLobby(로비 복귀, 방장 전용, 신규)**, **Btn_Reset(리셋, 방장 전용, 신규)**, **Btn_LeaveRoom(나가기, Lobby·S_InGame 공통, 호스트/클라이언트 모두 노출, v3 내부 신규 — 2026-07-16 재조정)**.
+  * **제거:** Btn_KeyGuide(조작법) — S_InGame에 상시 노출되는 W_HelpPanel로 대체(4장-7, 4장-15). Btn_ToTitle(타이틀로) — 인게임 중 **호스트가 세션을 끝내는** 명시적 이탈 경로는 여전히 O_Result의 Btn_ToTitle이 정석이지만(오조작 방지 목적 유지), 2026-07-16 재조정 이후로는 **Btn_LeaveRoom을 호스트가 눌러도** 같은 결과(세션 파기 + 타이틀 복귀)에 도달할 수 있다 — 다만 O_Confirm에 세션 파기를 명시하는 경고 문구가 별도로 뜬다(아래 "S_InGame에서 호출될 때" 참고).
   * **WBP 구현 메모:** 기존 `Btn_KeyGuide`/`Btn_ToTitle` 위젯 인스턴스를 삭제 후 재생성하는 대신 각각 `Btn_ToLobby`/`Btn_Reset`으로 리네임해 기존 슬롯·스타일을 재사용했다. `Btn_LeaveRoom`은 신규 추가(Btn_Save와 동일 버튼 클래스 재사용). 리네임된 두 버튼의 라벨 텍스트("조작법"/"타이틀로")는 아직 새 용도에 맞게 갱신되지 않았다 — 버튼 세부 디자인은 별도 진행 예정(개정 요약 참고).
 * **컨텍스트별 노출 (`GetCurrentState()` 값에 따라 적용, v3 내부 신규 — Lobby 행 추가):**
   | 호출 컨텍스트 | Btn_Resume | Btn_Settings | Btn_Save | Btn_ToLobby | Btn_Reset | Btn_LeaveRoom |
   | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
   | S_Lobby (신규) | O | O | 숨김 | 숨김 | 숨김 | O (전원) |
   | S_Tutorial | O | O | 비활성 | 숨김 | 숨김 | 숨김 |
-  | S_InGame | O | O | 방장 전용 | 방장 전용 | 방장 전용 | **클라이언트 전용**(2026-07-15 추가 — 방장에게는 계속 숨김) |
+  | S_InGame | O | O | 방장 전용 | 방장 전용 | 방장 전용 | **O (전원, 2026-07-16 재조정 — 호스트도 노출)** |
 * **입력 라우팅:**
   * Btn_Settings 클릭 시 O_Settings를 Push.
   * Btn_ToLobby 클릭 시 O_Confirm(로비로 복귀 확인) 호출. 확인 시 `HostReturnToLobby()` — 세션을 유지한 채 진행 중인 스테이지를 즉시 이탈해 [S_Loading]을 거쳐 L_Lobby(S_Lobby)로 복귀한다(O_Result의 [로비로 가기]와 동일한 의도 함수를 게임 진행 중에도 사용 — `bIsGameFinished` 여부와 무관하게 즉시 트래블).
   * Btn_Reset 클릭 시 O_Confirm(스테이지 초기화 확인) 호출. 확인 시 `RestartStage()`(2장 신규 의도 함수) — 현재 선택된 스테이지 맵으로 재트래블([S_Loading] 경유)하여 가구 배치·팀 값어치·타이머 등 인게임 상태를 초기화한다.
-  * **Btn_LeaveRoom 클릭 시(Lobby 전원 + S_InGame 클라이언트 전용):** O_Confirm(방 나가기 확인) 호출. 확인 시 `LeaveToTitle()` — 로컬 세션 참여를 정리하고 [S_Loading]을 거쳐 S_MainMenu로 복귀한다. Lobby 컨텍스트에서는 호스트뿐 아니라 참가자도 누구나 방을 나갈 수 있으므로 `IsHost()` 게이팅을 받지 않는다(S_Lobby 자체의 기존 ESC 동작을 그대로 승계, 4장-3). **S_InGame 컨텍스트에서는 반대로 호스트에게는 숨겨지고 클라이언트에게만 노출된다**(2026-07-15 추가) — 클라이언트가 `LeaveToTitle()`을 호출해도 자신의 세션 참여만 정리될 뿐 호스트가 관리하는 세션 자체는 파기되지 않으므로, 다른 플레이어는 진행 중인 스테이지를 계속 플레이한다. 호스트가 인게임 중 세션을 끝내려면 여전히 Btn_ToLobby/Btn_Reset을 거쳐야 한다(오조작으로 파티 전체가 끊기는 것을 방지).
-* **권한:** Btn_Save·Btn_ToLobby·Btn_Reset은 멀티플레이 동기화를 위해 호스트(방장) 전용이며, `UTCSessionFlow::IsHost()`로 판정해 일반 클라이언트에게는 Collapsed 처리한다(6장-8 규칙과 동일). 노출 분기는 편의일 뿐이므로 실제 트래블/저장/리셋 실행은 서버 측에서 재검증한다. Btn_LeaveRoom은 Lobby 컨텍스트에서는 이 게이팅에서 제외되어 전원에게 노출되지만, **S_InGame 컨텍스트에서는 반대 방향으로 게이팅된다**(호스트=Collapsed, 클라이언트=Visible — 2026-07-15 추가).
+  * **Btn_LeaveRoom 클릭 시(Lobby·S_InGame 공통, 호스트/클라이언트 모두 노출):** O_Confirm(방 나가기 확인) 호출. 확인 시 `LeaveToTitle()` — 로컬 세션 참여를 정리하고 [S_Loading]을 거쳐 S_MainMenu로 복귀한다. Lobby 컨텍스트에서는 호스트뿐 아니라 참가자도 누구나 방을 나갈 수 있으므로 `IsHost()` 게이팅을 받지 않는다(S_Lobby 자체의 기존 ESC 동작을 그대로 승계, 4장-3). **S_InGame 컨텍스트에서도 2026-07-16 재조정 이후로는 호스트/클라이언트 구분 없이 노출된다** — `LeaveToTitle()` 자체가 호출자 권한에 따라 이미 다르게 동작하므로(클라이언트가 호출하면 본인 세션 참여만 정리되어 다른 플레이어는 진행 중인 스테이지를 계속 플레이하지만, **호스트가 호출하면 세션 자체가 파기되어 전원이 함께 끊긴다**), Visibility로 호스트를 막는 대신 클릭 직후의 O_Confirm 경고 문구로 그 차이를 알린다: 호스트에게는 "정말로 방을 나가시겠습니까? 진행 중인 스테이지가 종료되며, 모든 플레이어가 게임에서 나가게 됩니다."를, 클라이언트에게는 기존과 동일한 "정말로 방을 나가시겠습니까?"를 보여준다.
+* **권한:** Btn_Save·Btn_ToLobby·Btn_Reset은 멀티플레이 동기화를 위해 호스트(방장) 전용이며, `UTCSessionFlow::IsHost()`로 판정해 일반 클라이언트에게는 Collapsed 처리한다(6장-8 규칙과 동일). 노출 분기는 편의일 뿐이므로 실제 트래블/저장/리셋 실행은 서버 측에서 재검증한다. Btn_LeaveRoom은 Lobby·S_InGame 컨텍스트 모두 이 게이팅에서 제외되어 전원에게 노출된다(2026-07-16 재조정) — 호스트/클라이언트 차이는 Visibility가 아니라 `LeaveToTitle()`의 실제 동작 차이(세션 파기 여부) + O_Confirm 경고 문구가 담당한다.
 * **S_Tutorial에서 호출될 때:** Btn_Save는 강제 비활성화(기존 규칙 유지), Btn_ToLobby·Btn_Reset·Btn_LeaveRoom은 노출하지 않는다 — 튜토리얼은 `CompleteTutorial()` 단일 경로로만 로비 복귀한다(4장-6 참고).
 * **S_Lobby에서 호출될 때 (v3 내부 신규):** Btn_Save·Btn_ToLobby·Btn_Reset은 노출하지 않는다(로비에는 저장할 진행 중인 스테이지도, 복귀할 다른 곳도, 리셋할 스테이지도 없음). Btn_LeaveRoom만 신규 노출(전원).
-* **S_InGame에서 호출될 때 (2026-07-15 추가):** Btn_Save·Btn_ToLobby·Btn_Reset은 기존대로 호스트 전용이다. Btn_LeaveRoom은 이 컨텍스트에서만 **호스트에게 Collapsed, 클라이언트에게 Visible**로 반전 게이팅된다 — 클라이언트가 진행 중인 스테이지에서 개인적으로 이탈할 수단이 그동안 전혀 없었던 공백을 메우기 위함이며, 호스트의 오조작-방지 취지(위 "제거" 항목)는 그대로 유지된다.
+* **S_InGame에서 호출될 때 (2026-07-16 재조정):** Btn_Save·Btn_ToLobby·Btn_Reset은 기존대로 호스트 전용이다. Btn_LeaveRoom은 이 컨텍스트에서도 **호스트/클라이언트 모두 Visible**이다 — 2026-07-15에는 클라이언트가 진행 중인 스테이지에서 개인적으로 이탈할 수단이 없던 공백을 메우려 호스트를 숨겼으나(Visibility 게이팅), `LeaveToTitle()`의 호출자별 동작 차이(호스트=세션 파기, 클라이언트=본인만 이탈)가 이미 안전장치이므로 재검토 후 게이팅을 없애고 O_Confirm 경고 문구로 대체했다.
 
 ### 13) O_Settings (설정 창)
 * **구성:** 하위 탭은 별도 서브 위젯 클래스로 분리 — **O_AudioSettings**(오디오), **O_GraphicsSettings**(비디오). 하위 탭은 UCommonUserWidget 상속(6장 규칙).
 * **동작 로직:** 값 변경 후 적용 클릭 시 UGameUserSettings 호출. 비디오 설정 시 15초 미확인 시 이전 상태로 원복하는 안전 로직 구현.
 
 ### 14) O_SaveLoad (저장/불러오기 창)
-* **동작 로직:** 인게임 메뉴에서 호출되며, 현재 진행도의 덮어쓰기 및 빈 슬롯 기록 역할만 수행.
+* **역할:** O_PauseMenu의 [수동 저장] 선택 시 Push되는 오버레이. S_SlotSelect와 동일한 4슬롯 카드 UI(구성/조회는 4장-2 참고)를 인게임 컨텍스트에서 재사용한다.
+* **구성 (구현 완료):** S_SlotSelect와 동일하게 `Switcher_0`~`Switcher_3` + `Card_New_X`/`Card_Saved_X`(`UW_GameSlotCard_Saved`) 4쌍. `NativeConstruct()`에서 `GetAllSaveSlotInfos()`로 채운다(`RefreshSlotCards()`).
+* **동작 로직:**
+  * **Card_New_X 클릭(빈 슬롯에 신규 기록):** O_Confirm("게임 저장" / "현재 진행 상황을 이 슬롯에 저장하시겠습니까?") 확인 후 실행.
+  * **Card_Saved_X 클릭(기존 슬롯 덮어쓰기):** O_Confirm("덮어쓰기" / "정말로 이 슬롯을 덮어쓰시겠습니까? 기존 저장 데이터가 사라집니다.") — 파괴적 액션이므로 Card_New와 다른 경고 문구를 사용한다.
+  * 두 경로 모두 확인 시 `ATeamCarryGameMode::SaveGameToSlot(UTCSessionFlow::MakeSaveSlotName(SlotIndex))`를 호출해 현재 진행도를 그 슬롯에 저장한다. `SaveGameToSlot()`은 저장과 함께 `UTCSessionFlow::SetSaveSelection()`으로 이 세션의 활성 슬롯도 갱신하므로, 이후 `RestartStage()`/자동 저장(FinishGame)도 계속 같은 슬롯을 사용하게 된다. 저장 후 `RefreshSlotCards()`로 New→Saved 전환을 즉시 반영한다.
+  * **삭제:** Card_Saved_X의 Btn_Delete → O_Confirm("저장 데이터 삭제") 확인 → `DeleteSaveSlot(SlotName)`. S_SlotSelect(4장-2)와 동일 경로.
+* **취소/ESC:** 라우터(PopCurrentOverlay)로 닫아 O_PauseMenu로 복귀한다.
 
 ### 15) W_HelpPanel (인게임 도움말/조작 팁 패널) — 신규, 구 O_KeyGuide 대체
 * **역할:** S_InGame **화면 우측 하단에 가지런히 정렬 배치**되어 **상시 노출**되는 도움말 패널(**v3 내부 개정** — 기존 "우측 중단부터 하단까지 세로 배치"안에서 변경). 기존 O_PauseMenu → O_KeyGuide 팝업 경로를 대체한다. 조작 키 안내뿐 아니라 게임 진행에 유용한 팁 문구도 함께 표시한다.
@@ -365,16 +379,17 @@ UI와 Steam 세션(UTCGameInstance) 사이의 단일 바인딩 계층(GameInstan
 
 | 데이터 구조 (도메인) | 유지 방식 | 포함되는 핵심 필드 (실제 구현) |
 | :--- | :--- | :--- |
-| **세이브 슬롯 (디스크, UTCSaveGame)** | 영구 보존 | `StageRecords: TMap<FString, FStageRecord>` (bIsCleared, BestStar, BestScore), `LastPlayedStage`, **(확장 예정) bTutorialCompleted** |
+| **세이브 슬롯 (디스크, UTCSaveGame)** | 영구 보존, 고정 4슬롯(`UTCSessionFlow::NumSaveSlots`, Config) | `StageRecords: TMap<FString, FStageRecord>` (bIsCleared, BestStar, BestScore), `LastPlayedStage`, **(확장 예정) bTutorialCompleted**. 슬롯 이름은 `MakeSaveSlotName(Index)`("SaveSlot_0".."SaveSlot_3", Index 0..NumSaveSlots-1)로 통일 — S_SlotSelect/O_SaveLoad가 카드 위치와 슬롯을 매칭하는 단일 규칙(4장-2, 4장-14). `ATeamCarryGameMode::SaveGame()`/`LoadGame()`은 `UTCSessionFlow::GetSelectedSlotName()`(세션이 선택한 슬롯)을 사용하며, 미선택 시(구버전 호환)에만 `"TCGameSave"`로 폴백한다 |
+| **세이브 슬롯 요약 (런타임 조회 전용, FSaveSlotInfo — 신규, 구현 완료)** | 복제/저장되지 않음, 호출마다 재조회 | `SlotIndex`, `SlotName`, `bHasSaveData`(`UGameplayStatics::DoesSaveGameExist`), `LastPlayedStage`. `UTCSessionFlow::GetAllSaveSlotInfos()`가 NumSaveSlots개를 매번 새로 스캔해 배열로 반환 — S_SlotSelect/O_SaveLoad가 슬롯별 Card_New/Card_Saved 전환에 사용(4장-2, 4장-14) |
 | **멀티 로비 (복제)** | 세션 내 유지 | ATCPlayerState: `bIsReady`, `LobbySlotIndex`, `CharacterIndex` / ATCLobbyGameState: `RoomCode`, **(신규) `SelectedStageId`**, **(신규) `SessionLogEntries: TArray<FText>` (RepNotify)** — 준비/외형/입퇴장 변경 알림은 `OnLobbyPlayersChanged` 단일 경로, 로그는 `OnSessionLogAdded` 경로, **`SelectedStageId` 변경 알림은 `OnSelectedStageChanged` 경로(v3 내부 신규 — BP_StageSelectBoard의 W_StageBoardScreen 실시간 갱신용, 4장-5·7장)** |
 | **스테이지 정의 (정적, 도입 예정)** | 에셋/Config | `DT_Stages` (FStageInfo: StageId, DisplayName, MapPath, …). 현재는 1스테이지(L_LevelProto) 단일 기본 항목 |
 | **가구/운반 (액터)** | 스테이지 내 유지 | MaxHealth, CurrentHealth, RequiredPlayer, CurrentGrabbedPlayer, BaseScore |
 | **전역 설정 (로컬)** | 클라이언트별 | MasterVolume, GraphicsQuality, InputBindings |
 | **게임 진행 (GameState, 복제)** | 스테이지 내 유지 | TotalScore, RemainingFurniture, ElapsedTime, bIsGameFinished, CurrentPhase, StarCount, SessionLogEntries, TotalFurnitureCount(스테이지 시작 시 GameMode가 가구 액터 순회로 1회 산정, 스테이지 중 불변 — **v3 내부 개정: Txt_FurnitureCount 분모("전체 상자 개수, 파괴된 것 포함")로 UI에 노출**, 4장-7), **(v3 신규) TotalLevelValue** (스테이지 시작 시 GameMode가 전체 가구 값어치 합으로 1회 산정, 스테이지 중 불변 — PB_TeamMoney 게이지의 Max 값, 4장-7) |
 
-**세이브 스키마 미구현 요구사항:** S_SlotSelect의 슬롯 카드 UI가 요구하는 메타데이터(맵 썸네일, 진행도 요약, LastPlayedDate, CurrentTeamMoney, SaveSlotIndex)는 현재 UTCSaveGame에 없다. 슬롯 UI 완성 단계에서 스키마 확장이 필요하다. **추가로, 튜토리얼 완료 후 로비 복귀 흐름(4장-6)을 위해 bTutorialCompleted 플래그 확장이 필요하다.**
+**세이브 스키마 미구현 요구사항 (일부 해소):** 4개 고정 슬롯의 존재 여부/삭제/선택 메커니즘 자체는 구현 완료됐다(`FSaveSlotInfo`, `GetAllSaveSlotInfos()`, `DeleteSaveSlot()`, `MakeSaveSlotName()`, 위 표 참고). 다만 카드 표시용 부가 메타데이터(맵 썸네일, 진행도 요약, LastPlayedDate, CurrentTeamMoney)는 여전히 UTCSaveGame에 없다 — `LastPlayedStage`(마지막 플레이 스테이지)만 조회 가능하며, 나머지는 슬롯 카드 UI가 더 풍부한 정보를 요구하게 되면 스키마 확장이 필요하다. **추가로, 튜토리얼 완료 후 로비 복귀 흐름(4장-6)을 위해 bTutorialCompleted 플래그 확장이 필요하다.**
 
-**세이브 슬롯 선택 연동:** 슬롯 확정은 `UTCSessionFlow::SetSaveSelection(SlotName, bContinue)`로, 스테이지 확정은 `SetStageSelection(StageId)`로 세션 계층에 전달되며, 세션 수명 동안 유지된다(2장). SelectedStageId는 클라이언트 표시용으로 ATCLobbyGameState에도 복제한다(방장이 고른 스테이지를 참가자가 로비에서 확인 가능).
+**세이브 슬롯 선택 연동:** 슬롯 확정은 `UTCSessionFlow::SetSaveSelection(SlotName, bContinue)`로, 스테이지 확정은 `SetStageSelection(StageId)`로 세션 계층에 전달되며, 세션 수명 동안 유지된다(2장). SelectedStageId는 클라이언트 표시용으로 ATCLobbyGameState에도 복제한다(방장이 고른 스테이지를 참가자가 로비에서 확인 가능). **(신규, 구현 완료)** 세션 진행 중 O_SaveLoad에서 다른 슬롯에 수동 저장하면(`ATeamCarryGameMode::SaveGameToSlot(SlotName)`), 그 슬롯이 `SetSaveSelection()`을 통해 이 세션의 활성 슬롯으로 갱신되어 이후 `RestartStage()`/자동 저장(FinishGame)도 계속 그 슬롯을 사용한다(4장-14).
 
 ---
 
@@ -479,6 +494,13 @@ O_PauseMenu가 S_Lobby·S_Tutorial·S_InGame 세 곳에서 공용으로 호출�
 
 * **`UO_PauseMenu::RefreshContextVisibility()`:** `NativeConstruct()`에서 호출하는 내부 함수(private). `MockController->GetCurrentState()`가 `Lobby`/`Tutorial`/`InGame` 중 무엇인지에 따라 4장-12의 노출 표대로 Btn_Save·Btn_ToLobby·Btn_Reset·Btn_LeaveRoom의 Visibility를 즉시 갱신한다.
 * **호출부 변경 없음:** S_Lobby·S_Tutorial·S_InGame 세 호출부는 기존과 동일하게 `PushOverlay("O_PauseMenu")`만 호출한다. Push 자체의 시그니처(`PushOverlay(const FString&)`, 6장)도 변경되지 않았다.
+
+### 7) FSaveSlotInfo (세이브 슬롯 요약 구조체 — 신규, 구현 완료)
+S_SlotSelect/O_SaveLoad가 슬롯 카드(Card_New/Card_Saved) 전환에 사용하는 런타임 조회 전용 데이터(5장 참고). USTRUCT(BlueprintType)으로 선언되며, 디스크에 저장되거나 복제되지 않고 `UTCSessionFlow::GetAllSaveSlotInfos()` 호출마다 새로 스캔해 만들어진다.
+* `int32 SlotIndex` (BlueprintReadOnly)
+* `FString SlotName` (BlueprintReadOnly) — `UGameplayStatics::SaveGameToSlot`/`DoesSaveGameExist` 등에 그대로 넘기는 실제 슬롯 이름. `UTCSessionFlow::MakeSaveSlotName(Index)`(static, BlueprintPure)가 `"SaveSlot_{Index}"` 형식으로 생성하는 이름과 동일 규칙을 따른다.
+* `bool bHasSaveData` (BlueprintReadOnly) — 해당 슬롯에 세이브 파일이 존재하는지. S_SlotSelect/O_SaveLoad가 이 값으로 Card_New/Card_Saved 중 무엇을 보여줄지 판단한다.
+* `FString LastPlayedStage` (BlueprintReadOnly) — 존재하는 경우 그 세이브의 `UTCSaveGame::LastPlayedStage`(카드 표시용).
 
 ---
 
