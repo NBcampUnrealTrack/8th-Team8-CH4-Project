@@ -242,6 +242,17 @@ void ATCPlayerController::ClientNotifyAllPlayersLoaded_Implementation()
 	FInputModeGameAndUI GameAndUIMode;
 	SetInputMode(GameAndUIMode);
 
+	// MoviePlayer 로딩 화면(hard travel 보강, UI_Technical_Spec.md 2장·4장-9)의 수동 정지 지점.
+	// UTCSessionFlow::HandlePreLoadMap()이 스테이지 맵 진입 시 bWaitForManualStop=true로 띄워 둔
+	// 로딩 화면을, "전원 로딩 완료"가 확정되는 이 시점에 내린다. 이 RPC가 이미 UI 상태 전환과
+	// 무관하게 "전원 준비 완료" 시점에만 호출되도록 설계돼 있어(위 주석 참고), 오늘 진행 중인
+	// 전원 대기 게이트 재작업(GameState::CurrentPhase)이 이 RPC의 호출 시점만 유지한다면 이 호출은
+	// 별도 수정 없이 계속 올바르게 동작한다.
+	if (UTCSessionFlow* Flow = GetGameInstance() ? GetGameInstance()->GetSubsystem<UTCSessionFlow>() : nullptr)
+	{
+		Flow->StopMovieLoadingScreen();
+	}
+
 	UE_LOG(LogTCNet, Log, TEXT("[PlayerController] 전원 로딩 완료 확인."));
 }
 

@@ -6,8 +6,26 @@
 #include "Network/Net/TCNetStatics.h"
 #include "Core/TCSaveGame.h"
 #include "Player/PlayerController/TCPlayerController.h"
+#include "TeamCarry/UI/W_MovieLoadingScreen.h"
 #include "Engine/World.h"
 #include "Kismet/GameplayStatics.h"
+#include "Blueprint/UserWidget.h"
+#include "UObject/ConstructorHelpers.h"
+#include "UObject/UObjectGlobals.h"
+#include "MoviePlayer.h"
+
+UTCSessionFlow::UTCSessionFlow()
+{
+	// MoviePlayer 로딩 화면 위젯 클래스(hard travel 보강용, 2장·4장-9). 자산이 아직 없으면
+	// FClassFinder가 실패해 nullptr로 남고, HandlePreLoadMap()이 경고 로그만 남긴 채 넘어간다
+	// (MockUIController::LoadingWidgetClass와 동일한 폴백 패턴).
+	static ConstructorHelpers::FClassFinder<UUserWidget> MovieLoadingWidgetFinder(
+		TEXT("/Game/Developers/MinkiCho/Blueprint/UI/WBP_MovieLoadingScreen"));
+	if (MovieLoadingWidgetFinder.Succeeded())
+	{
+		MovieLoadingWidgetClass = MovieLoadingWidgetFinder.Class;
+	}
+}
 
 void UTCSessionFlow::Initialize(FSubsystemCollectionBase& Collection)
 {
@@ -36,11 +54,21 @@ void UTCSessionFlow::Initialize(FSubsystemCollectionBase& Collection)
 	}
 
 	BindGameInstanceEvents();
+
+	// MoviePlayer 로딩 화면(hard travel 보강, 2장·4장-9). 두 델리게이트 모두 GameInstance 서브시스템
+	// 수명(Initialize~Deinitialize) 동안만 구독한다 — 코어 델리게이트라 해제하지 않으면 이 서브시스템
+	// 인스턴스가 파괴돼도 콜백이 계속 걸려 있어 댕글링 호출로 이어진다.
+	PreLoadMapHandle = FCoreUObjectDelegates::PreLoadMap.AddUObject(this, &UTCSessionFlow::HandlePreLoadMap);
+	PostLoadMapHandle = FCoreUObjectDelegates::PostLoadMapWithWorld.AddUObject(this, &UTCSessionFlow::HandlePostLoadMap);
+
 	UE_LOG(LogTCNet, Log, TEXT("UTCSessionFlow Initialized. (Title=%s Lobby=%s)"), *TitleMapPath, *LobbyMapPath);
 }
 
 void UTCSessionFlow::Deinitialize()
 {
+	FCoreUObjectDelegates::PreLoadMap.Remove(PreLoadMapHandle);
+	FCoreUObjectDelegates::PostLoadMapWithWorld.Remove(PostLoadMapHandle);
+
 	UnbindGameInstanceEvents();
 	Super::Deinitialize();
 }
@@ -301,6 +329,89 @@ void UTCSessionFlow::HostServerTravel(const FString& MapPath)
 
 	// 이미 리슨서버이므로 ?listen 재지정 불필요. 클라는 자동 추종.
 	World->ServerTravel(MapPath);
+}
+
+// ── MoviePlayer 로딩 화면(hard travel 보강, 2장·4장-9) ──
+bool UTCSessionFlow::IsKnownNonStageMapPath(const FString& MapName) const
+{
+	return MapName.Contains(TitleMapPath) || MapName.Contains(LobbyMapPath) || MapName.Contains(TutorialMapPath);
+}
+
+void UTCSessionFlow::HandlePreLoadMap(const FString& MapName)
+{
+	if (!MovieLoadingWidgetClass)
+	{
+		UE_LOG(LogTCNet, Warning, TEXT("[SessionFlow] MovieLoadingWidgetClass 없음 — MoviePlayer 로딩 화면 생략 (%s)"), *MapName);
+		return;
+	}
+
+	UGameInstance* GI = GetGameInstance();
+	if (!GI)
+	{
+		return;
+	}
+
+	// GameInstance 소유로 생성한다 — 이 시점(PreLoadMap)엔 아직 새 World가 없고, 기존 World도
+	// 곧 파괴될 예정이라 World 컨텍스트에 의존할 수 없다(MockUIController::PersistentLoadingWidget과
+	// 동일한 이유).
+	ActiveMovieLoadingWidget = CreateWidget<UW_MovieLoadingScreen>(GI, MovieLoadingWidgetClass);
+	if (!ActiveMovieLoadingWidget)
+	{
+		return;
+	}
+
+	const bool bIsStageMap = !IsKnownNonStageMapPath(MapName);
+
+	FLoadingScreenAttributes Attr;
+	Attr.WidgetLoadingScreen = ActiveMovieLoadingWidget->TakeWidget();
+	Attr.bAutoCompleteWhenLoadingCompletes = !bIsStageMap;
+	// 스테이지 맵(S_InGame) 진입만 "전원 대기 게이트" 대상이다(로비는 참가자가 서로 다른 시점에
+	// 합류하므로 "전원 대기" 개념 자체가 적용되지 않는다 — UI_Technical_Spec.md 2장). 대기 해제는
+	// StopMovieLoadingScreen()(ATCPlayerController::ClientNotifyAllPlayersLoaded_Implementation()이
+	// "전원 로딩 완료"를 확정하는 시점에 호출)이 담당한다.
+	Attr.bWaitForManualStop = bIsStageMap;
+	Attr.MinimumLoadingScreenDisplayTime = 0.25f;
+
+	// GetMoviePlayer()는 TSharedPtr가 아니라 IGameMoviePlayer* 원시 포인터를 반환하며(MoviePlayer.h),
+	// 무비 플레이어가 이 빌드 설정에서 활성화되지 않았으면(예: 데디케이티드 서버) nullptr일 수 있다.
+	if (IGameMoviePlayer* MoviePlayer = GetMoviePlayer())
+	{
+		MoviePlayer->SetupLoadingScreen(Attr);
+		MoviePlayer->PlayMovie();
+		UE_LOG(LogTCNet, Log, TEXT("[SessionFlow] MoviePlayer 로딩 화면 시작 → %s (스테이지 맵=%d)"), *MapName, bIsStageMap);
+	}
+	else
+	{
+		UE_LOG(LogTCNet, Warning, TEXT("[SessionFlow] GetMoviePlayer() == nullptr — MoviePlayer 로딩 화면 생략 (%s)"), *MapName);
+	}
+}
+
+void UTCSessionFlow::HandlePostLoadMap(UWorld* LoadedWorld)
+{
+	if (!ActiveMovieLoadingWidget || !LoadedWorld)
+	{
+		return;
+	}
+
+	const FString MapName = LoadedWorld->GetOutermost()->GetName();
+	if (!IsKnownNonStageMapPath(MapName))
+	{
+		// 이 클라이언트의 로컬 로딩은 끝났지만, MoviePlayer는 아직 내려가지 않는다
+		// (SetupLoadingScreen()에서 bWaitForManualStop=true로 설정됨) — 문구만 "대기 중"으로 전환.
+		ActiveMovieLoadingWidget->SetStatusText(NSLOCTEXT("TeamCarry", "WaitingForPlayers", "다른 플레이어를 기다리는 중..."));
+	}
+}
+
+void UTCSessionFlow::StopMovieLoadingScreen()
+{
+	if (IGameMoviePlayer* MoviePlayer = GetMoviePlayer())
+	{
+		if (MoviePlayer->IsMovieCurrentlyPlaying())
+		{
+			MoviePlayer->StopMovie();
+		}
+	}
+	ActiveMovieLoadingWidget = nullptr;
 }
 
 // ── 클라이언트 의도 ──
