@@ -344,6 +344,19 @@ float UFurnitureGrabSystem::ComputeCarrySpeed() const
 	const int32 Required = FurnitureStat->GetRequiredPlayer();
 	const int32 Num      = GrabbedPlayers.Num();
 
+	// 1인 가구를 들면 달리기 허용
+	if (Required == 1 && Num == 1)
+	{
+		if (ACharacter* Player = GrabbedPlayers[0])
+		{
+			if (UCharacterMovementComponent* CMC = Player->GetCharacterMovement())
+			{
+				// 가구의 기본 속도(Base)와 플레이어의 현재 속도(걷기 250, 달리기 500) 중 높은 값을 반환
+				return FMath::Max(Base, CMC->MaxWalkSpeed);
+			}
+		}
+	}
+
 	// 인원 충족(초과 포함) → 기본속도 그대로
 	if (Required <= 0 || Num >= Required)
 		return Base;
