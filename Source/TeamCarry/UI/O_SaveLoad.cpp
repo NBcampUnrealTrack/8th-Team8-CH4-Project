@@ -16,8 +16,8 @@
 namespace
 {
 	// Switcher_X 의 자식 순서(WBP 디자이너에서 고정): 0=Card_New, 1=Card_Saved.
-	constexpr int32 SwitcherIndex_New = 0;
-	constexpr int32 SwitcherIndex_Saved = 1;
+	constexpr int32 SaveLoad_SwitcherIndex_New = 0;
+	constexpr int32 SaveLoad_SwitcherIndex_Saved = 1;
 }
 
 UO_SaveLoad::UO_SaveLoad()
@@ -69,7 +69,7 @@ void UO_SaveLoad::RefreshSlotCards()
 
 		if (Switchers[Index])
 		{
-			Switchers[Index]->SetActiveWidgetIndex(Info.bHasSaveData ? SwitcherIndex_Saved : SwitcherIndex_New);
+			Switchers[Index]->SetActiveWidgetIndex(Info.bHasSaveData ? SaveLoad_SwitcherIndex_Saved : SaveLoad_SwitcherIndex_New);
 		}
 
 		if (NewCards[Index])

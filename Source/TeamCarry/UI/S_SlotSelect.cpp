@@ -14,8 +14,8 @@
 namespace
 {
 	// Switcher_X 의 자식 순서(WBP 디자이너에서 고정): 0=Card_New, 1=Card_Saved.
-	constexpr int32 SwitcherIndex_New = 0;
-	constexpr int32 SwitcherIndex_Saved = 1;
+	constexpr int32 SlotSelect_SwitcherIndex_New = 0;
+	constexpr int32 SlotSelect_SwitcherIndex_Saved = 1;
 }
 
 void US_SlotSelect::NativeConstruct()
@@ -60,7 +60,7 @@ void US_SlotSelect::RefreshSlotCards()
 
 		if (Switchers[Index])
 		{
-			Switchers[Index]->SetActiveWidgetIndex(Info.bHasSaveData ? SwitcherIndex_Saved : SwitcherIndex_New);
+			Switchers[Index]->SetActiveWidgetIndex(Info.bHasSaveData ? SlotSelect_SwitcherIndex_Saved : SlotSelect_SwitcherIndex_New);
 		}
 
 		if (NewCards[Index])
