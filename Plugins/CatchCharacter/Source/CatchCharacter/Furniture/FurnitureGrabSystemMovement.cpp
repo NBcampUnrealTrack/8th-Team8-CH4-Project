@@ -218,12 +218,10 @@ void UFurnitureGrabSystem::MoveApplyAnchorShaping(FGrabMoveContext& Ctx)
 		{
 			const FVector PLoc       = Players[0]->GetActorLocation();
 			const FVector FurnCenter = FurnitureMesh->Bounds.Origin;
-			// 몸통 기준과 동일하게: 인원 충족 1인은 카메라 정면, 끌기(미달)는 앵커 기준
-			// (기준이 갈리면 몸은 카메라를 보는데 가구는 옛 앵커 정면으로 복원돼 영구 굽힘이 남는다)
-			const float   BodyYaw    = !bUnderManned
-				? Players[0]->GetBaseAimRotation().Yaw
-				: Anc->InitialPlayerYaw
-					+ FMath::FindDeltaAngleDegrees(Anc->InitialFurnitureYaw, CurFurnYaw);
+			// 몸통 '실제' 방향 기준 — 몸이 카메라 목표를 천천히 쫓으므로 가구도 호를 그리며
+			// 따라온다. 카메라를 직접 쓰면 급회전 시 목표가 즉시 반대편으로 점프해 오프셋
+			// 보간 경로가 몸 중심을 관통한다 (가구가 플레이어를 뚫고 지나가는 원인)
+			const float   BodyYaw    = Players[0]->GetActorRotation().Yaw;
 			const FVector FrontDir   = FRotator(0.0f, BodyYaw, 0.0f).Vector();
 			// 목표 거리: 가구의 정면 방향 반폭 + 캡슐 여유 — 충돌로 밀려난 거리를 유지하지 않고
 			// 몸 앞 선호 거리로 함께 회복한다. 끌림 자세(미달)는 가구가 기울어 다가오므로 여유를 크게.
@@ -241,9 +239,25 @@ void UFurnitureGrabSystem::MoveApplyAnchorShaping(FGrabMoveContext& Ctx)
 			FVector DesiredWorld = FrontDir * Dist + FVector(CenterToPivot.X, CenterToPivot.Y, 0.0f);
 			const float YC = FMath::FindDeltaAngleDegrees(Anc->InitialFurnitureYaw, CurFurnYaw);
 			const FVector DesiredStored = DesiredWorld.RotateAngleAxis(-YC, FVector::UpVector);
-			const float A = FMath::Clamp(DeltaTime * 3.0f, 0.0f, 1.0f);
-			Anc->InitialOffset.X = FMath::Lerp(Anc->InitialOffset.X, DesiredStored.X, A);
-			Anc->InitialOffset.Y = FMath::Lerp(Anc->InitialOffset.Y, DesiredStored.Y, A);
+			// [극좌표 접근] 성분(X/Y) 보간은 목표 방향이 크게 돌 때(급회전) 경로가 0점을
+			// 지나 가구가 몸을 관통한다 — 방향은 회전, 거리는 보간으로 분리해 항상 호를 그린다
+			const FVector2D CurOff(Anc->InitialOffset.X, Anc->InitialOffset.Y);
+			const FVector2D DesOff(DesiredStored.X, DesiredStored.Y);
+			if (CurOff.SizeSquared() > 1.0f && DesOff.SizeSquared() > 1.0f)
+			{
+				const float CurAng = FMath::RadiansToDegrees(FMath::Atan2(CurOff.Y, CurOff.X));
+				const float DesAng = FMath::RadiansToDegrees(FMath::Atan2(DesOff.Y, DesOff.X));
+				const float NewAng = FMath::DegreesToRadians(FMath::FixedTurn(CurAng, DesAng, 120.0f * DeltaTime));
+				const float NewLen = FMath::FInterpTo(CurOff.Size(), DesOff.Size(), DeltaTime, 3.0f);
+				Anc->InitialOffset.X = NewLen * FMath::Cos(NewAng);
+				Anc->InitialOffset.Y = NewLen * FMath::Sin(NewAng);
+			}
+			else
+			{
+				const float A = FMath::Clamp(DeltaTime * 3.0f, 0.0f, 1.0f);
+				Anc->InitialOffset.X = FMath::Lerp(Anc->InitialOffset.X, DesiredStored.X, A);
+				Anc->InitialOffset.Y = FMath::Lerp(Anc->InitialOffset.Y, DesiredStored.Y, A);
+			}
 
 			// 테더·정면 복원이 매 틱 다듬는 오프셋은 이벤트 멀티캐스트(그랩·리셋)에 안 실려
 			// 클라 리쉬 부착점이 수십 uu 어긋난다 — 소유 클라 입력 필터가 전진을 벽처럼 깎는
@@ -286,11 +300,20 @@ void UFurnitureGrabSystem::MoveComputeTarget(FGrabMoveContext& Ctx)
 		const float        PlayerAimYaw   = P->GetBaseAimRotation().Yaw;
 		// [들것 회전 — 걷기 기반] 2인 이상은 카메라가 아니라 '두 운반자를 잇는 선'의 회전(0.5 누적)만 반영.
 		// 솔로 끌기(인원 미달)와 들것 설정 꺼짐(N≥2)은 회전 동결 — 끌기는 몸으로 끌어 방향을 잡는다.
-		const float        PlayerYawDelta = bPairLine
+		float              PlayerYawDelta = bPairLine
 			? FMath::FindDeltaAngleDegrees(Anc.InitialFurnitureYaw, PairLineTargetYaw)
 			: ((N >= 2 || bUnderManned)
 				? 0.0f
 				: FMath::FindDeltaAngleDegrees(Anc.InitialAimYaw, PlayerAimYaw));
+		// [선행 제한] 1인 카메라 회전 의도는 실제 가구 회전 진행보다 ±45°까지만 앞서게 —
+		// 전량 반영하면 급회전 시 제안 위치가 반대편으로 점프해 가구가 몸을 가로질러 관통한다.
+		// 제한하면 가구가 호를 그리며 따라온다 (들것 PairLineTargetYaw의 ±45 선행 제한과 동일 원리)
+		if (!bPairLine && N == 1 && !bUnderManned)
+		{
+			const float ActualDelta = FMath::FindDeltaAngleDegrees(Anc.InitialFurnitureYaw, CurFurnYaw);
+			const float Lead        = FMath::FindDeltaAngleDegrees(ActualDelta, PlayerYawDelta);
+			PlayerYawDelta = ActualDelta + FMath::Clamp(Lead, -45.0f, 45.0f);
+		}
 		const float        ProposalYaw   = Anc.InitialFurnitureYaw + PlayerYawDelta;
 		const FVector      ProposalLoc   = P->GetActorLocation() + Anc.InitialOffset.RotateAngleAxis(PlayerYawDelta, FVector::UpVector);
 		float              Demand        = FVector(ProposalLoc.X - CurFurnLoc.X, ProposalLoc.Y - CurFurnLoc.Y, 0.0f).Size();
@@ -370,9 +393,10 @@ void UFurnitureGrabSystem::MoveComputeTarget(FGrabMoveContext& Ctx)
 	const float TargetYawRaw = (bYawStalemate || bCarrierBlockedLastTick)
 		? CurFurnYaw
 		: FMath::RadiansToDegrees(FMath::Atan2(WSumSin, WSumCos));
-	// [들것 회전 속도] 들것 모드는 회전 상한 2배 — 궤도 회전의 선 각속도를 가구 Yaw가 따라잡게 한다
+	// [회전 속도] 들것·1인 카메라 회전은 상한 2배 — 궤도(위치) 회전의 선 각속도를
+	// 가구 Yaw가 따라잡게 한다 (1인은 몸 회전 대비 가구가 눈에 띄게 굼떠지는 것 방지)
 	const float TargetYaw    = FMath::FixedTurn(CurFurnYaw, TargetYawRaw,
-		FurnYawRotationSpeed * (bPairLineValid ? 2.0f : 1.0f) * DeltaTime);
+		FurnYawRotationSpeed * ((bPairLineValid || N == 1) ? 2.0f : 1.0f) * DeltaTime);
 
 	// [들것 회전] 회전 보류(교착/벽 막힘) 동안 의도 누적 금지 — 해제 순간 홱 도는 것 방지
 	if (bPairLineValid && (bYawStalemate || bCarrierBlockedLastTick))
