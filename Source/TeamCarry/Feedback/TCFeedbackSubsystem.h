@@ -10,6 +10,7 @@
 class USoundBase;
 class UNiagaraSystem;
 class UAudioComponent;
+class UUserWidget;
 
 /**
  * 게임 피드백 서브시스템 — 기존 클래스/BP를 수정하지 않고 사운드·이펙트를 얹는다.
@@ -59,17 +60,13 @@ protected:
 	UPROPERTY()
 	TObjectPtr<UAudioComponent> BGMComp;
 
-	// 핫타임 진입 기준 경과시간(초). 이 시간이 지난 뒤 트럭 비율이 낮으면 핫타임 시작.
+	// 경과 시간 토스트 위젯 클래스 — 5분 시점의 동기 로드(히치·디버거 브레이크) 방지를 위해 월드 시작 시 선로딩
+	UPROPERTY()
+	TObjectPtr<UClass> TimeToastClass;
+
+	// 핫타임 진입 기준 경과시간(초). 이 시간이 지나면 핫타임 시작, 게임 끝까지 유지.
 	UPROPERTY(EditDefaultsOnly, Category = "Feedback|HotTime")
 	float HotTimeElapsedThreshold = 300.f; // 기본 5분
-
-	// 핫타임 진입 비율 (트럭 안 가구 / 유효 가구). 이 값 이하면 핫타임 시작.
-	UPROPERTY(EditDefaultsOnly, Category = "Feedback|HotTime")
-	float HotTimeStartRatio = 0.2f; // 20% 이하
-
-	// 핫타임 종료 비율. 이 값 이상이면 핫타임 종료.
-	UPROPERTY(EditDefaultsOnly, Category = "Feedback|HotTime")
-	float HotTimeEndRatio = 0.5f; // 50% 이상
 
 	UPROPERTY(EditDefaultsOnly, Category = "Feedback|BGM")
 	float BGMSpeedupRemaining = 60.f;
@@ -101,5 +98,11 @@ private:
 	float PendingTimeLeft = 0.f;
 	int32 PendingBaseScore = 0;
 
+	// 경과 시간 토스트: 마지막으로 알린 경과 분. -1 = 미초기화(Playing 첫 관찰 때 현재 분으로 동기화)
+	int32 LastAnnouncedMinute = -1;
+	TWeakObjectPtr<UUserWidget> ActiveTimeToast;
+	FTimerHandle TimeToastTimer;
+
 	void PlayDeposit();
+	void ShowElapsedMinuteToast(int32 Minutes);
 };

@@ -218,8 +218,12 @@ void UFurnitureGrabSystem::MoveApplyAnchorShaping(FGrabMoveContext& Ctx)
 		{
 			const FVector PLoc       = Players[0]->GetActorLocation();
 			const FVector FurnCenter = FurnitureMesh->Bounds.Origin;
-			const float   BodyYaw    = Anc->InitialPlayerYaw
-				+ FMath::FindDeltaAngleDegrees(Anc->InitialFurnitureYaw, CurFurnYaw);
+			// 몸통 기준과 동일하게: 인원 충족 1인은 카메라 정면, 끌기(미달)는 앵커 기준
+			// (기준이 갈리면 몸은 카메라를 보는데 가구는 옛 앵커 정면으로 복원돼 영구 굽힘이 남는다)
+			const float   BodyYaw    = !bUnderManned
+				? Players[0]->GetBaseAimRotation().Yaw
+				: Anc->InitialPlayerYaw
+					+ FMath::FindDeltaAngleDegrees(Anc->InitialFurnitureYaw, CurFurnYaw);
 			const FVector FrontDir   = FRotator(0.0f, BodyYaw, 0.0f).Vector();
 			// 목표 거리: 가구의 정면 방향 반폭 + 캡슐 여유 — 충돌로 밀려난 거리를 유지하지 않고
 			// 몸 앞 선호 거리로 함께 회복한다. 끌림 자세(미달)는 가구가 기울어 다가오므로 여유를 크게.
@@ -272,7 +276,7 @@ void UFurnitureGrabSystem::MoveComputeTarget(FGrabMoveContext& Ctx)
 		const FGrabAnchor& Anc           = Anchors[P];
 		const float        PlayerAimYaw   = P->GetBaseAimRotation().Yaw;
 		// [들것 회전 — 걷기 기반] 2인 이상은 카메라가 아니라 '두 운반자를 잇는 선'의 회전(0.5 누적)만 반영.
-		// 솔로 끌기(인원 미달)와 들것 설정 꺼짐(N≥2)은 회전 동결, 들기(피치)만.
+		// 솔로 끌기(인원 미달)와 들것 설정 꺼짐(N≥2)은 회전 동결 — 끌기는 몸으로 끌어 방향을 잡는다.
 		const float        PlayerYawDelta = bPairLine
 			? FMath::FindDeltaAngleDegrees(Anc.InitialFurnitureYaw, PairLineTargetYaw)
 			: ((N >= 2 || bUnderManned)
@@ -1139,7 +1143,7 @@ bool UFurnitureGrabSystem::MoveReconcileAnchors(FGrabMoveContext& Ctx)
 	// 회전이 막히면 TargetYaw는 매 틱 증가하지만 ActualYaw는 고정 → Step 2의 YC가 누적
 	// → TargetLoc이 호(弧)를 순회 → 가구가 벽을 따라 이리저리 미끄러짐.
 	// InitOffset+InitFurnYaw 리셋 시 다음 틱 YC ≈ 8.9°(1틱분) → TargetLoc ≈ ActualLoc(안정).
-	// InitAimYaw 유지 → ProposalYaw = ActualYaw + 원래카메라각도 → 막힘 해제 후 즉시 정상 회전.
+	// InitAimYaw도 현재 카메라로 재기록 → 남은 회전 의도 소거 (벽에서 갈림 반복 방지).
 	{
 		// '막힘'은 목표-실제 차이만이 아니라 '이번 틱 회전이 실제로 정지'했을 때만 —
 		// 카메라를 빠르게 돌릴 때의 정상 추격 지연(틱당 회전 상한)을 막힘으로 오판해
@@ -1166,9 +1170,12 @@ bool UFurnitureGrabSystem::MoveReconcileAnchors(FGrabMoveContext& Ctx)
 
 					FGrabAnchor& Anc        = Anchors[P];
 					Anc.InitialOffset       = ActualLoc - P->GetActorLocation();
+					// 몸통 기준은 델타 시프트로 연속 보존 — 가구기준만 현재로 재기록하면
+					// 몸통 목표가 그랩 시점 값으로 되돌아가 몸이 휙 돌아간다
+					Anc.InitialPlayerYaw    = FRotator::NormalizeAxis(Anc.InitialPlayerYaw
+						+ FMath::FindDeltaAngleDegrees(Anc.InitialFurnitureYaw, ActualYaw));
 					Anc.InitialFurnitureYaw = ActualYaw;
 					Anc.InitialAimYaw       = P->GetBaseAimRotation().Yaw;
-					// InitialPlayerYaw 유지 → GetDesiredYaw 정합성 유지
 					Multicast_SetPlayerAnchor(P, ActualYaw, Anc.InitialPlayerYaw,
 					                          Anc.InitialAimYaw, Anc.InitialOffset);
 				}
@@ -1563,7 +1570,12 @@ void UFurnitureGrabSystem::MoveDrivePlayers(FGrabMoveContext& Ctx)
 					}
 				}
 			}
-			CurrentTickDragged.Add(P);   // 피동 추적 유지 (가중치·선 회전 의도 제외 계산용)
+			// 피동 추적은 2인+만 — 1인 운반자는 유일한 회전 의도원이라 피동으로 지우면
+			// 제자리(무입력) 카메라 회전이 가중치 0으로 통째로 무시돼 가구·몸이 동결된다
+			if (Players.Num() >= 2)
+			{
+				CurrentTickDragged.Add(P);   // 피동 추적 유지 (가중치·선 회전 의도 제외 계산용)
+			}
 			continue;
 		}
 
