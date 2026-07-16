@@ -244,6 +244,15 @@ void UFurnitureGrabSystem::MoveApplyAnchorShaping(FGrabMoveContext& Ctx)
 			const float A = FMath::Clamp(DeltaTime * 3.0f, 0.0f, 1.0f);
 			Anc->InitialOffset.X = FMath::Lerp(Anc->InitialOffset.X, DesiredStored.X, A);
 			Anc->InitialOffset.Y = FMath::Lerp(Anc->InitialOffset.Y, DesiredStored.Y, A);
+
+			// 테더·정면 복원이 매 틱 다듬는 오프셋은 이벤트 멀티캐스트(그랩·리셋)에 안 실려
+			// 클라 리쉬 부착점이 수십 uu 어긋난다 — 소유 클라 입력 필터가 전진을 벽처럼 깎는
+			// 원인이라 0.5초마다 재동기화 (Reliable RPC 과다 방지 스로틀)
+			if (GFrameCounter % 30 == 0)
+			{
+				Multicast_SetPlayerAnchor(Players[0], Anc->InitialFurnitureYaw,
+					Anc->InitialPlayerYaw, Anc->InitialAimYaw, Anc->InitialOffset);
+			}
 		}
 	}
 
@@ -1559,7 +1568,9 @@ void UFurnitureGrabSystem::MoveDrivePlayers(FGrabMoveContext& Ctx)
 				FVector ToAtt(LeashAtt.X - P->GetActorLocation().X,
 				              LeashAtt.Y - P->GetActorLocation().Y, 0.0f);
 				const float DistL = ToAtt.Size();
-				if (DistL > LeashR)
+				// 소유 클라 입력 필터의 소프트 구간(R~R+10) 밖에서만 개입 — 구간 안에서
+				// 서버가 속도를 깎으면 클라 예측과 어긋나 보정 왕복(밴딩)이 된다
+				if (DistL > LeashR + 10.0f)
 				{
 					const FVector Away = -ToAtt / DistL;
 					const float Outward = FVector::DotProduct(
