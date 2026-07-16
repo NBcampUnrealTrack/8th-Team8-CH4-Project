@@ -9,6 +9,8 @@
 #include "Net/UnrealNetwork.h"
 #include "CatchCharacter/Furniture/FurnitureGrabSystem.h"
 #include "CatchCharacter/Furniture/FurnitureStat.h"
+#include "CatchCharacter/Furniture/FurnitureCarryShared.h"
+#include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "Engine/World.h"
@@ -203,7 +205,9 @@ void UGrabComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorC
 						FVector ToAtt(Att.X - OwnerChar->GetActorLocation().X,
 						              Att.Y - OwnerChar->GetActorLocation().Y, 0.0f);
 						const float Dist = ToAtt.Size();
-						if (Dist > R)
+						// 입력 필터의 소프트 구간(R~R+10) 밖에서만 관성 클램프 — 안에서 자르면
+						// 필터가 허용한 부분 전진이 되막혀 벽이 된다
+						if (Dist > R + 10.0f)
 						{
 							const FVector Away = -ToAtt / Dist;
 							const float Outward = FVector::DotProduct(
@@ -265,7 +269,29 @@ FVector UGrabComponent::FilterCarryInput(const FVector& WorldInput) const
 
 	const FVector Away = -ToAtt / Dist;
 	const float Outward = FVector::DotProduct(WorldInput, Away);
-	return (Outward > 0.0f) ? WorldInput - Away * Outward : WorldInput;
+	// 소프트 숄더: 반경 초과 10uu에 걸쳐 점진 차단 — 하드 컷은 경계에 상주하는 보행
+	// 평형 상태에서 입력을 벽처럼 끊는다 (초과분이 클수록 강하게 차단)
+	const float Soft = FMath::Clamp((Dist - R) / 10.0f, 0.0f, 1.0f);
+	const FVector Result = (Outward > 0.0f) ? WorldInput - Away * (Outward * Soft) : WorldInput;
+
+	// [입력필터 진단] 클라 사선 이동 판별용 — 깎인 방향·양과 충돌 무시 상태를 함께 노출 (F9)
+	if (Outward > 0.0f && IsCarryDebugEnabled() && GFrameCounter % 10 == 0)
+	{
+		const bool bIgnored = OwnerChar->GetCapsuleComponent()
+			&& OwnerChar->GetCapsuleComponent()->GetMoveIgnoreActors().Contains(Grabbed);
+		const FString Line = FString::Printf(
+			TEXT("[입력필터] %s 입력=%.0f° → 결과=%.0f°(%.0f%%) 깎임=%.2f | 부착거리=%.0f/허용%.0f 충돌무시=%d"),
+			OwnerChar->HasAuthority() ? TEXT("호스트") : TEXT("클라"),
+			FMath::RadiansToDegrees(FMath::Atan2(WorldInput.Y, WorldInput.X)),
+			Result.IsNearlyZero() ? 0.0f : FMath::RadiansToDegrees(FMath::Atan2(Result.Y, Result.X)),
+			Result.Size() * 100.0f, Outward, Dist, R, bIgnored ? 1 : 0);
+		UE_LOG(LogTemp, Log, TEXT("%s"), *Line);
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(9700, 0.5f, FColor::Orange, Line);
+		}
+	}
+	return Result;
 }
 
 // 대상이 존재하면 서버로 상호작용-잡기 시도 요청
