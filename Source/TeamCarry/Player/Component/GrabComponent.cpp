@@ -8,6 +8,7 @@
 #include "Kismet/KismetSystemLibrary.h"
 #include "Net/UnrealNetwork.h"
 #include "CatchCharacter/Furniture/FurnitureGrabSystem.h"
+#include "CatchCharacter/Furniture/FurnitureStat.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "Engine/World.h"
@@ -580,8 +581,10 @@ void UGrabComponent::ServerTryThrow_Implementation()
 	if (GrabbedActor)
 	{
 		UFurnitureGrabSystem* FGS = GrabbedActor->FindComponentByClass<UFurnitureGrabSystem>();
+		UFurnitureStat* Stat = GrabbedActor->FindComponentByClass<UFurnitureStat>();
+
 		// 2명 이상 들고 있으면 가구를 던지지 않고 함수 종료
-		if (FGS && FGS->GetGrabbedPlayers().Num() >= 2)
+		if (FGS && Stat && (FGS->GetGrabbedPlayers().Num() >= 2 || Stat->GetRequiredPlayer() >= 2))
 		{
 			return;
 		}
