@@ -48,6 +48,13 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
 	TObjectPtr<UCommonButtonBase> Btn_Cancel;
 
+public:
+	// ATCPlayerController::Input_BoardListUp/Down(IA_BoardListUp/Down)이 게시판 클릭 모드 중 호출한다.
+	// Delta만큼 하이라이트 인덱스를 옮기고(범위를 벗어나지 않게 Clamp) HandleStageItemClicked와
+	// 동일한 경로로 선택을 반영한다 — 마우스 클릭과 완전히 같은 결과(하이라이트 테두리 포함).
+	UFUNCTION(BlueprintCallable, Category = "UI|StageBoard")
+	void NavigateStageSelection(int32 Delta);
+
 private:
 	// ATCLobbyGameState 구독을 시도한다. 성공 시 true(구독 + 최초 1회 갱신까지 수행).
 	bool TryBindLobbyState();

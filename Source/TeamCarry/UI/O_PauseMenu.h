@@ -94,9 +94,10 @@ public:
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
 	TObjectPtr<UCommonButtonBase> Btn_Reset;
 
-	// 나가기 버튼: Lobby 컨텍스트=전원 노출. InGame 컨텍스트=클라이언트 전용 노출(2026-07-15 추가,
-	// 호스트에게는 계속 숨김 — 호스트의 파티 전체 영향 오조작 방지 취지 유지). Lobby에서는 호스트 전용
-	// 게이팅을 받지 않지만, InGame에서는 정반대 방향(호스트만 숨김)으로 게이팅된다.
+	// 나가기 버튼: Lobby/InGame 컨텍스트 모두 전원(호스트 포함) 노출 → LeaveToTitle().
+	// 호스트가 누르면 세션이 파기되어 다른 플레이어 전원이 함께 끊기고, 클라이언트가 누르면
+	// 본인만 이탈한다 — LeaveToTitle() 내부에서 호출자 권한에 따라 이미 다르게 처리되므로
+	// (OnConfirmLeaveRoom 참고), 게이팅 없이 그대로 노출하고 확인 문구로만 차이를 알린다.
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
 	TObjectPtr<UCommonButtonBase> Btn_LeaveRoom;
 

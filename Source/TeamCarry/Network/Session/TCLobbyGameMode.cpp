@@ -38,6 +38,17 @@ void ATCLobbyGameMode::InitGameState()
 			LobbyGS->SetRoomCodeAuthoritative(TCGI->GetHostRoomCode());
 			UE_LOG(LogTCNet, Log, TEXT("[Lobby] RoomCode 복제 주입: '%s'"), *TCGI->GetHostRoomCode());
 		}
+
+		// 선택된 스테이지도 RoomCode와 동일한 이유로 재주입이 필요하다: UTCSessionFlow::SelectedStageId
+		// (GameInstance 소유)는 세션 내내 유지되지만, ATCLobbyGameState::SelectedStageId(Actor 복제
+		// 변수)는 로비에 재진입할 때마다(Seamless Travel로 새 GameState가 생성됨) 0으로 리셋된다.
+		// 이 재주입이 없으면 실제 이어하기 목적지(HostStartGame -> GetSelectedStageMapPath)는 마지막
+		// 선택 그대로인데, 게시판 UI는 미선택 상태로 보이는 불일치가 생긴다.
+		if (UTCSessionFlow* Flow = GetGameInstance() ? GetGameInstance()->GetSubsystem<UTCSessionFlow>() : nullptr)
+		{
+			LobbyGS->SetSelectedStageIdAuthoritative(Flow->GetSelectedStageId());
+			UE_LOG(LogTCNet, Log, TEXT("[Lobby] SelectedStageId 복제 주입: %d"), Flow->GetSelectedStageId());
+		}
 	}
 }
 

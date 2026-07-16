@@ -9,6 +9,7 @@
 
 class UTextBlock;
 class UImage;
+class UBorder;
 
 /**
  * UW_StageListItem - W_StageBoardScreen(구 O_StageSelect)의 List_Stages(UListView) 엔트리 위젯
@@ -26,6 +27,7 @@ class TEAMCARRY_API UW_StageListItem : public UUserWidget, public IUserObjectLis
 protected:
 	// IUserObjectListEntry
 	virtual void NativeOnListItemObjectSet(UObject* ListItemObject) override;
+	virtual void NativeOnItemSelectionChanged(bool bIsSelected) override;
 
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
 	TObjectPtr<UTextBlock> TextBlock_StageName;
@@ -33,4 +35,8 @@ protected:
 	// 확장 여지(미구현): FStageInfo 에 썸네일 필드가 아직 없어 현재는 사용하지 않는다(7장-3).
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
 	TObjectPtr<UImage> Image_Stage;
+
+	// 선택 상태 하이라이트 테두리. 평소엔 투명, List_Stages 에서 선택되면 골드로 표시된다.
+	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
+	TObjectPtr<UBorder> Border_Selected;
 };
