@@ -549,13 +549,17 @@ bool UFurnitureGrabSystem::GetCarryLeash(ACharacter* Player, FVector& OutAttach,
 	if (!Owner || !Player || !GrabbedPlayers.Contains(Player) || !Anchors.Contains(Player))
 		return false;
 
-	OutAttach = GetAttachedLocation(Player,
-		Owner->GetActorLocation() - FVector(0.0f, 0.0f, CurrentHeightOffset),
-		Owner->GetActorRotation().Yaw);
-	// 클라 필터는 서버 한계보다 '좁게' — 클라가 먼저 멈추면 서버의 속도 클램프에 닿지 않아
-	// 예측 보정 왕복이 아예 없다 (넓게 주면 클라가 한계 밖까지 걸었다 되끌려와 밴딩).
-	// (-25: 줄다리기 벌어짐 완화 튜닝 — 다음 풀빌드 때 LeashRadius 기본값 45로 정리 예정)
-	OutRadius = FMath::Max(LeashRadius - 25.0f, 20.0f) - (Owner->HasAuthority() ? 0.0f : 8.0f);
+	// 클라는 보간된 액터 위치가 서버보다 뒤처져(이동 중) 부착점이 뒤로 밀리고, 그 어긋난
+	// 기준으로 전진 입력이 깎여 사선 이동이 된다 — 복제된 서버 트랜스폼 기준으로 계산
+	const bool    bAuth   = Owner->HasAuthority();
+	const FVector FurnLoc = bAuth ? Owner->GetActorLocation() : ServerLocation;
+	const float   FurnYaw = bAuth ? Owner->GetActorRotation().Yaw : ServerRotation.Yaw;
+	OutAttach = GetAttachedLocation(Player, FurnLoc - FVector(0.0f, 0.0f, CurrentHeightOffset), FurnYaw);
+	// 반경은 운반 보행의 평형 간극(가구 추격 지연 + 가구측 대칭 클램프 48)보다 넓게 —
+	// 좁으면 소유 클라 필터가 정상 전진을 벽처럼 깎는다. 부착점을 서버 트랜스폼+동기
+	// 오프셋으로 계산해 서버·클라 측정이 일치하므로 반경도 동일하게 둔다.
+	// (-25: 줄다리기 벌어짐 완화 튜닝 — 다음 풀빌드 때 LeashRadius 기본값 정리 예정)
+	OutRadius = FMath::Max(LeashRadius - 25.0f, 20.0f) + 8.0f;
 	// 이동 봉인 중엔 반경을 현재 거리로 동결 — 어느 방향으로도 더 벌어질 수 없다
 	if (bMoveConstrained)
 	{
