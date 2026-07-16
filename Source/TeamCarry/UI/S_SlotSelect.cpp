@@ -1,13 +1,22 @@
-﻿// Fill out your copyright notice in the Description page of Project Settings.
+// Fill out your copyright notice in the Description page of Project Settings.
 
 
 #include "TeamCarry/UI/S_SlotSelect.h"
 #include "TeamCarry/UI/O_Confirm.h"
+#include "TeamCarry/UI/W_GameSlotCard_Saved.h"
 #include "CommonButtonBase.h"
+#include "CommonAnimatedSwitcher.h"
 #include "Components/HorizontalBox.h"
 #include "TeamCarry/UI/MockUIController.h"
 #include "Network/Session/TCSessionFlow.h"
 #include "Engine/GameInstance.h"
+
+namespace
+{
+	// Switcher_X 의 자식 순서(WBP 디자이너에서 고정): 0=Card_New, 1=Card_Saved.
+	constexpr int32 SlotSelect_SwitcherIndex_New = 0;
+	constexpr int32 SlotSelect_SwitcherIndex_Saved = 1;
+}
 
 void US_SlotSelect::NativeConstruct()
 {
@@ -19,27 +28,61 @@ void US_SlotSelect::NativeConstruct()
 		Btn_Back->OnClicked().AddUObject(this, &US_SlotSelect::HandleBackClicked);
 	}
 
-	// 가로형 카드 컨테이너는 백엔드 연동 시 슬롯 카드 위젯으로 채워진다.
-	// (프로토타입에서는 바인딩 유효성만 로깅한다.)
 	if (!Box_SlotCards)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[UI SlotSelect] Box_SlotCards is not bound. Check the WBP hierarchy."));
 	}
 
-	if (Btn_TempEmptySlot)
-	{
-		Btn_TempEmptySlot->OnClicked().AddUObject(this, &US_SlotSelect::HandleTempEmptySlotClicked);
-	}
+	RefreshSlotCards();
 
 	SetIsFocusable(true);
+}
+
+void US_SlotSelect::RefreshSlotCards()
+{
+	UTCSessionFlow* Flow = GetGameInstance() ? GetGameInstance()->GetSubsystem<UTCSessionFlow>() : nullptr;
+	if (!Flow)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[UI SlotSelect] UTCSessionFlow 없음 — 슬롯 카드를 채울 수 없음"));
+		return;
+	}
+
+	const TArray<FSaveSlotInfo> SlotInfos = Flow->GetAllSaveSlotInfos();
+
+	UCommonAnimatedSwitcher* Switchers[] = { Switcher_0, Switcher_1, Switcher_2, Switcher_3 };
+	UCommonButtonBase* NewCards[] = { Card_New_0, Card_New_1, Card_New_2, Card_New_3 };
+	UW_GameSlotCard_Saved* SavedCards[] = { Card_Saved_0, Card_Saved_1, Card_Saved_2, Card_Saved_3 };
+
+	const int32 NumSlots = FMath::Min(SlotInfos.Num(), 4);
+	for (int32 Index = 0; Index < NumSlots; ++Index)
+	{
+		const FSaveSlotInfo& Info = SlotInfos[Index];
+
+		if (Switchers[Index])
+		{
+			Switchers[Index]->SetActiveWidgetIndex(Info.bHasSaveData ? SlotSelect_SwitcherIndex_Saved : SlotSelect_SwitcherIndex_New);
+		}
+
+		if (NewCards[Index])
+		{
+			NewCards[Index]->OnClicked().AddUObject(this, &US_SlotSelect::HandleNewCardClicked, Index);
+		}
+
+		if (SavedCards[Index])
+		{
+			SavedCards[Index]->SlotName = Info.SlotName;
+			SavedCards[Index]->OnClicked().AddUObject(this, &US_SlotSelect::HandleSavedCardClicked, Index);
+			SavedCards[Index]->OnDeleteRequested.AddUniqueDynamic(this, &US_SlotSelect::HandleDeleteRequested);
+		}
+	}
 }
 
 UWidget* US_SlotSelect::NativeGetDesiredFocusTarget() const
 {
 	// 화면 진입 시 첫 슬롯에 기본 포커스를 부여합니다.
-	if (Btn_TempEmptySlot)
+	if (Switcher_0)
 	{
-		return Btn_TempEmptySlot;
+		return Switcher_0->GetActiveWidget();
 	}
 	else if (Btn_Back)
 	{
@@ -60,7 +103,7 @@ bool US_SlotSelect::NativeOnHandleBackAction()
 }
 
 void US_SlotSelect::ConfirmSlotAndCreateRoom(const FString& SlotName, bool bContinue)
-{	
+{
 	// 명세 호스트 2~3단계: 슬롯 확정 → 세이브 선택 저장 → 세션 생성 + 로비 ServerTravel.
 	if (UTCSessionFlow* Flow = GetGameInstance()->GetSubsystem<UTCSessionFlow>())
 	{
@@ -79,24 +122,21 @@ void US_SlotSelect::HandleBackClicked()
 	NativeOnHandleBackAction();
 }
 
-void US_SlotSelect::HandleTempEmptySlotClicked()
+void US_SlotSelect::HandleNewCardClicked(int32 SlotIndex)
 {
-	// 명세 3-2: 빈 슬롯 선택(또는 기존 데이터 삭제) 시 O_Confirm 팝업 호출
+	PendingSlotIndex = SlotIndex;
+
 	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
 	{
-		UE_LOG(LogTemp, Log, TEXT("[UI SlotSelect] Empty slot clicked. Pushing O_Confirm overlay..."));
+		UE_LOG(LogTemp, Log, TEXT("[UI SlotSelect] New card %d clicked. Pushing O_Confirm overlay."), SlotIndex);
 
-		// 1. 팝업을 띄우고 생성된 위젯의 포인터를 받아옵니다.
 		UCommonActivatableWidget* OverlayWidget = MockController->PushOverlay(TEXT("O_Confirm"));
 
-		// 2. 해당 위젯을 UO_Confirm 타입으로 캐스팅합니다.
 		if (UO_Confirm* ConfirmUI = Cast<UO_Confirm>(OverlayWidget))
 		{
-			// 3. 브릿지 함수를 델리게이트에 묶습니다.
 			FOnConfirmYesAction YesAction;
 			YesAction.BindDynamic(this, &US_SlotSelect::OnConfirmNewGame);
 
-			// 4. 팝업에 제목, 내용, 그리고 실행할 액션을 주입합니다.
 			ConfirmUI->SetupConfirm(
 				FText::FromString(TEXT("새 게임")),
 				FText::FromString(TEXT("새로운 게임을 생성하시겠습니까?")),
@@ -106,9 +146,87 @@ void US_SlotSelect::HandleTempEmptySlotClicked()
 	}
 }
 
-// 팝업에서 '확인'을 누르면 이 함수가 호출됩니다.
 void US_SlotSelect::OnConfirmNewGame()
 {
-	// 명세에 따라 슬롯 이름과 bContinue = false (새 게임) 값을 방 생성 로직에 넘깁니다.
-	ConfirmSlotAndCreateRoom(TEXT("SaveSlot_Temp"), false);
+	if (PendingSlotIndex == INDEX_NONE)
+	{
+		return;
+	}
+	ConfirmSlotAndCreateRoom(UTCSessionFlow::MakeSaveSlotName(PendingSlotIndex), false);
+	PendingSlotIndex = INDEX_NONE;
+}
+
+void US_SlotSelect::HandleSavedCardClicked(int32 SlotIndex)
+{
+	PendingSlotIndex = SlotIndex;
+
+	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
+	{
+		UE_LOG(LogTemp, Log, TEXT("[UI SlotSelect] Saved card %d clicked. Pushing O_Confirm overlay."), SlotIndex);
+
+		UCommonActivatableWidget* OverlayWidget = MockController->PushOverlay(TEXT("O_Confirm"));
+
+		if (UO_Confirm* ConfirmUI = Cast<UO_Confirm>(OverlayWidget))
+		{
+			FOnConfirmYesAction YesAction;
+			YesAction.BindDynamic(this, &US_SlotSelect::OnConfirmContinueGame);
+
+			ConfirmUI->SetupConfirm(
+				FText::FromString(TEXT("이어하기")),
+				FText::FromString(TEXT("이 게임을 이어하시겠습니까?")),
+				YesAction
+			);
+		}
+	}
+}
+
+void US_SlotSelect::OnConfirmContinueGame()
+{
+	if (PendingSlotIndex == INDEX_NONE)
+	{
+		return;
+	}
+	ConfirmSlotAndCreateRoom(UTCSessionFlow::MakeSaveSlotName(PendingSlotIndex), true);
+	PendingSlotIndex = INDEX_NONE;
+}
+
+void US_SlotSelect::HandleDeleteRequested(const FString& SlotName)
+{
+	PendingDeleteSlotName = SlotName;
+
+	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
+	{
+		UE_LOG(LogTemp, Log, TEXT("[UI SlotSelect] Delete requested for slot '%s'. Pushing O_Confirm overlay."), *SlotName);
+
+		UCommonActivatableWidget* OverlayWidget = MockController->PushOverlay(TEXT("O_Confirm"));
+
+		if (UO_Confirm* ConfirmUI = Cast<UO_Confirm>(OverlayWidget))
+		{
+			FOnConfirmYesAction YesAction;
+			YesAction.BindDynamic(this, &US_SlotSelect::OnConfirmDeleteSlot);
+
+			ConfirmUI->SetupConfirm(
+				FText::FromString(TEXT("저장 데이터 삭제")),
+				FText::FromString(TEXT("정말로 이 저장 데이터를 삭제하시겠습니까? 되돌릴 수 없습니다.")),
+				YesAction
+			);
+		}
+	}
+}
+
+void US_SlotSelect::OnConfirmDeleteSlot()
+{
+	if (PendingDeleteSlotName.IsEmpty())
+	{
+		return;
+	}
+
+	if (UTCSessionFlow* Flow = GetGameInstance()->GetSubsystem<UTCSessionFlow>())
+	{
+		Flow->DeleteSaveSlot(PendingDeleteSlotName);
+	}
+	PendingDeleteSlotName.Empty();
+
+	// 삭제 후 스위처/카드 상태를 실제 저장 데이터 유무에 맞게 다시 채운다(삭제된 슬롯은 New로 전환).
+	RefreshSlotCards();
 }

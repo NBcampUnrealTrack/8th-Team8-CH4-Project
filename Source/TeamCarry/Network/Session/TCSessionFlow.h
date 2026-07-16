@@ -32,6 +32,30 @@ struct FStageInfo : public FTableRowBase
 	// 확장 여지(미구현): 썸네일 SoftObjectPtr, 해금 조건, 별 획득 조건 등.
 };
 
+// 세이브 슬롯 하나의 요약 정보(명세: 슬롯 선택 화면/저장 관리 오버레이 공용).
+// GetAllSaveSlotInfos() 가 슬롯 개수(NumSaveSlots)만큼 매번 새로 조회해 만든다 — 복제/캐시되지 않음.
+USTRUCT(BlueprintType)
+struct FSaveSlotInfo
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "TeamCarry|Save")
+	int32 SlotIndex = 0;
+
+	// UGameplayStatics::SaveGameToSlot/DoesSaveGameExist 등에 그대로 넘기는 실제 슬롯 이름.
+	UPROPERTY(BlueprintReadOnly, Category = "TeamCarry|Save")
+	FString SlotName;
+
+	// 이 슬롯에 세이브 파일이 존재하는지(UGameplayStatics::DoesSaveGameExist). UI 가 New/Saved
+	// 카드 위젯 중 무엇을 보여줄지 이 값으로 판단한다.
+	UPROPERTY(BlueprintReadOnly, Category = "TeamCarry|Save")
+	bool bHasSaveData = false;
+
+	// 존재하는 경우, 그 세이브의 마지막 플레이 스테이지(UTCSaveGame::LastPlayedStage) — 카드 표시용.
+	UPROPERTY(BlueprintReadOnly, Category = "TeamCarry|Save")
+	FString LastPlayedStage;
+};
+
 // 세션 진행 단계 — UI 로딩/에러 표시에 사용.
 UENUM(BlueprintType)
 enum class ETCSessionPhase : uint8
@@ -88,6 +112,21 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "TeamCarry|Session")
 	FString GetSelectedSlotName() const { return SelectedSlotName; }
+
+	// 슬롯 인덱스(0..NumSaveSlots-1)로부터 실제 세이브 슬롯 이름을 만든다("SaveSlot_0" 형식).
+	// S_SlotSelect/O_SaveLoad 가 카드 위치와 슬롯을 매칭하는 데 사용하는 단일 규칙.
+	UFUNCTION(BlueprintPure, Category = "TeamCarry|Session|Save")
+	static FString MakeSaveSlotName(int32 SlotIndex) { return FString::Printf(TEXT("SaveSlot_%d"), SlotIndex); }
+
+	// NumSaveSlots 개 슬롯 전체를 스캔해 존재 여부/마지막 플레이 스테이지를 조회한다
+	// (UGameplayStatics::DoesSaveGameExist 기반, 매 호출마다 새로 스캔).
+	UFUNCTION(BlueprintPure, Category = "TeamCarry|Session|Save")
+	TArray<FSaveSlotInfo> GetAllSaveSlotInfos() const;
+
+	// 해당 슬롯의 세이브 파일을 영구 삭제한다(UGameplayStatics::DeleteGameInSlot). 되돌릴 수 없으므로
+	// 호출부(O_Confirm 등)에서 먼저 확인을 받아야 한다.
+	UFUNCTION(BlueprintCallable, Category = "TeamCarry|Session|Save")
+	void DeleteSaveSlot(const FString& SlotName);
 
 	// ── 스테이지 선택 ──
 	// O_StageSelect 에서 스테이지 확정(호스트 전용) 시 호출. 세션 수명 동안 유지.
@@ -186,6 +225,11 @@ protected:
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "TeamCarry|Session")
 	int32 MaxPlayers = 4;
+
+	// 세이브 슬롯 총 개수(S_SlotSelect/O_SaveLoad 카드 4개와 일치). MakeSaveSlotName()/
+	// GetAllSaveSlotInfos() 가 이 값 기준으로 "SaveSlot_0".."SaveSlot_{N-1}" 을 스캔한다.
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "TeamCarry|Session|Save")
+	int32 NumSaveSlots = 4;
 
 private:
 	// 선택된 세이브 슬롯/이어하기 여부(세션 수명 동안 유지).

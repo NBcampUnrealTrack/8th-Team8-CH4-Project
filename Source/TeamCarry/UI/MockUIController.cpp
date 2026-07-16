@@ -72,13 +72,15 @@ void UMockUIController::ShowPersistentLoadingWidget()
 		return;
 	}
 
-	if (!PersistentLoadingWidget)
-	{
-		// GameInstance 소유로 생성한다: PlayerController 는 트래블마다 파괴/재생성되지만
-		// GameInstance(및 공유 GameViewportClient)는 프로세스 내내 유지되므로, 이 위젯은
-		// 구 PC 파괴~신규 PC BeginPlay 사이의 공백 구간에도 계속 화면에 남는다.
-		PersistentLoadingWidget = CreateWidget<UUserWidget>(GI, LoadingWidgetClass);
-	}
+	// 트래블마다 항상 새로 생성한다(기존 인스턴스를 재사용하지 않는다). CreateWidget()은
+	// 생성 시점의 World를 위젯 내부(PlayerContext/CachedWorld)에 스냅샷으로 캡처해두는데,
+	// 인스턴스를 재사용하면 이후 트래블에서 그 캐시된(이미 GC 대상이 된) World가 그대로 남아
+	// AddToScreen() 내부의 GetGameViewport()가 null이 되면서 AddToViewport()가 예외 없이
+	// 조용히 실패하는 문제가 있었다(로딩 게이지 화면이 몇 번의 트래블 뒤부터 아예 안 뜨던 버그).
+	// GameInstance 소유로 매번 새로 만들어도(PlayerController 는 트래블마다 파괴/재생성되지만
+	// GameInstance는 프로세스 내내 유지되므로) 구 PC 파괴~신규 PC BeginPlay 사이의 공백 구간은
+	// 여전히 메워준다.
+	PersistentLoadingWidget = CreateWidget<UUserWidget>(GI, LoadingWidgetClass);
 
 	if (PersistentLoadingWidget)
 	{

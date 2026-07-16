@@ -73,6 +73,12 @@ public:
 	UFUNCTION(BlueprintCallable)
 	void SaveGame(const FString& StageName);
 
+	// 명시한 슬롯에 현재 진행 상황을 저장한다(O_SaveLoad 수동 저장 UI 전용). 이후 이 세션의
+	// 활성 슬롯도 SlotName 으로 갱신되어(UTCSessionFlow::SetSaveSelection), RestartStage/자동저장이
+	// 계속 같은 슬롯을 사용하게 된다.
+	UFUNCTION(BlueprintCallable)
+	void SaveGameToSlot(const FString& SlotName);
+
 	// 게임 불러오기
 	UFUNCTION(BlueprintCallable)
 	UTCSaveGame* LoadGame();
@@ -142,4 +148,13 @@ private:
 
 	// GameState 캐시 가져오기
 	ATeamCarryGameState* GetCachedGameState();
+
+	// SaveGame()/LoadGame() 이 사용할 실제 세이브 슬롯 이름. UTCSessionFlow::GetSelectedSlotName()
+	// (이 세션이 시작/이어하기 시 선택한 슬롯)을 그대로 쓰고, 슬롯이 선택되지 않은 경우(구버전
+	// 호환)에만 "TCGameSave" 로 폴백한다.
+	FString GetActiveSaveSlotName() const;
+
+	// SaveGame()/SaveGameToSlot() 공용 저장 실행부. 지정한 SlotName 에 기존 세이브를 불러와
+	// StageName 기록만 갱신한 뒤 다시 저장한다.
+	void SaveGameToSlotInternal(const FString& StageName, const FString& SlotName);
 };
