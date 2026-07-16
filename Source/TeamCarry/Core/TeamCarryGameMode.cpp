@@ -311,6 +311,10 @@ void ATeamCarryGameMode::PostLogin(APlayerController* NewPlayer)
     if (ATCPlayerState* NewPS = NewPlayer ? NewPlayer->GetPlayerState<ATCPlayerState>() : nullptr)
     {
         NewPS->SetHasLoadedCurrentMapAuthoritative(false);
+
+        // 접속 순서대로 번호 부여
+        NewPS->SetColorIndexAuthoritative(ColorIndexCounter);
+        ColorIndexCounter++;
     }
 
     ATeamCarryGameState* GS = GetCachedGameState();
@@ -356,6 +360,10 @@ void ATeamCarryGameMode::HandleSeamlessTravelPlayer(AController*& C)
         if (ATCPlayerState* PS = PC->GetPlayerState<ATCPlayerState>())
         {
             PS->SetHasLoadedCurrentMapAuthoritative(false);
+
+            // 접속 순서대로 번호 부여
+            PS->SetColorIndexAuthoritative(ColorIndexCounter);
+            ColorIndexCounter++;
         }
     }
 }
