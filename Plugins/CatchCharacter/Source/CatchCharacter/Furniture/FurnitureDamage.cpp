@@ -1,8 +1,9 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 #include "FurnitureDamage.h"
 #include "FurnitureStat.h"
 #include "FurnitureGrabSystem.h"
+#include "GameFramework/Pawn.h"
 #include "Kismet/GameplayStatics.h"
 
 UFurnitureDamage::UFurnitureDamage()
@@ -65,7 +66,12 @@ void UFurnitureDamage::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, U
 
 	//FString NetMode = Owner->HasAuthority() ? TEXT("Server") : TEXT("Client");
 
-	// TODO : 플레이어나 특정 사물에는 부딪쳐도 데미지 안입으려면 조건논의 필요
+	// [추가] 폰(플레이어·AI)과의 충돌은 가구 데미지 없음 — 기절만 시키고 가구는 멀쩡
+	if (OtherActor && OtherActor->IsA(APawn::StaticClass()))
+	{
+		return;
+	}
+
 	// 타겟이 아닌 대상 : 부딪친대상이 존재해야함, 자기자신
 	if (OtherActor && OtherActor == this->GetOwner())
 	{

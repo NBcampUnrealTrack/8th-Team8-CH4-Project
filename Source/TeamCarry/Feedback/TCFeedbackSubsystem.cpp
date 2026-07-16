@@ -8,7 +8,6 @@
 #include "Components/AudioComponent.h"
 #include "TimerManager.h"
 #include "Core/TeamCarryGameState.h"
-#include "Core/TeamCarryGameMode.h"
 #include "Network/Carry/TCCarriableFurniture.h"
 #include "CatchCharacter/Furniture/FurnitureGrabSystem.h"
 #include "Level/Vehicle/TCMovingTruck.h"
@@ -18,7 +17,7 @@
 #include "NiagaraSystem.h"
 #include "Sound/SoundBase.h"
 #include "Blueprint/UserWidget.h"
-#include "Blueprint/WidgetBlueprintLibrary.h"
+#include "Components/TextBlock.h"
 #include "Engine/Engine.h"
 #include "EngineUtils.h"
 
@@ -37,6 +36,10 @@ namespace
 	const TCHAR* DefaultLobbyBGM = TEXT("/Game/Developers/goldb/Audio/SW_BGM_Lobby.SW_BGM_Lobby");
 	const TCHAR* DefaultGameClear = TEXT("/Game/Developers/goldb/Audio/SW_GameClear.SW_GameClear");
 	const TCHAR* TimeWarningWidgetPath = TEXT("/Game/Developers/goldb/UI/WBP_TimeWarning.WBP_TimeWarning_C");
+
+	// 경과 시간 토스트: 이 분(分)부터 매 분 "N분 경과했습니다"를 잠깐 띄운다
+	constexpr int32 TimeNoticeStartMinute = 5;
+	constexpr float TimeNoticeSeconds = 3.f;
 }
 
 bool UTCFeedbackSubsystem::ShouldCreateSubsystem(UObject* Outer) const
@@ -64,6 +67,7 @@ void UTCFeedbackSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 	TruckInFX = LoadObject<UNiagaraSystem>(nullptr, DefaultTruckInFX);
 	CountdownSound = LoadObject<USoundBase>(nullptr, DefaultCountdownSound);
 	GoSound = LoadObject<USoundBase>(nullptr, DefaultGoSound);
+	TimeToastClass = LoadClass<UUserWidget>(nullptr, TimeWarningWidgetPath);
 	for (const TCHAR* Path : DefaultBGMTracks)
 	{
 		if (USoundBase* Track = LoadObject<USoundBase>(nullptr, Path))
@@ -225,26 +229,29 @@ void UTCFeedbackSubsystem::Tick(float DeltaTime)
 		}
 	}
 
-	// ── 핫타임 연출: 5분 경과 후 트럭 비율이 낮으면 경고 UI + BGM 배속 ──
-	// 트럭 안 가구 / (전체 가구 - 파괴된 가구) 가 HotTimeStartRatio 이하면 핫타임 시작.
-	// HotTimeEndRatio 이상이 되면 핫타임 종료. GS->bIsHotTime 으로 복제해 TCFeedbackComponent 가 구독.
+	// ── 경과 시간 토스트: 5분부터 매 분 "N분 경과했습니다"(2초) ──
+	// 카운트다운이 아닌 스톱워치 게임이라 '남은 시간'이 아닌 '경과 시간'을 알린다.
 	if (Phase == EGamePhase::Playing)
 	{
-		// 전체 가구수는 GameMode 에서 읽는다 (서버/호스트 전용 — 클라는 0 폴백)
-		int32 TotalCount = 0;
-		if (const ATeamCarryGameMode* GM = World->GetAuthGameMode<ATeamCarryGameMode>())
+		const int32 ElapsedMin = FMath::FloorToInt(GS->ElapsedTime / 60.f);
+		if (LastAnnouncedMinute < 0)
 		{
-			TotalCount = GM->GetTargetCount();
+			// 첫 관찰(레이트 조인 포함)은 현재 분으로 동기화 — 밀린 알림이 몰아서 뜨는 것 방지
+			LastAnnouncedMinute = FMath::Max(ElapsedMin, TimeNoticeStartMinute - 1);
 		}
+		else if (ElapsedMin > LastAnnouncedMinute)
+		{
+			LastAnnouncedMinute = ElapsedMin;
+			ShowElapsedMinuteToast(ElapsedMin);
+		}
+	}
 
-		// 유효 가구수 = 전체 - 파괴된 가구 (0 방지)
-		const int32 EffectiveTotal = FMath::Max(1, TotalCount - GS->DestroyedFurnitureCount);
-		// 트럭 안 가구수 = 전체 - 남은 가구 - 파괴된 가구
-		const int32 InTruckCount = FMath::Max(0, TotalCount - GS->RemainingFurniture - GS->DestroyedFurnitureCount);
-		const float TruckRatio = (float)InTruckCount / (float)EffectiveTotal;
-
-		// 핫타임 진입: 5분 경과 + 트럭 비율 20% 이하
-		if (!bIsHotTime && GS->ElapsedTime >= HotTimeElapsedThreshold && TruckRatio <= HotTimeStartRatio)
+	// ── 핫타임 연출: 5분 경과 시 진입, 게임 끝까지 유지 ──
+	// 적재존 밖 가구의 빨간 링은 TCFeedbackComponent 가 GS->bIsHotTime 복제를 구독해 표시한다
+	// (적재존 안 가구는 컴포넌트가 링 제외).
+	if (Phase == EGamePhase::Playing)
+	{
+		if (!bIsHotTime && GS->ElapsedTime >= HotTimeElapsedThreshold)
 		{
 			bIsHotTime = true;
 			GS->bIsHotTime = true;        // 클라이언트 복제 → TCFeedbackComponent 가 빨간 링 표시
@@ -255,50 +262,13 @@ void UTCFeedbackSubsystem::Tick(float DeltaTime)
 				if (BGMComp && BGMComp->IsPlaying())
 				{
 					BGMComp->SetPitchMultiplier(BGMSpeedupPitch);
-					UE_LOG(LogTemp, Log, TEXT("[Feedback] 핫타임 BGM 배속 x%.2f (트럭 비율: %.0f%%)"), BGMSpeedupPitch, TruckRatio * 100.f);
 				}
 			}
-			// 핫타임 경고 UI 표시
-			// 리슨 서버 월드의 PC 목록은 심리스 트래블 뒤 원격 클라이언트가 0번에 올 수 있어
-			// GetPlayerController(0) 대신 '로컬' 컨트롤러를 명시적으로 찾는다.
-			if (UClass* WarnCls = LoadClass<UUserWidget>(nullptr, TimeWarningWidgetPath))
-			{
-				if (APlayerController* PC = GEngine ? GEngine->GetFirstLocalPlayerController(World) : nullptr)
-				{
-					if (UUserWidget* Warn = CreateWidget<UUserWidget>(PC, WarnCls))
-					{
-						Warn->AddToViewport(50); // HUD 위, 결과창 아래쯤
-					}
-				}
-			}
-			UE_LOG(LogTemp, Warning, TEXT("[Feedback] 핫타임 시작 (경과: %.0f초, 트럭 비율: %.0f%%)"), GS->ElapsedTime, TruckRatio * 100.f);
-		}
-		// 핫타임 종료: 트럭 비율 50% 이상
-		else if (bIsHotTime && TruckRatio >= HotTimeEndRatio)
-		{
-			bIsHotTime = false;
-			bBGMBoosted = false;
-			GS->bIsHotTime = false;        // 클라이언트 복제 → TCFeedbackComponent 가 빨간 링 해제
-			GS->NotifyHotTimeChanged();    // 리슨 서버 호스트 수동 호출
-			if (BGMComp && BGMComp->IsPlaying())
-			{
-				BGMComp->SetPitchMultiplier(1.f);
-				UE_LOG(LogTemp, Log, TEXT("[Feedback] 핫타임 종료 — BGM 배속 해제 (트럭 비율: %.0f%%)"), TruckRatio * 100.f);
-			}
-			// 핫타임 경고 UI 제거
-			if (UClass* WarnCls = LoadClass<UUserWidget>(nullptr, TimeWarningWidgetPath))
-			{
-				TArray<UUserWidget*> Warns;
-				UWidgetBlueprintLibrary::GetAllWidgetsOfClass(World, Warns, WarnCls, false);
-				for (UUserWidget* Wg : Warns)
-				{
-					Wg->RemoveFromParent();
-				}
-			}
+			UE_LOG(LogTemp, Warning, TEXT("[Feedback] 핫타임 시작 (경과: %.0f초)"), GS->ElapsedTime);
 		}
 	}
 
-	// 게임 종료: BGM 페이드아웃 + 클리어 팡파르 + 핫타임 경고 UI 제거
+	// 게임 종료: BGM 페이드아웃 + 클리어 팡파르 + 떠 있는 시간 토스트 제거
 	if (GS->bIsGameFinished && !bBGMFadedOut)
 	{
 		bBGMFadedOut = true;
@@ -307,14 +277,10 @@ void UTCFeedbackSubsystem::Tick(float DeltaTime)
 		{
 			UGameplayStatics::PlaySound2D(this, Clear);
 		}
-		if (UClass* WarnCls = LoadClass<UUserWidget>(nullptr, TimeWarningWidgetPath))
+		if (ActiveTimeToast.IsValid())
 		{
-			TArray<UUserWidget*> Warns;
-			UWidgetBlueprintLibrary::GetAllWidgetsOfClass(World, Warns, WarnCls, false);
-			for (UUserWidget* Wg : Warns)
-			{
-				Wg->RemoveFromParent();
-			}
+			ActiveTimeToast->RemoveFromParent();
+			ActiveTimeToast.Reset();
 		}
 	}
 }
@@ -388,4 +354,46 @@ void UTCFeedbackSubsystem::PlayDeposit()
 			FRotator::ZeroRotator, FVector(1.5f));
 		UE_LOG(LogTemp, Log, TEXT("[Feedback] 적재 팝 스폰: %s (%s)"), *Loc.ToCompactString(), *Anchor->GetName());
 	}
+}
+
+void UTCFeedbackSubsystem::ShowElapsedMinuteToast(int32 Minutes)
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+	UClass* ToastCls = TimeToastClass.Get();
+	APlayerController* PC = GEngine ? GEngine->GetFirstLocalPlayerController(World) : nullptr;
+	if (!ToastCls || !PC)
+	{
+		return;
+	}
+
+	// 이전 토스트가 아직 떠 있으면 교체
+	if (ActiveTimeToast.IsValid())
+	{
+		ActiveTimeToast->RemoveFromParent();
+	}
+	UUserWidget* Toast = CreateWidget<UUserWidget>(PC, ToastCls);
+	if (!Toast)
+	{
+		return;
+	}
+	if (UTextBlock* Txt = Cast<UTextBlock>(Toast->GetWidgetFromName(TEXT("WarnText"))))
+	{
+		Txt->SetText(FText::Format(
+			NSLOCTEXT("Feedback", "ElapsedMinutes", "{0}분 경과했습니다"), FText::AsNumber(Minutes)));
+	}
+	Toast->AddToViewport(50); // HUD 위, 결과창 아래쯤
+	ActiveTimeToast = Toast;
+
+	TWeakObjectPtr<UUserWidget> WeakToast = Toast;
+	World->GetTimerManager().SetTimer(TimeToastTimer, [WeakToast]()
+	{
+		if (WeakToast.IsValid())
+		{
+			WeakToast->RemoveFromParent();
+		}
+	}, TimeNoticeSeconds, false);
 }

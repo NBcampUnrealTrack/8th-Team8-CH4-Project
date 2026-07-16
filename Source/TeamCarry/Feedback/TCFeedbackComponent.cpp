@@ -14,6 +14,7 @@
 #include "NiagaraSystem.h"
 #include "Sound/SoundBase.h"
 #include "Blueprint/UserWidget.h"
+#include "Network/Session/TCSessionFlow.h"
 #include "Engine/Engine.h"
 #include "TimerManager.h"
 #include "EngineUtils.h"
@@ -96,6 +97,7 @@ void UTCFeedbackComponent::BeginPlay()
 	if (!PickupFX) { PickupFX = LoadObject<UNiagaraSystem>(nullptr, DefaultPickupFX); }
 	if (!BreakSound) { BreakSound = LoadObject<USoundBase>(nullptr, DefaultBreakSound); }
 	if (!BreakFX) { BreakFX = LoadObject<UNiagaraSystem>(nullptr, DefaultBreakFX); }
+	if (!BreakPenaltyClass) { BreakPenaltyClass = LoadClass<UUserWidget>(nullptr, BreakPenaltyWidgetPath); }
 	if (HitSounds.Num() == 0)   // 타격음: 미지정 시 기본 우드히트 2종
 	{
 		for (const TCHAR* Path : DefaultHitSounds)
@@ -141,7 +143,12 @@ void UTCFeedbackComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 			}
 			if (UWorld* World = GetWorld())
 			{
-				if (UClass* PenaltyCls = LoadClass<UUserWidget>(nullptr, BreakPenaltyWidgetPath))
+				// 로비는 배송 점수가 없어 감점 문구가 오정보 — 텍스트는 생략하고 사운드만 남긴다
+				const FString MapPath = UWorld::RemovePIEPrefix(World->GetOutermost()->GetName());
+				const UTCSessionFlow* Flow = World->GetGameInstance()
+					? World->GetGameInstance()->GetSubsystem<UTCSessionFlow>() : nullptr;
+				const bool bLobbyMap = Flow && MapPath.Equals(Flow->GetLobbyMapPath(), ESearchCase::IgnoreCase);
+				if (UClass* PenaltyCls = bLobbyMap ? nullptr : BreakPenaltyClass.Get())
 				{
 					if (APlayerController* PC = GEngine ? GEngine->GetFirstLocalPlayerController(World) : nullptr)
 					{

@@ -4,6 +4,7 @@
 #include "Player/Component/GrabComponent.h"
 #include "Player/Component/TCCarrySpeedComponent.h"
 #include "Furniture/TCFurnitureActor.h"
+#include "Core/TCStunnable.h"
 #include "CatchCharacter/Furniture/FurnitureGrabSystem.h"
 #include "CatchCharacter/Furniture/FurnitureStat.h"
 #include "EnhancedInputSubsystems.h"
@@ -13,7 +14,9 @@
 #include "EnhancedInputComponent.h"
 #include "Engine/Engine.h"
 #include "Components/WidgetInteractionComponent.h"
+#include "Components/CapsuleComponent.h"
 #include "Player/PlayerController/TCPlayerController.h"
+#include "Net/UnrealNetwork.h"
 
 // 기본 컴포넌트 + 이동 속성 초기화
 ATCPlayerCharacter::ATCPlayerCharacter()
@@ -115,6 +118,10 @@ void ATCPlayerCharacter::BeginPlay()
 {
 	Super::BeginPlay();
 
+	// 레그돌 해제 시 되돌릴 메쉬 상대 트랜스폼 캐시 (BP 오프셋 반영 후 시점)
+	CachedMeshRelLocation = GetMesh()->GetRelativeLocation();
+	CachedMeshRelRotation = GetMesh()->GetRelativeRotation();
+
 	// 마우스 조작감 — 카메라 회전 랙을 줄여 시선이 '확확' 따라오게 한다.
 	// (랙 10.0은 카메라가 마우스를 눈에 띄게 뒤따라와 조작이 둔하게 느껴지던 원인)
 	// 생성자 기본값 대신 여기서 덮어쓰는 것은 Live Coding 호환용 런타임 튜닝 지점 —
@@ -143,6 +150,8 @@ void ATCPlayerCharacter::BeginPlay()
 // 플레이어 이동 입력 처리
 void ATCPlayerCharacter::HandleMoveInput(const FInputActionValue& InValue)
 {
+	if (bIsStunned) return;
+
 	// 컨트롤러 유효성 검사
 	if (IsValid(Controller) == false)
 	{
@@ -258,6 +267,8 @@ void ATCPlayerCharacter::StopRun(const FInputActionValue& InValue)
 // 상호작용(좌클릭) - 잡기
 void ATCPlayerCharacter::Interact(const FInputActionValue& InValue)
 {
+	if (bIsStunned) return;
+
 	// 게시판 클릭 모드 중엔 좌클릭을 가구 잡기(GrabComponent)가 아니라 WidgetInteraction의
 	// 클릭으로 넘긴다 — WidgetInteractionComponent는 매 틱 트레이스로 호버 대상만 갱신할 뿐,
 	// PressPointerKey를 직접 호출해야만 UMG에 실제 클릭 이벤트가 전달된다.
@@ -309,6 +320,8 @@ void ATCPlayerCharacter::ReleaseInteract(const FInputActionValue& InValue)
 // 상호작용(우클릭) - 던지기
 void ATCPlayerCharacter::Throw(const FInputActionValue& InValue)
 {
+	if (bIsStunned) return;
+
 	// 유효성 검사
 	if (GrabComponent)
 	{
@@ -367,6 +380,7 @@ void ATCPlayerCharacter::ToggleView(const FInputActionValue& InValue)
 // 점프 함수
 void ATCPlayerCharacter::TryJump()
 {
+	if (bIsStunned) return;
 	// 가구를 들고 있다면 점프 불가 처리 후 함수 종료
 	if (GrabComponent && GrabComponent->GetGrabbedActor())
 	{
@@ -424,6 +438,8 @@ void ATCPlayerCharacter::HandleZoomInput(const FInputActionValue& InValue)
 // 이모트(춤) 처리 함수
 void ATCPlayerCharacter::Emote1(const FInputActionValue& InValue)
 {
+	if (bIsStunned) return;
+
 	// 가구를 들고 있다면 이모트 발동 시 함수 종료
 	if (GrabComponent && GrabComponent->GetGrabbedActor())
 	{
@@ -446,6 +462,8 @@ void ATCPlayerCharacter::Emote1(const FInputActionValue& InValue)
 // 이모트(춤) 처리 함수
 void ATCPlayerCharacter::Emote2(const FInputActionValue& InValue)
 {
+	if (bIsStunned) return;
+
 	// 가구를 들고 있다면 이모트 발동 시 함수 종료
 	if (GrabComponent && GrabComponent->GetGrabbedActor())
 	{
@@ -463,6 +481,8 @@ void ATCPlayerCharacter::Emote2(const FInputActionValue& InValue)
 // 이모트(춤) 처리 함수
 void ATCPlayerCharacter::Emote3(const FInputActionValue& InValue)
 {
+	if (bIsStunned) return;
+
 	// 가구를 들고 있다면 이모트 발동 시 함수 종료
 	if (GrabComponent && GrabComponent->GetGrabbedActor())
 	{
@@ -480,6 +500,8 @@ void ATCPlayerCharacter::Emote3(const FInputActionValue& InValue)
 // 이모트(춤) 처리 함수
 void ATCPlayerCharacter::Emote4(const FInputActionValue& InValue)
 {
+	if (bIsStunned) return;
+
 	// 가구를 들고 있다면 이모트 발동 시 함수 종료
 	if (GrabComponent && GrabComponent->GetGrabbedActor())
 	{
@@ -601,4 +623,75 @@ void ATCPlayerCharacter::ServerStartRun_Implementation()
 		}
 	}
 	GetCharacterMovement()->MaxWalkSpeed = 500.f;
+}
+
+void ATCPlayerCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(ATCPlayerCharacter, bIsStunned);
+}
+
+// 던져진 가구에 맞음 서버 권한에서만 진입
+void ATCPlayerCharacter::ReceiveStun_Implementation(float Duration, AActor* DamageInstigator)
+{
+	if (!HasAuthority() || bIsStunned)
+		return;   // 이미 스턴 중이면 무시
+
+	bIsStunned = true;
+
+	// 맞는 순간 다른 가구를 들고 있었다면 놓도록
+	if (GrabComponent && GrabComponent->GetGrabbedActor())
+	{
+		GrabComponent->TryInteract();
+	}
+
+	// 이모트 중이었으면 중단
+	StopAnimMontage();
+
+	Multicast_EnterRagdoll();
+
+	GetWorldTimerManager().SetTimer(StunTimerHandle, this,
+		&ATCPlayerCharacter::RecoverFromStun, Duration, false);
+}
+
+// 레그돌 진입 — 연출이라 각 머신에서 로컬 처리
+void ATCPlayerCharacter::Multicast_EnterRagdoll_Implementation()
+{
+	GetCharacterMovement()->StopMovementImmediately();
+	GetCharacterMovement()->DisableMovement();
+
+	GetMesh()->SetCollisionProfileName(TEXT("Ragdoll"));
+	GetMesh()->SetSimulatePhysics(true);
+}
+
+// 서버 타이머  스턴 해제
+void ATCPlayerCharacter::RecoverFromStun()
+{
+	bIsStunned = false;
+	Multicast_ExitRagdoll();
+}
+
+void ATCPlayerCharacter::Multicast_ExitRagdoll_Implementation()
+{
+
+	const FVector PelvisLoc = GetMesh()->GetSocketLocation(TEXT("pelvis"));
+	FVector NewLoc = PelvisLoc;
+	NewLoc.Z += GetCapsuleComponent()->GetScaledCapsuleHalfHeight();   // 캡슐 중심을 발밑 기준으로 올림
+
+	// 바닥에 묻히지 않게 살짝 위에서 스윕 이동
+	SetActorLocation(NewLoc, false, nullptr, ETeleportType::TeleportPhysics);
+
+	FRotator NewRot = GetActorRotation();
+	NewRot.Pitch = 0.f;
+	NewRot.Roll = 0.f;
+	SetActorRotation(NewRot);
+
+	GetMesh()->SetSimulatePhysics(false);
+	GetMesh()->SetCollisionProfileName(TEXT("CharacterMesh"));
+
+	GetMesh()->AttachToComponent(GetCapsuleComponent(),
+	FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+	GetMesh()->SetRelativeLocationAndRotation(CachedMeshRelLocation, CachedMeshRelRotation);
+
+	GetCharacterMovement()->SetMovementMode(MOVE_Walking);
 }
