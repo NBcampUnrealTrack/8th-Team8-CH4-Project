@@ -373,11 +373,22 @@ void UFurnitureGrabSystem::ApplyBodyYaw(ACharacter* P, float DesiredYaw, float D
 	const float CurYaw = P->GetActorRotation().Yaw;
 
 	float NewYaw;
-	if (BodyYawInterpSpeed > 0.0f)
+	// 1인 카메라 직결은 목표가 즉각 움직이므로 몸은 더 천천히 쫓고, 회전 속도에 상한을
+	// 둔다 — 지수 보간만 쓰면 큰 각도에서 초반 속도가 치솟아 몸이 홱 돌고, 가구 추격이
+	// 못 따라와 벌어진다. 상한 180°/s = 가구 회전 상한과 동속 (몸·가구가 같이 돎)
+	const bool  bSolo       = GrabbedPlayers.Num() == 1;
+	const float InterpSpeed = bSolo ? BodyYawInterpSpeed * 0.4f : BodyYawInterpSpeed;
+	if (InterpSpeed > 0.0f)
 	{
-		// 최단각 보간(래핑 안전): 현재 → 목표를 BodyYawInterpSpeed로 부드럽게 접근
+		// 최단각 보간(래핑 안전): 현재 → 목표를 부드럽게 접근
 		const float Delta = FMath::FindDeltaAngleDegrees(CurYaw, DesiredYaw);
-		NewYaw = CurYaw + Delta * FMath::Clamp(DeltaTime * BodyYawInterpSpeed, 0.0f, 1.0f);
+		float Step = Delta * FMath::Clamp(DeltaTime * InterpSpeed, 0.0f, 1.0f);
+		if (bSolo)
+		{
+			const float MaxStep = 180.0f * DeltaTime;
+			Step = FMath::Clamp(Step, -MaxStep, MaxStep);
+		}
+		NewYaw = CurYaw + Step;
 	}
 	else
 	{
