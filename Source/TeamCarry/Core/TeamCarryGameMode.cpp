@@ -84,35 +84,46 @@ void ATeamCarryGameMode::BeginPlay()
     // 전원 로딩 완료 대기(로딩 화면 동기화 수정): 즉시 카운트다운을 시작하지 않고, 접속 중인 모든
     // 플레이어가 ServerReportMapLoaded() 로 로딩 완료를 보고할 때까지 WaitingToStart 로 대기한다.
     // 일부 클라이언트가 응답 없이 멈추는 경우를 대비해 타임아웃 세이프티 타이머를 건다.
+    // 전원 로딩 완료 대기: 즉시 카운트다운을 시작하지 않고, 접속 중인 모든 플레이어가
+    // ServerReportMapLoaded() 로 로딩 완료를 보고할 때까지 WaitingToStart 로 대기한다.
     SetGamePhase(EGamePhase::WaitingToStart);
 
+    // 게이트 대기 중 난입하면 PostLogin 이 SetHasLoadedCurrentMapAuthoritative(false) 를 찍어
+    // Total 이 늘고, 전원이 신규 진입자를 다시 기다리게 된다. 기존에는 20초 강제 시작이 이를
+    // 뚫었지만 그 경로를 제거했으므로 여기서 미리 차단한다(Playing 전환 시의 차단과 동일 효과).
+    if (UTCGameInstance* GI = Cast<UTCGameInstance>(GetGameInstance()))
+    {
+        GI->SetAllowJoinInProgress(false);
+        UE_LOG(LogTemp, Warning, TEXT("로딩 게이트 대기 시작 | 참여 차단 (bAllowJoinInProgress = false)"));
+    }
+
+    // 지연 안내 타이머. 게임 상태를 일절 건드리지 않고 클라이언트 UI 만 갱신시킨다.
+    // (커넥션이 끊기는 경우는 Logout() 이 게이트를 재평가하므로 여기서 다루지 않는다 —
+    //  이 타이머가 막는 것은 "끊기지 않고 로딩에서 행" 하는 경우다.)
     TWeakObjectPtr<ATeamCarryGameMode> WeakThis = this;
-    GetWorldTimerManager().SetTimer(LoadingGateTimeoutHandle, [WeakThis]()
+    GetWorldTimerManager().SetTimer(LoadingStallNoticeHandle, [WeakThis]()
         {
             if (!WeakThis.IsValid()) return;
 
             ATeamCarryGameState* GS = WeakThis->GetCachedGameState();
             if (!GS || GS->CurrentPhase != EGamePhase::WaitingToStart)
             {
-                // 이미 전원 로딩 완료 경로로 진행됨 — 타임아웃은 그대로 무시.
-                return;
+                return;   // 이미 정상 진행됨
             }
 
-            UE_LOG(LogTemp, Warning, TEXT("전원 로딩 완료 대기 타임아웃 — 강제로 게임을 시작합니다."));
-            WeakThis->StartCountdown();
+            UE_LOG(LogTemp, Warning, TEXT("로딩 게이트 지연 — 클라이언트에 나가기 경로 안내"));
 
-            // 응답 없는 플레이어가 있을 수 있으므로, 접속 중인 모든 PC에 강제로 InGame 진입을 지시한다.
             if (UWorld* World = WeakThis->GetWorld())
             {
                 for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
                 {
                     if (ATCPlayerController* PC = Cast<ATCPlayerController>(It->Get()))
                     {
-                        PC->ClientNotifyAllPlayersLoaded();
+                        PC->ClientNotifyLoadingStalled();
                     }
                 }
             }
-        }, 20.0f, false);
+        }, LoadingStallNoticeSeconds, false);
 }
 
 void ATeamCarryGameMode::NotifyPlayerFinishedLoading(APlayerController* PC)
@@ -138,7 +149,7 @@ void ATeamCarryGameMode::NotifyPlayerFinishedLoading(APlayerController* PC)
             return;
         }
 
-        GetWorldTimerManager().ClearTimer(LoadingGateTimeoutHandle);
+        GetWorldTimerManager().ClearTimer(LoadingStallNoticeHandle);
         StartCountdown();
 
         if (UWorld* World = GetWorld())
@@ -280,7 +291,7 @@ void ATeamCarryGameMode::Logout(AController* Exiting)
     // (로딩 화면 동기화 수정). GS 는 위에서 이미 조회했다.
     if (GS && GS->CurrentPhase == EGamePhase::WaitingToStart && AreAllConnectedPlayersLoaded())
     {
-        GetWorldTimerManager().ClearTimer(LoadingGateTimeoutHandle);
+        GetWorldTimerManager().ClearTimer(LoadingStallNoticeHandle);
         StartCountdown();
 
         if (UWorld* World = GetWorld())

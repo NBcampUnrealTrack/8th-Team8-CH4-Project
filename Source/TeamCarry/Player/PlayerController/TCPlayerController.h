@@ -11,6 +11,7 @@ class UInputMappingContext;
 class UInputAction;
 class ATCStageSelectBoard;
 class UUserWidget;
+class US_Loading;
 
 /**
  * ATCPlayerController - UI 호스트(AGameUIPlayerController) + 로비 네트워크 RPC.
@@ -67,6 +68,12 @@ public:
 	// 응답 없는 클라이언트를 강제 진입시키는 타임아웃 폴백의 안전망으로 남아 있다.
 	UFUNCTION(Client, Reliable, Category = "TeamCarry|Session")
 	void ClientNotifyAllPlayersLoaded();
+
+	// ATeamCarryGameMode 의 지연 안내 타이머(LoadingStallNoticeSeconds)가 호출한다. 게임 상태는
+	// 일절 변하지 않으며, 로딩 화면에 안내 문구와 나가기 버튼만 노출시킨다 — 전원 로딩 완료가
+	// 게이트의 유일한 통과 조건이라는 원칙은 그대로 유지된다.
+	UFUNCTION(Client, Reliable, Category = "TeamCarry|Session")
+	void ClientNotifyLoadingStalled();
 
 	// BP_StageSelectBoard와의 상호작용 시 진입하는 "게시판 클릭 모드"(명세 4장-5, 게시판 UI 개정).
 	// 마우스 커서를 노출해 캐릭터의 WidgetInteractionComponent로 BoardScreen(월드 스페이스 위젯)의
@@ -178,4 +185,12 @@ private:
 	// SetInputMode 호출)을 InGame/Tutorial 로 돌아올 때마다 다시 적용해 확실히 복구한다.
 	UFUNCTION()
 	void HandleUIStateChanged(EE_UIState NewState);
+
+	// 마무리 연출 완료 후 지속형 로딩 위젯을 내린다. 델리게이트 콜백과 세이프티 타이머가 겹칠 수
+	// 있으므로 재진입 가드를 둔다. (PC 는 하드/Seamless 트래블 모두에서 새로 스폰되므로 플래그
+	// 초기화는 불필요하다.)
+	void FinishLoadingScreen();
+
+	FTimerHandle FinishAnimSafetyHandle;
+	bool bLoadingScreenFinished = false;
 };
