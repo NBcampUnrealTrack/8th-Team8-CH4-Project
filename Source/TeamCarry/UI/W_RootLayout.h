@@ -8,6 +8,7 @@
 
 class UCommonActivatableWidget;
 class UCommonActivatableWidgetStack;
+class UImage;
 
 /**
  * UW_RootLayout - PlayerController 가 소유하는 단일 루트 레이아웃.
@@ -51,4 +52,12 @@ protected:
 	// 오버레이/모달 레이어(상단).
 	UPROPERTY(meta = (BindWidget))
 	TObjectPtr<UCommonActivatableWidgetStack> MenuLayer;
+
+	// GameLayer 와 MenuLayer 사이에 위치하는 딤(dim) 배경. 오버레이가 하나라도 떠 있으면
+	// 표시되어 뒤쪽 화면을 시각적으로 가리고, 화면 전체를 덮는 Visible 히트박스로 뒤쪽 입력도 차단한다.
+	UPROPERTY(meta = (BindWidget))
+	TObjectPtr<UImage> Img_Backdrop;
+
+	// Push/Pop/Clear 직후 MenuLayer 에 활성 위젯이 남아있는지에 따라 Img_Backdrop 가시성을 갱신한다.
+	void UpdateBackdropVisibility();
 };

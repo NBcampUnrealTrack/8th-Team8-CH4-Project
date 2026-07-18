@@ -94,6 +94,11 @@ private:
 	// 팀 값어치 게이지의 Max 값(전체 목표 값어치). 스테이지 중 불변이므로 NativeConstruct에서 1회만 조회한다.
 	int32 CachedTotalLevelValue = 0;
 
+	// PB_TeamMoney 보간 목표/현재값. HandleTeamMoneyUpdated가 목표만 갱신하고,
+	// NativeTick이 매 프레임 서서히 따라가며 실제 SetPercent를 호출한다.
+	float TargetMoneyPercent = 0.0f;
+	float DisplayedMoneyPercent = 0.0f;
+
 	// Txt_FurnitureCount 분모(전체 상자 개수, 파괴된 것 포함). 스테이지 중 불변이므로 NativeConstruct에서 1회만 조회한다.
 	int32 CachedTotalFurnitureCount = 0;
 };
