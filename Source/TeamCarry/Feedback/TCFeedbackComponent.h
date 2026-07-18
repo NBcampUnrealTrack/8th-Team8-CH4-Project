@@ -7,6 +7,7 @@
 #include "TCFeedbackComponent.generated.h"
 
 class USoundBase;
+class USoundAttenuation;
 class UNiagaraSystem;
 class UFurnitureGrabSystem;
 class UFurnitureStat;
@@ -60,6 +61,10 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Feedback")
 	TObjectPtr<USoundBase> ThudSound;
 
+	// 3D 사운드 거리 감쇠 모든 위치 재생
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Feedback")
+	TObjectPtr<USoundAttenuation> SoundAttenuation;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Feedback")
 	TObjectPtr<UNiagaraSystem> BreakFX;
 
@@ -90,4 +95,17 @@ private:
 	bool ReadGrabbed() const;
 	FVector GetFXLocation() const;
 	bool IsOwnerInTruckZone();
+
+	// ── 이벤트 구독──
+	// GrabSystem.OnGrabCountChanged 구독 — 서버는 Grab/Release 즉시, 클라는 OnRep 도착시
+	UFUNCTION()
+	void OnGrabCountChangedHandler(int32 OldCount, int32 NewCount);
+
+	// FurnitureStat.OnFurnitureDamage 구독 — 서버는 TakeDamage 즉시, 클라는 체력 OnRep시
+	UFUNCTION()
+	void OnFurnitureHealthChanged(float MaxHealth, float OldHealth, float NewHealth);
+
+	// 잡힘 전이 공통 처리(링 복원 + 잡기/놓기/던지기 사운드·FX).
+	// 이벤트와 폴백 폴링(리플렉션 소스, GrabSystem 없는 가구) 양쪽에서 호출된다.
+	void HandleGrabTransition(bool bGrabbed);
 };
