@@ -18,6 +18,8 @@
 #include "TeamCarry/UI/MockUIController.h"
 #include "Engine/GameInstance.h"
 #include "TeamCarry/UI/S_Loading.h"
+#include "Input/CommonUIActionRouterBase.h"
+#include "CommonInputModeTypes.h"
 
 // --- 글로벌 UI 단축키(Enhanced Input) ---
 #include "EnhancedInputComponent.h"
@@ -272,7 +274,8 @@ void ATCPlayerController::ClientNotifyAllPlayersLoaded_Implementation()
 	// MoviePlayer 는 hard travel(타이틀 복귀/최초 조인) 경로 전용이다. 스테이지 진입은
 	// ATeamCarryGameMode 의 bUseSeamlessTravel=true 이후 UEngine::LoadMap 을 타지 않아
 	// FCoreUObjectDelegates::PreLoadMap 이 발화하지 않으므로 이 호출은 사실상 no-op 이지만,
-	// 다른 경로를 위해 그대로 둔다.
+	// 다른 경로를 위해 그대로 둔다. (2026-07-19: seamless travel에서도 MoviePlayer를 걸어보는
+	// 시도를 했다가 게임 스레드 행이 발생해 되돌렸다 — TCSessionFlow::HostServerTravel 주석 참고.)
 	if (UTCSessionFlow* Flow = GetGameInstance() ? GetGameInstance()->GetSubsystem<UTCSessionFlow>() : nullptr)
 	{
 		Flow->StopMovieLoadingScreen();
@@ -329,6 +332,22 @@ void ATCPlayerController::FinishLoadingScreen()
 	if (UMockUIController* MockController = GetGameInstance() ? GetGameInstance()->GetSubsystem<UMockUIController>() : nullptr)
 	{
 		MockController->HideLoadingScreenNow();
+	}
+
+	// (2026-07-19) RefreshUIInputConfig()(라우터가 위젯 트리를 다시 스캔해 leaf-most를 스스로
+	// 재계산)을 두 번 시도했으나(동일 프레임 / 한 틱 지연) 두 번 다 오히려 완전히 안 먹히는
+	// 쪽으로 악화됐다 — "재계산을 요청"하는 방식 자체가 이 프로젝트 환경에서 신뢰할 수 없다고
+	// 판단, 대신 S_InGame::GetDesiredInputConfig()와 동일한 값을 라우터에 직접 지정한다
+	// (SetActiveUIInputConfig — 트리를 스캔하지 않고 그냥 그 값을 쓰므로 "무엇을 leaf-most로
+	// 착각하는가"와 무관하다). 로딩 위젯이 사라진 직후 수 초간 마우스 캡처가 CaptureDuringMouseDown
+	// 에 멈춰 카메라 조작이 안 되고, 그 상태에서 눌린 키의 Release 이벤트가 씹혀 캐릭터가 계속
+	// 움직이는(예: W 한 번만 눌러도 계속 전진) 문제가 전부 이 공백 구간 때문이었다(실측 확인).
+	if (ULocalPlayer* LP = GetLocalPlayer())
+	{
+		if (UCommonUIActionRouterBase* ActionRouter = LP->GetSubsystem<UCommonUIActionRouterBase>())
+		{
+			ActionRouter->SetActiveUIInputConfig(FUIInputConfig(ECommonInputMode::Game, EMouseCaptureMode::CapturePermanently, true));
+		}
 	}
 }
 void ATCPlayerController::ClientEnterBoardInteractionMode_Implementation(ATCStageSelectBoard* Board)

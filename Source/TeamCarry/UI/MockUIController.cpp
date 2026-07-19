@@ -7,6 +7,7 @@
 #include "Engine/World.h"
 #include "Engine/Engine.h"
 #include "Blueprint/UserWidget.h"
+#include "Blueprint/GameViewportSubsystem.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Framework/Application/SlateApplication.h"
 #include "TimerManager.h"
@@ -76,6 +77,22 @@ void UMockUIController::HidePersistentLoadingWidget()
 {
 	if (PersistentLoadingWidget && PersistentLoadingWidget->IsInViewport())
 	{
+		// (2026-07-19) RemoveFromParent()는 뷰포트(Slate 트리)에서만 떼어낼 뿐, CommonUI Action
+		// Router에 등록된 이 위젯의 입력 설정(GetDesiredInputConfig() → Menu 모드)은 그대로 남는다
+		// — 그 해제는 UCommonActivatableWidget::DeactivateWidget()이 담당하는데, 이건 보통
+		// NativeDestruct()(즉, 위젯 UObject 자체가 파괴될 때)에 물려 자동으로 불린다. 예전에는
+		// bAutoRemoveOnWorldRemoved=true라 트래블마다 위젯이 통째로 파괴되면서 이 경로를 우연히
+		// 항상 탔지만, 지금은 우리가 명시적으로 수명을 관리하므로(위 AddWidget 참고) 위젯이 뷰포트
+		// 에서만 빠지고 실제 파괴는 늦게(GC 시점) 일어날 수 있다 — 그 사이 Action Router가 계속
+		// Menu 입력 모드를 유지해 로딩 후 캐릭터 이동이 안 먹는 버그가 있었다. RemoveFromParent()
+		// 전에 DeactivateWidget()을 명시적으로 호출해 입력 설정을 즉시 해제한다.
+		if (UCommonActivatableWidget* ActivatableWidget = Cast<UCommonActivatableWidget>(PersistentLoadingWidget))
+		{
+			if (ActivatableWidget->IsActivated())
+			{
+				ActivatableWidget->DeactivateWidget();
+			}
+		}
 		PersistentLoadingWidget->RemoveFromParent();
 	}
 	// 다음 트래블은 어차피 새로 생성한다(CachedWorld 스냅샷 문제로 재사용 불가) — 포인터를
@@ -109,7 +126,22 @@ void UMockUIController::ShowPersistentLoadingWidget()
 
 	if (PersistentLoadingWidget)
 	{
-		PersistentLoadingWidget->AddToViewport(1000);
+		// (2026-07-19, 실측 확인) UUserWidget::AddToViewport(ZOrder)는 UE5.8부터 내부적으로
+		// UGameViewportSubsystem::AddWidget()으로 위임되는데, 이 경로의 기본 슬롯은
+		// bAutoRemoveOnWorldRemoved=true다 — "이 위젯의 World가 제거되면 위젯도 같이 제거"라는
+		// 뜻이라, Seamless Travel 도중 로비 World가 CleanupWorld되는 순간 이 지속형 위젯도
+		// 함께 뷰포트에서 자동 제거되고 있었다(로딩 화면이 "안 보이는" 게 아니라 실제로 사라짐 —
+		// 그 자리에 엔진 기본 트랜지션 텍스트/화면 디버그 메시지만 남아 까맣게 보이던 진짜 원인).
+		// AddToViewport() 대신 서브시스템을 직접 호출해 bAutoRemoveOnWorldRemoved=false로 슬롯을
+		// 구성한다 — 이 위젯은 GameInstance 소유라 트래블 중에도 우리가 직접 수명을 관리한다
+		// (HidePersistentLoadingWidget()에서 RemoveWidget()으로 명시적으로 내림).
+		if (UGameViewportSubsystem* ViewportSubsystem = UGameViewportSubsystem::Get())
+		{
+			FGameViewportWidgetSlot Slot;
+			Slot.ZOrder = 1000;
+			Slot.bAutoRemoveOnWorldRemoved = false;
+			ViewportSubsystem->AddWidget(PersistentLoadingWidget, Slot);
+		}
 
 		UE_LOG(LogTemp, Warning, TEXT("[UI Router] 지속형 로딩 위젯 | 클래스=%s | US_Loading 파생=%d | InViewport=%d"),
 			*GetNameSafe(LoadingWidgetClass),
