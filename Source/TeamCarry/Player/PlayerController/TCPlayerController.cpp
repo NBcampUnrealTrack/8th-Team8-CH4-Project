@@ -4,7 +4,9 @@
 #include "Player/PlayerState/TCPlayerState.h"
 #include "Player/Character/TCPlayerCharacter.h"
 #include "Network/Session/TCLobbyGameMode.h"
+#include "Network/Session/TCLobbyGameState.h"
 #include "Network/Session/TCSessionFlow.h"
+#include "Kismet/GameplayStatics.h"
 #include "Network/Net/TCNetStatics.h"
 #include "Core/TeamCarryGameMode.h"
 #include "Components/WidgetInteractionComponent.h"
@@ -15,6 +17,7 @@
 // --- UI 테스트용 MockUIController, GameInstance ---
 #include "TeamCarry/UI/MockUIController.h"
 #include "Engine/GameInstance.h"
+#include "TeamCarry/UI/S_Loading.h"
 
 // --- 글로벌 UI 단축키(Enhanced Input) ---
 #include "EnhancedInputComponent.h"
@@ -92,6 +95,7 @@ void ATCPlayerController::BeginPlay()
 				UE_LOG(LogTCNet, Log, TEXT("[PlayerController] 타이틀 진입: MainMenu 출력."));
 				// 메뉴이므로 마우스 커서를 켭니다.
 				bShowMouseCursor = true;
+				MockController->HideLoadingScreenNow();
 				return;
 			}
 			// 2. 로비 맵 (캐릭터 조작 + 마우스 커서 필요 — 플레이어블 로비, 명세 4장-3)
@@ -99,6 +103,7 @@ void ATCPlayerController::BeginPlay()
 			{
 				MockController->ReplaceState(EE_UIState::Lobby);
 				UE_LOG(LogTCNet, Log, TEXT("[PlayerController] 로비 진입: S_Lobby 출력."));
+				MockController->HideLoadingScreenNow();
 
 				// 로비는 캐릭터 조작이 기본(명세 6장-2 예외 규정). US_Lobby::GetDesiredInputConfig() 가
 				// 기본값(bCursorModeActive=false → 커서 숨김/게임 전용 입력)을 이미 선언하므로,
@@ -118,6 +123,7 @@ void ATCPlayerController::BeginPlay()
 				SetInputMode(GameAndUIMode);
 
 				UE_LOG(LogTCNet, Log, TEXT("[PlayerController] 튜토리얼 진입: 조작 모드 활성화."));
+				MockController->HideLoadingScreenNow();
 			}
 			// 4. 그 외 실제 인게임 맵 폴백(스테이지 등, 캐릭터 조작 필요)
 			else
@@ -131,6 +137,15 @@ void ATCPlayerController::BeginPlay()
 				MockController->ReplaceState(EE_UIState::InGame);
 				bShowMouseCursor = true;
 				SetInputMode(FInputModeGameAndUI());
+
+				// 이 시점이 곧 "내 맵 로딩 완료"라는 실제 사건이다 — 시간 기반 연출(0→90%)을
+				// 끊고 게이지를 내 로딩 완료 구간(99%)으로 올린다. 화면은 여전히 지속형 로딩
+				// 위젯이 덮고 있으며(ReplaceState(InGame) 는 이제 위젯을 내리지 않는다),
+				// 하강은 전원 완료 후 FinishLoadingScreen() 이 단독으로 담당한다.
+				if (US_Loading* LoadingWidget = MockController->GetActiveLoadingWidget())
+				{
+					LoadingWidget->NotifyLocalLoadComplete();
+				}
 
 				ServerReportMapLoaded();
 				UE_LOG(LogTCNet, Log, TEXT("[PlayerController] 인게임 맵 진입: InGame 전환 완료, 로딩 완료 보고."));
@@ -173,11 +188,27 @@ void ATCPlayerController::SetupInputComponent()
 		EIC->BindAction(IA_ToggleLobbyCursor, ETriggerEvent::Started, this, &ThisClass::Input_ToggleLobbyCursor);
 		EIC->BindAction(IA_BoardListUp, ETriggerEvent::Started, this, &ThisClass::Input_BoardListUp);
 		EIC->BindAction(IA_BoardListDown, ETriggerEvent::Started, this, &ThisClass::Input_BoardListDown);
+		EIC->BindAction(IA_LobbyReady, ETriggerEvent::Started, this, &ThisClass::Input_LobbyReady);
+		EIC->BindAction(IA_LobbyStart, ETriggerEvent::Started, this, &ThisClass::Input_LobbyStart);
+		EIC->BindAction(IA_LobbyStageSelect, ETriggerEvent::Started, this, &ThisClass::Input_LobbyStageSelect);
+		EIC->BindAction(IA_LobbyHelp, ETriggerEvent::Started, this, &ThisClass::Input_LobbyHelp);
 	}
 }
 
 void ATCPlayerController::Input_ToggleESCUI()
 {
+	// 로딩 화면이 아직 덮여 있으면(전원 로딩 대기 중) ESC 를 무시한다. 이 구간의 CurrentState 는
+	// 이미 InGame 이라 아래 게이트를 통과해 O_PauseMenu 가 열리지만, 그 오버레이는 RootLayout
+	// 소속이라 지속형 로딩 위젯(ZOrder 1000) 아래에 깔려 보이지 않는다 — 눌러도 아무 일 없어
+	// 보이면서 스택만 쌓이는 상태가 된다. 이 구간의 탈출 경로는 로딩 화면의 Btn_LeaveSession 이다.
+	if (UMockUIController* Mock = GetGameInstance() ? GetGameInstance()->GetSubsystem<UMockUIController>() : nullptr)
+	{
+		if (Mock->GetActiveLoadingWidget())
+		{
+			return;
+		}
+	}
+
 	// 게시판 클릭 모드 중이면 ESC는 그 모드를 먼저 닫는다(일시정지 메뉴보다 우선, 명세 4장-5).
 	if (bBoardInteractionModeActive)
 	{
@@ -227,35 +258,79 @@ void ATCPlayerController::ServerReportMapLoaded_Implementation()
 
 void ATCPlayerController::ClientNotifyAllPlayersLoaded_Implementation()
 {
-	// BeginPlay() 의 스테이지 맵 분기가 로컬 로딩 완료 시점에 이미 InGame 전환 + 입력 모드를
-	// 적용해 두었으므로, 정상 경로에서는 아래 호출들이 전부 idempotent no-op이다(ReplaceState는
-	// CurrentState == NewState 면 즉시 리턴). 이 함수는 "전원 로딩 완료(또는 재접속 단독 합류)"를
-	// 서버가 확정했다는 신호 전달용으로 남아 있으며, ReplaceState/SetInputMode 호출은 응답 없는
-	// 클라이언트를 강제 진입시키는 타임아웃 폴백(ATeamCarryGameMode::BeginPlay 세이프티 타이머)
-	// 경로에 대한 안전망으로 유지한다.
-	if (UMockUIController* MockController = GetGameInstance() ? GetGameInstance()->GetSubsystem<UMockUIController>() : nullptr)
+	UMockUIController* MockController = GetGameInstance() ? GetGameInstance()->GetSubsystem<UMockUIController>() : nullptr;
+
+	// BeginPlay() 의 스테이지 맵 분기가 이미 InGame 전환 + 입력 모드를 적용해 두었으므로 정상
+	// 경로에서 아래 두 호출은 idempotent no-op 이다. 재접속/후발 합류 경로의 안전망으로 유지한다.
+	if (MockController)
 	{
 		MockController->ReplaceState(EE_UIState::InGame);
 	}
-
 	bShowMouseCursor = true;
-	FInputModeGameAndUI GameAndUIMode;
-	SetInputMode(GameAndUIMode);
+	SetInputMode(FInputModeGameAndUI());
 
-	// MoviePlayer 로딩 화면(hard travel 보강, UI_Technical_Spec.md 2장·4장-9)의 수동 정지 지점.
-	// UTCSessionFlow::HandlePreLoadMap()이 스테이지 맵 진입 시 bWaitForManualStop=true로 띄워 둔
-	// 로딩 화면을, "전원 로딩 완료"가 확정되는 이 시점에 내린다. 이 RPC가 이미 UI 상태 전환과
-	// 무관하게 "전원 준비 완료" 시점에만 호출되도록 설계돼 있어(위 주석 참고), 오늘 진행 중인
-	// 전원 대기 게이트 재작업(GameState::CurrentPhase)이 이 RPC의 호출 시점만 유지한다면 이 호출은
-	// 별도 수정 없이 계속 올바르게 동작한다.
+	// MoviePlayer 는 hard travel(타이틀 복귀/최초 조인) 경로 전용이다. 스테이지 진입은
+	// ATeamCarryGameMode 의 bUseSeamlessTravel=true 이후 UEngine::LoadMap 을 타지 않아
+	// FCoreUObjectDelegates::PreLoadMap 이 발화하지 않으므로 이 호출은 사실상 no-op 이지만,
+	// 다른 경로를 위해 그대로 둔다.
 	if (UTCSessionFlow* Flow = GetGameInstance() ? GetGameInstance()->GetSubsystem<UTCSessionFlow>() : nullptr)
 	{
 		Flow->StopMovieLoadingScreen();
 	}
 
-	UE_LOG(LogTCNet, Log, TEXT("[PlayerController] 전원 로딩 완료 확인."));
+	// 지속형 로딩 위젯(ZOrder 1000)에 90→100% 마무리 연출을 재생시키고, 그게 끝난 뒤에 내린다.
+	// 여기서 바로 내리면 100% 가 한 프레임도 보이지 않는다.
+	US_Loading* LoadingWidget = MockController ? MockController->GetActiveLoadingWidget() : nullptr;
+	if (!LoadingWidget)
+	{
+		FinishLoadingScreen();   // 로딩 화면이 없는 경로(재접속 등) — 즉시 진행
+		return;
+	}
+
+	TWeakObjectPtr<ATCPlayerController> WeakThis = this;
+	LoadingWidget->OnFinishAnimationCompleted.AddWeakLambda(this, [WeakThis]()
+		{
+			if (!WeakThis.IsValid()) return;
+			WeakThis->GetWorldTimerManager().ClearTimer(WeakThis->FinishAnimSafetyHandle);
+			WeakThis->FinishLoadingScreen();
+		});
+	LoadingWidget->PlayFinishAnimation();
+
+	// 세이프티: 연출 도중 위젯이 파괴되면 델리게이트가 영영 오지 않아, 이 클라이언트만 로딩
+	// 화면이 영구히 덮인 채 남는다(서버는 이미 게이트를 통과해 카운트다운 중이라 구제해주지 않는다).
+	GetWorldTimerManager().SetTimer(FinishAnimSafetyHandle, [WeakThis]()
+		{
+			if (WeakThis.IsValid()) { WeakThis->FinishLoadingScreen(); }
+		}, LoadingWidget->FinishDuration + 0.5f, false);
+
+	UE_LOG(LogTCNet, Log, TEXT("[PlayerController] 전원 로딩 완료 확인 — 마무리 연출 시작."));
 }
 
+void ATCPlayerController::ClientNotifyLoadingStalled_Implementation()
+{
+	if (UMockUIController* MockController = GetGameInstance() ? GetGameInstance()->GetSubsystem<UMockUIController>() : nullptr)
+	{
+		if (US_Loading* LoadingWidget = MockController->GetActiveLoadingWidget())
+		{
+			LoadingWidget->NotifyLoadingStalled();
+		}
+	}
+	UE_LOG(LogTCNet, Warning, TEXT("[PlayerController] 로딩 게이트 지연 안내 수신."));
+}
+
+void ATCPlayerController::FinishLoadingScreen()
+{
+	if (bLoadingScreenFinished)
+	{
+		return;
+	}
+	bLoadingScreenFinished = true;
+
+	if (UMockUIController* MockController = GetGameInstance() ? GetGameInstance()->GetSubsystem<UMockUIController>() : nullptr)
+	{
+		MockController->HideLoadingScreenNow();
+	}
+}
 void ATCPlayerController::ClientEnterBoardInteractionMode_Implementation(ATCStageSelectBoard* Board)
 {
 	UE_LOG(LogTemp, Warning, TEXT("[PlayerController] ClientEnterBoardInteractionMode 진입"));
@@ -424,6 +499,113 @@ void ATCPlayerController::Input_BoardListDown()
 		{
 			BoardScreen->NavigateStageSelection(1);
 		}
+	}
+}
+
+bool ATCPlayerController::CanHandleLobbyShortcut() const
+{
+	if (bBoardInteractionModeActive)
+	{
+		return false;
+	}
+
+	const UMockUIController* MockController = GetGameInstance() ? GetGameInstance()->GetSubsystem<UMockUIController>() : nullptr;
+	if (!MockController || MockController->GetCurrentState() != EE_UIState::Lobby)
+	{
+		return false;
+	}
+
+	// O_PauseMenu/O_Confirm 등 오버레이가 열려 있으면 그쪽이 입력을 소유 중이므로 끼어들지 않는다
+	// (Input_ToggleLobbyCursor 와 동일 가드).
+	if (MockController->IsAnyOverlayActive())
+	{
+		return false;
+	}
+
+	return true;
+}
+
+void ATCPlayerController::Input_LobbyReady()
+{
+	if (!CanHandleLobbyShortcut())
+	{
+		return;
+	}
+
+	const ATCPlayerState* LocalTCPS = GetPlayerState<ATCPlayerState>();
+	const bool bCurrentlyReady = LocalTCPS && LocalTCPS->IsReady();
+	RequestSetReady(!bCurrentlyReady);
+}
+
+void ATCPlayerController::Input_LobbyStart()
+{
+	if (!CanHandleLobbyShortcut())
+	{
+		return;
+	}
+
+	// Btn_Start 와 동일한 노출/활성 조건(방장 + 전원 준비)을 확인한다(명세 6장-8, IsHost() 로만 판정).
+	const UTCSessionFlow* Flow = GetGameInstance() ? GetGameInstance()->GetSubsystem<UTCSessionFlow>() : nullptr;
+	if (!Flow || !Flow->IsHost())
+	{
+		return;
+	}
+
+	const ATCLobbyGameState* LobbyGS = GetWorld() ? GetWorld()->GetGameState<ATCLobbyGameState>() : nullptr;
+	if (!LobbyGS || !LobbyGS->AreAllPlayersReady())
+	{
+		return;
+	}
+
+	RequestStartGame();
+}
+
+void ATCPlayerController::Input_LobbyStageSelect()
+{
+	if (!CanHandleLobbyShortcut())
+	{
+		return;
+	}
+
+	// Btn_StageSelect 와 동일하게 방장 전용이다(명세 4장-3).
+	const UTCSessionFlow* Flow = GetGameInstance() ? GetGameInstance()->GetSubsystem<UTCSessionFlow>() : nullptr;
+	if (!Flow || !Flow->IsHost())
+	{
+		return;
+	}
+
+	// S_Lobby::HandleStageSelectClicked 와 동일한 로직 — 씬에 유일한 BP_StageSelectBoard 앞으로 텔레포트한다.
+	TArray<AActor*> Boards;
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), ATCStageSelectBoard::StaticClass(), Boards);
+	if (Boards.Num() == 0)
+	{
+		UE_LOG(LogTCNet, Warning, TEXT("[PlayerController] Input_LobbyStageSelect: BP_StageSelectBoard 를 찾지 못함"));
+		return;
+	}
+
+	const ATCStageSelectBoard* Board = Cast<ATCStageSelectBoard>(Boards[0]);
+	if (!Board)
+	{
+		return;
+	}
+
+	if (APawn* thisPawn = GetPawn())
+	{
+		thisPawn->TeleportTo(Board->GetTeleportLocation(), Board->GetTeleportRotation(), false, true);
+	}
+}
+
+void ATCPlayerController::Input_LobbyHelp()
+{
+	if (!CanHandleLobbyShortcut())
+	{
+		return;
+	}
+
+	// Btn_KeyGuide 와 동일하게 조작법 팝업을 연다(전원 사용 가능).
+	if (UMockUIController* MockController = GetGameInstance() ? GetGameInstance()->GetSubsystem<UMockUIController>() : nullptr)
+	{
+		MockController->PushOverlay(TEXT("O_KeyGuide"));
 	}
 }
 

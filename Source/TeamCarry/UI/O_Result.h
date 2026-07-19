@@ -8,6 +8,8 @@
 
 class UCommonButtonBase;
 class UTextBlock;
+class UProgressBar;
+class UImage;
 
 /**
  * UO_Result - 최종 결과 오버레이(명세 4장-8, 구 S_Result 대체).
@@ -45,8 +47,16 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
 	TObjectPtr<UTextBlock> Txt_StarCount;
 
+	// 별 개수(0~3) 를 대신 표시하는 진행도 게이지(일단 별 그래픽 대신 사용 — 명세 4장-8).
+	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
+	TObjectPtr<UProgressBar> Bar_Progress;
+
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
 	TObjectPtr<UTextBlock> Txt_ElapsedTime;
+
+	// 결과 화면 배경. 스테이지의 FStageInfo::ResultBackgroundImage 가 설정되어 있으면 교체한다.
+	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
+	TObjectPtr<UImage> Background;
 
 	// --- 네비게이션 ---
 	// 로비로 가기: 세션 유지 복귀(호스트 전용 트래블 — 프로토타입은 호스트 전용 활성화 기본).

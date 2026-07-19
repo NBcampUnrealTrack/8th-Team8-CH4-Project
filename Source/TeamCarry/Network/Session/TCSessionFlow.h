@@ -11,6 +11,7 @@ class UTCGameInstance;
 class UWorld;
 class UUserWidget;
 class UW_MovieLoadingScreen;
+class UTexture2D;
 
 // 스테이지 정의(명세 2장·7장-3). DT_Stages(DataTable) 의 행 구조체.
 // 현재는 StageId=1 / L_LevelProto 단일 폴백 행만 존재하지만, 행이 늘어나도
@@ -32,7 +33,11 @@ struct FStageInfo : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "TeamCarry|Stage")
 	FString MapPath;
 
-	// 확장 여지(미구현): 썸네일 SoftObjectPtr, 해금 조건, 별 획득 조건 등.
+	// O_Result 배경(스테이지별). 미설정 시 O_Result 위젯의 기본 배경을 그대로 사용한다.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "TeamCarry|Stage")
+	TSoftObjectPtr<UTexture2D> ResultBackgroundImage;
+
+	// 확장 여지(미구현): 해금 조건, 별 획득 조건 등.
 };
 
 // 세이브 슬롯 하나의 요약 정보(명세: 슬롯 선택 화면/저장 관리 오버레이 공용).

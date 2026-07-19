@@ -11,6 +11,7 @@
 #include "Components/TextBlock.h"
 #include "Blueprint/UserWidget.h"
 #include "Materials/MaterialInterface.h"
+#include "Sound/SoundAttenuation.h"
 #include "UObject/ConstructorHelpers.h"
 #include "TimerManager.h"
 #include "Kismet/GameplayStatics.h"
@@ -354,10 +355,12 @@ void ATCFurnitureActor::Multicast_DestroyFurniture_Implementation()
     bIsFurnitureDestroyed = true;
     SetActorTickEnabled(true);
 
-    // 파괴음 재생
+    // 파괴음 재생 (거리 감쇠 적용 — 피드백 컴포넌트와 동일한 ATT_Furniture 공유)
     if (BreakSound)
     {
-        UGameplayStatics::PlaySoundAtLocation(this, BreakSound, GetActorLocation());
+        USoundAttenuation* Att = LoadObject<USoundAttenuation>(nullptr,
+            TEXT("/Game/Developers/goldb/Audio/ATT_Furniture.ATT_Furniture"));
+        UGameplayStatics::PlaySoundAtLocation(this, BreakSound, GetActorLocation(), 1.f, 1.f, 0.f, Att);
     }
 
     if (FurnitureMesh)

@@ -43,6 +43,7 @@ public:
 
 protected:
 	virtual void NativeConstruct() override;
+	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 
 	// 가구 이름 텍스트 블록.
 	UPROPERTY(meta = (BindWidget), BlueprintReadOnly, Category = "UI|Widget")
@@ -51,4 +52,11 @@ protected:
 	// 가구 내구도 게이지 (0.0 ~ 1.0 정규화 값으로 설정).
 	UPROPERTY(meta = (BindWidget), BlueprintReadOnly, Category = "UI|Widget")
 	TObjectPtr<UProgressBar> Bar_Durability;
+
+private:
+	// UpdateFurnitureStatus() 가 갱신하는 목표값. NativeTick 이 이 값을 향해 서서히 보간한다.
+	float TargetDurabilityPercent = 1.0f;
+
+	// 실제로 Bar_Durability 에 매 프레임 적용되는(보간된) 값.
+	float DisplayedDurabilityPercent = 1.0f;
 };
