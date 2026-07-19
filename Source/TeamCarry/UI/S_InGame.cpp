@@ -26,6 +26,8 @@ void US_InGame::NativeConstruct()
 	{
 		PB_TeamMoney->SetPercent(0.0f);
 	}
+	TargetMoneyPercent = 0.0f;
+	DisplayedMoneyPercent = 0.0f;
 	if (TextBlock_Score)
 	{
 		TextBlock_Score->SetText(FText::FromString(TEXT("0 / 0")));
@@ -122,6 +124,12 @@ void US_InGame::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 			UpdateTimerDisplay(GS->ElapsedTime);
 		}
 	}
+
+	if (PB_TeamMoney && !FMath::IsNearlyEqual(DisplayedMoneyPercent, TargetMoneyPercent, 0.001f))
+	{
+		DisplayedMoneyPercent = FMath::FInterpTo(DisplayedMoneyPercent, TargetMoneyPercent, InDeltaTime, 4.0f);
+		PB_TeamMoney->SetPercent(DisplayedMoneyPercent);
+	}
 }
 
 TOptional<FUIInputConfig> US_InGame::GetDesiredInputConfig() const
@@ -134,11 +142,9 @@ void US_InGame::HandleTeamMoneyUpdated(int32 NewTotalMoney)
 {
 	UE_LOG(LogTemp, Log, TEXT("[UI InGameHUD] HUD Received Team Money Update: $%d / $%d"), NewTotalMoney, CachedTotalLevelValue);
 
-	if (PB_TeamMoney)
-	{
-		const float Percent = CachedTotalLevelValue > 0 ? static_cast<float>(NewTotalMoney) / static_cast<float>(CachedTotalLevelValue) : 0.0f;
-		PB_TeamMoney->SetPercent(FMath::Clamp(Percent, 0.0f, 1.0f));
-	}
+	// 게이지는 즉시 점프하지 않고 NativeTick의 보간을 통해 목표값을 서서히 따라간다.
+	const float Percent = CachedTotalLevelValue > 0 ? static_cast<float>(NewTotalMoney) / static_cast<float>(CachedTotalLevelValue) : 0.0f;
+	TargetMoneyPercent = FMath::Clamp(Percent, 0.0f, 1.0f);
 	if (TextBlock_Score)
 	{
 		TextBlock_Score->SetText(FText::Format(NSLOCTEXT("InGameUI", "MoneyGaugeFormat", "{0} / {1}"),

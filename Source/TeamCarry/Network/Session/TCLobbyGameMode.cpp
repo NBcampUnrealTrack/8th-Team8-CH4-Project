@@ -60,7 +60,10 @@ void ATCLobbyGameMode::OnPostLogin(AController* NewPlayer)
 	{
 		if (ATCPlayerState* PS = PC->GetPlayerState<ATCPlayerState>())
 		{
-			PS->SetLobbySlotIndexAuthoritative(NextSlotIndex++);
+			PS->SetLobbySlotIndexAuthoritative(NextSlotIndex);
+			// 슬롯 인덱스와 동일한 순번으로 색상도 배정(빨/파/노/초 = US_Lobby::RefreshLobbyFromGameState 매핑).
+			PS->SetColorIndexAuthoritative(NextSlotIndex);
+			NextSlotIndex++;
 			UE_LOG(LogTCNet, Log, TEXT("[Lobby] Slot %d 배정: %s"), PS->GetLobbySlotIndex(), *PS->GetPlayerName());
 
 			// 접속 로그(명세 3장·4장-7).
@@ -84,7 +87,9 @@ void ATCLobbyGameMode::HandleSeamlessTravelPlayer(AController*& C)
 		{
 			if (PS->GetLobbySlotIndex() < 0)
 			{
-				PS->SetLobbySlotIndexAuthoritative(NextSlotIndex++);
+				PS->SetLobbySlotIndexAuthoritative(NextSlotIndex);
+				PS->SetColorIndexAuthoritative(NextSlotIndex);
+				NextSlotIndex++;
 				UE_LOG(LogTCNet, Log, TEXT("[Lobby] (Seamless) Slot %d 배정: %s"), PS->GetLobbySlotIndex(), *PS->GetPlayerName());
 			}
 		}

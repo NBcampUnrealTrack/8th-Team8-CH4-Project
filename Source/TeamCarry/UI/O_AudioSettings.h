@@ -9,6 +9,7 @@
 class USlider;
 class USoundMix;
 class USoundClass;
+class UTextBlock;
 
 // 마스터 볼륨이 바뀔 때(슬라이더 드래그) 외부 리스너에게 알리는 델리게이트.
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FSettingMasterVolumeChanged, float, Value);
@@ -54,6 +55,16 @@ protected:
 	// 배경음악 슬라이더(0.0 ~ 1.0). ※ 위와 같은 이유로 WBP 위젯 이름("Slider_B") 유지.
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
 	TObjectPtr<USlider> Slider_B;
+
+	// 슬라이더 옆에 볼륨 퍼센트를 표시하는 텍스트(예: "75%"). 슬라이더 값 변경 시 함께 갱신된다.
+	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
+	TObjectPtr<UTextBlock> Txt_MasterVolumePercent;
+
+	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
+	TObjectPtr<UTextBlock> Txt_SFXVolumePercent;
+
+	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
+	TObjectPtr<UTextBlock> Txt_BGMVolumePercent;
 
 	// 볼륨 믹서 에셋(에디터에서 교체 가능, 미지정 시 goldb/Audio 기본 세트 로드).
 	UPROPERTY(EditDefaultsOnly, Category = "UI|Settings|Audio")

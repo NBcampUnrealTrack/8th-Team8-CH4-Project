@@ -4,7 +4,9 @@
 #include "Player/PlayerState/TCPlayerState.h"
 #include "Player/Character/TCPlayerCharacter.h"
 #include "Network/Session/TCLobbyGameMode.h"
+#include "Network/Session/TCLobbyGameState.h"
 #include "Network/Session/TCSessionFlow.h"
+#include "Kismet/GameplayStatics.h"
 #include "Network/Net/TCNetStatics.h"
 #include "Core/TeamCarryGameMode.h"
 #include "Components/WidgetInteractionComponent.h"
@@ -186,6 +188,10 @@ void ATCPlayerController::SetupInputComponent()
 		EIC->BindAction(IA_ToggleLobbyCursor, ETriggerEvent::Started, this, &ThisClass::Input_ToggleLobbyCursor);
 		EIC->BindAction(IA_BoardListUp, ETriggerEvent::Started, this, &ThisClass::Input_BoardListUp);
 		EIC->BindAction(IA_BoardListDown, ETriggerEvent::Started, this, &ThisClass::Input_BoardListDown);
+		EIC->BindAction(IA_LobbyReady, ETriggerEvent::Started, this, &ThisClass::Input_LobbyReady);
+		EIC->BindAction(IA_LobbyStart, ETriggerEvent::Started, this, &ThisClass::Input_LobbyStart);
+		EIC->BindAction(IA_LobbyStageSelect, ETriggerEvent::Started, this, &ThisClass::Input_LobbyStageSelect);
+		EIC->BindAction(IA_LobbyHelp, ETriggerEvent::Started, this, &ThisClass::Input_LobbyHelp);
 	}
 }
 
@@ -493,6 +499,113 @@ void ATCPlayerController::Input_BoardListDown()
 		{
 			BoardScreen->NavigateStageSelection(1);
 		}
+	}
+}
+
+bool ATCPlayerController::CanHandleLobbyShortcut() const
+{
+	if (bBoardInteractionModeActive)
+	{
+		return false;
+	}
+
+	const UMockUIController* MockController = GetGameInstance() ? GetGameInstance()->GetSubsystem<UMockUIController>() : nullptr;
+	if (!MockController || MockController->GetCurrentState() != EE_UIState::Lobby)
+	{
+		return false;
+	}
+
+	// O_PauseMenu/O_Confirm 등 오버레이가 열려 있으면 그쪽이 입력을 소유 중이므로 끼어들지 않는다
+	// (Input_ToggleLobbyCursor 와 동일 가드).
+	if (MockController->IsAnyOverlayActive())
+	{
+		return false;
+	}
+
+	return true;
+}
+
+void ATCPlayerController::Input_LobbyReady()
+{
+	if (!CanHandleLobbyShortcut())
+	{
+		return;
+	}
+
+	const ATCPlayerState* LocalTCPS = GetPlayerState<ATCPlayerState>();
+	const bool bCurrentlyReady = LocalTCPS && LocalTCPS->IsReady();
+	RequestSetReady(!bCurrentlyReady);
+}
+
+void ATCPlayerController::Input_LobbyStart()
+{
+	if (!CanHandleLobbyShortcut())
+	{
+		return;
+	}
+
+	// Btn_Start 와 동일한 노출/활성 조건(방장 + 전원 준비)을 확인한다(명세 6장-8, IsHost() 로만 판정).
+	const UTCSessionFlow* Flow = GetGameInstance() ? GetGameInstance()->GetSubsystem<UTCSessionFlow>() : nullptr;
+	if (!Flow || !Flow->IsHost())
+	{
+		return;
+	}
+
+	const ATCLobbyGameState* LobbyGS = GetWorld() ? GetWorld()->GetGameState<ATCLobbyGameState>() : nullptr;
+	if (!LobbyGS || !LobbyGS->AreAllPlayersReady())
+	{
+		return;
+	}
+
+	RequestStartGame();
+}
+
+void ATCPlayerController::Input_LobbyStageSelect()
+{
+	if (!CanHandleLobbyShortcut())
+	{
+		return;
+	}
+
+	// Btn_StageSelect 와 동일하게 방장 전용이다(명세 4장-3).
+	const UTCSessionFlow* Flow = GetGameInstance() ? GetGameInstance()->GetSubsystem<UTCSessionFlow>() : nullptr;
+	if (!Flow || !Flow->IsHost())
+	{
+		return;
+	}
+
+	// S_Lobby::HandleStageSelectClicked 와 동일한 로직 — 씬에 유일한 BP_StageSelectBoard 앞으로 텔레포트한다.
+	TArray<AActor*> Boards;
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), ATCStageSelectBoard::StaticClass(), Boards);
+	if (Boards.Num() == 0)
+	{
+		UE_LOG(LogTCNet, Warning, TEXT("[PlayerController] Input_LobbyStageSelect: BP_StageSelectBoard 를 찾지 못함"));
+		return;
+	}
+
+	const ATCStageSelectBoard* Board = Cast<ATCStageSelectBoard>(Boards[0]);
+	if (!Board)
+	{
+		return;
+	}
+
+	if (APawn* thisPawn = GetPawn())
+	{
+		thisPawn->TeleportTo(Board->GetTeleportLocation(), Board->GetTeleportRotation(), false, true);
+	}
+}
+
+void ATCPlayerController::Input_LobbyHelp()
+{
+	if (!CanHandleLobbyShortcut())
+	{
+		return;
+	}
+
+	// Btn_KeyGuide 와 동일하게 조작법 팝업을 연다(전원 사용 가능).
+	if (UMockUIController* MockController = GetGameInstance() ? GetGameInstance()->GetSubsystem<UMockUIController>() : nullptr)
+	{
+		MockController->PushOverlay(TEXT("O_KeyGuide"));
 	}
 }
 

@@ -3,6 +3,7 @@
 #include "TeamCarry/UI/O_AudioSettings.h"
 
 #include "Components/Slider.h"
+#include "Components/TextBlock.h"
 #include "Kismet/GameplayStatics.h"
 #include "Sound/SoundMix.h"
 #include "Sound/SoundClass.h"
@@ -19,6 +20,13 @@ namespace
 	const TCHAR* DefaultMasterClass = TEXT("/Game/Developers/goldb/Audio/SC_Master.SC_Master");
 	const TCHAR* DefaultSFXClass = TEXT("/Game/Developers/goldb/Audio/SC_SFX.SC_SFX");
 	const TCHAR* DefaultBGMClass = TEXT("/Game/Developers/goldb/Audio/SC_BGM.SC_BGM");
+
+	// 슬라이더 값(0.0~1.0)을 "75%" 형태의 정수 퍼센트 텍스트로 변환.
+	FText FormatVolumePercent(float Value)
+	{
+		return FText::Format(NSLOCTEXT("O_AudioSettings", "VolumePercentFormat", "{0}%"),
+			FText::AsNumber(FMath::RoundToInt(Value * 100.0f)));
+	}
 }
 
 void UO_AudioSettings::NativeConstruct()
@@ -47,6 +55,13 @@ void UO_AudioSettings::NativeConstruct()
 		Slider_B->SetValue(CurrentBGMVolume);
 	}
 
+	// SetValue()는 값이 실제로 바뀔 때만 OnValueChanged를 발생시키므로(위젯 최초 생성 시
+	// 슬라이더 기본값이 이미 CurrentXVolume과 같으면 콜백이 안 불릴 수 있다), 퍼센트 텍스트는
+	// 여기서 한 번 더 직접 채워 둔다.
+	if (Txt_MasterVolumePercent) { Txt_MasterVolumePercent->SetText(FormatVolumePercent(CurrentMasterVolume)); }
+	if (Txt_SFXVolumePercent) { Txt_SFXVolumePercent->SetText(FormatVolumePercent(CurrentSFXVolume)); }
+	if (Txt_BGMVolumePercent) { Txt_BGMVolumePercent->SetText(FormatVolumePercent(CurrentBGMVolume)); }
+
 	// 열릴 때 현재 설정값으로 믹스를 활성화해 둔다 (첫 사용 시 기본 1.0 = 변화 없음)
 	ApplyMix();
 }
@@ -55,6 +70,7 @@ void UO_AudioSettings::HandleMasterVolumeChanged(float Value)
 {
 	CurrentMasterVolume = Value;
 	ApplyMix(); // 드래그 중 실시간 미리듣기
+	if (Txt_MasterVolumePercent) { Txt_MasterVolumePercent->SetText(FormatVolumePercent(Value)); }
 	OnMasterVolumeChanged.Broadcast(Value);
 }
 
@@ -62,12 +78,14 @@ void UO_AudioSettings::HandleSFXVolumeChanged(float Value)
 {
 	CurrentSFXVolume = Value;
 	ApplyMix();
+	if (Txt_SFXVolumePercent) { Txt_SFXVolumePercent->SetText(FormatVolumePercent(Value)); }
 }
 
 void UO_AudioSettings::HandleBGMVolumeChanged(float Value)
 {
 	CurrentBGMVolume = Value;
 	ApplyMix();
+	if (Txt_BGMVolumePercent) { Txt_BGMVolumePercent->SetText(FormatVolumePercent(Value)); }
 }
 
 void UO_AudioSettings::ApplyMix()

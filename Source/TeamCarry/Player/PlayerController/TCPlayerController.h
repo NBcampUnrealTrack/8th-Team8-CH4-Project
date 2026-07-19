@@ -141,6 +141,23 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input|UI")
 	TObjectPtr<UInputAction> IA_BoardListDown;
 
+	// --- 로비 단축키(F1~F4, S_Lobby 전용 — IMC_GlobalUI 에 함께 배정) ---
+	// F1: 준비 토글(Btn_Ready 와 동일 동작).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input|UI")
+	TObjectPtr<UInputAction> IA_LobbyReady;
+
+	// F2: 게임 시작(방장 전용, Btn_Start 와 동일 동작).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input|UI")
+	TObjectPtr<UInputAction> IA_LobbyStart;
+
+	// F3: 스테이지 선택 보드로 이동(방장 전용, Btn_StageSelect 와 동일 동작).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input|UI")
+	TObjectPtr<UInputAction> IA_LobbyStageSelect;
+
+	// F4: 조작법(O_KeyGuide) 열기(전원, Btn_KeyGuide 와 동일 동작).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input|UI")
+	TObjectPtr<UInputAction> IA_LobbyHelp;
+
 private:
 	UFUNCTION(Server, Reliable)
 	void ServerSetReady(bool bInReady);
@@ -166,6 +183,17 @@ private:
 	// IA_BoardListUp/Down 핸들러: 게시판 클릭 모드 중에만 ActiveBoard의 BoardScreen에 위임한다.
 	void Input_BoardListUp();
 	void Input_BoardListDown();
+
+	// IA_LobbyReady/Start/StageSelect/Help 핸들러(F1~F4). 전부 State가 Lobby이고, 게시판 클릭
+	// 모드가 아니며, 오버레이가 떠 있지 않을 때만 동작한다(Input_ToggleLobbyCursor와 동일 가드).
+	// Start/StageSelect는 방장 전용이라 Btn_Start/Btn_StageSelect의 노출 조건과 동일하게 IsHost()도 확인한다.
+	void Input_LobbyReady();
+	void Input_LobbyStart();
+	void Input_LobbyStageSelect();
+	void Input_LobbyHelp();
+
+	// 위 4개 핸들러가 공통으로 확인하는 가드(Lobby 상태 + 게시판 모드 아님 + 오버레이 없음).
+	bool CanHandleLobbyShortcut() const;
 
 	// 현재 로비 커서가 켜져 있는지(Alt 토글 상태).
 	bool bLobbyCursorActive = false;

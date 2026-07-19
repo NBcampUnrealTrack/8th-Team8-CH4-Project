@@ -3,6 +3,9 @@
 #include "TeamCarry/UI/O_Result.h"
 #include "CommonButtonBase.h"
 #include "Components/TextBlock.h"
+#include "Components/ProgressBar.h"
+#include "Components/Image.h"
+#include "Engine/Texture2D.h"
 #include "Input/CommonUIInputTypes.h"
 #include "TeamCarry/UI/MockUIController.h"
 #include "Network/Session/TCSessionFlow.h"
@@ -45,6 +48,14 @@ void UO_Result::NativeConstruct()
 		if (Txt_StarCount)
 		{
 			Txt_StarCount->SetText(FText::AsNumber(StarCount));
+			// 일단 별 그래픽 대신 진행도 게이지(Bar_Progress)로 표시한다.
+			Txt_StarCount->SetVisibility(ESlateVisibility::Collapsed);
+		}
+
+		if (Bar_Progress)
+		{
+			constexpr int32 MaxStarCount = 3; // CalculateStar()의 판정 범위(1~3)와 일치.
+			Bar_Progress->SetPercent(FMath::Clamp((float)StarCount / (float)MaxStarCount, 0.0f, 1.0f));
 		}
 
 		if (Txt_ElapsedTime)
@@ -57,6 +68,23 @@ void UO_Result::NativeConstruct()
 		}
 
 		UE_LOG(LogTemp, Log, TEXT("[UI Result] Result Display Updated: Score=%d, Star=%d, Time=%.1fs"), FinalScore, StarCount, ElapsedTime);
+	}
+
+	// 스테이지별 결과 배경: FStageInfo::ResultBackgroundImage 가 설정된 스테이지만 교체하고,
+	// 미설정이면 WBP 디자이너에 지정된 기본 배경을 그대로 둔다.
+	if (Background)
+	{
+		if (const UTCSessionFlow* Flow = GetGameInstance() ? GetGameInstance()->GetSubsystem<UTCSessionFlow>() : nullptr)
+		{
+			FStageInfo Info;
+			if (Flow->FindStageInfo(Flow->GetSelectedStageId(), Info) && !Info.ResultBackgroundImage.IsNull())
+			{
+				if (UTexture2D* BackgroundTexture = Info.ResultBackgroundImage.LoadSynchronous())
+				{
+					Background->SetBrushFromTexture(BackgroundTexture);
+				}
+			}
+		}
 	}
 }
 
