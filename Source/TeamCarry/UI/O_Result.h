@@ -10,6 +10,7 @@ class UCommonButtonBase;
 class UTextBlock;
 class UProgressBar;
 class UImage;
+class UTexture2D;
 
 /**
  * UO_Result - 최종 결과 오버레이(명세 4장-8, 구 S_Result 대체).
@@ -29,6 +30,10 @@ class TEAMCARRY_API UO_Result : public UCommonActivatableWidget
 protected:
 	virtual void NativeConstruct() override;
 
+	// Bar_Progress가 즉시 목표치로 점프하지 않고 S_InGame의 PB_TeamMoney와 동일하게
+	// 서서히 차오르도록 매 프레임 보간한다.
+	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
+
 	// 활성화 중 게임 입력을 완전히 차단한다(명세 4장-8). 인게임 코어 루프 정지 자체는
 	// 서버 권위의 bIsGameFinished 게이팅(GameMode/GrabComponent)이 담당하며, 이 위젯은 UI 입력만 막는다.
 	virtual TOptional<FUIInputConfig> GetDesiredInputConfig() const override;
@@ -47,12 +52,31 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
 	TObjectPtr<UTextBlock> Txt_StarCount;
 
-	// 별 개수(0~3) 를 대신 표시하는 진행도 게이지(일단 별 그래픽 대신 사용 — 명세 4장-8).
+	// 팀 값어치 진행도 게이지. S_InGame의 PB_TeamMoney와 동일한 기준(TotalScore/TotalLevelValue)으로
+	// 채운다 — 별개로 GameState의 정확한 최종값(FinalScore/TotalLevelValue)을 그대로 재사용한다.
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
 	TObjectPtr<UProgressBar> Bar_Progress;
 
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
 	TObjectPtr<UTextBlock> Txt_ElapsedTime;
+
+	// 별 개수(0~3) 표시용 이미지 슬롯. 왼쪽부터 StarCount 개만큼 StarTexture_Filled로 교체하고
+	// 나머지는 StarTexture_Empty를 유지한다.
+	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
+	TObjectPtr<UImage> Img_Star0;
+
+	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
+	TObjectPtr<UImage> Img_Star1;
+
+	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
+	TObjectPtr<UImage> Img_Star2;
+
+	// 별 이미지 애셋 2종(빈 별/채운 별). WBP 클래스 디폴트에서 지정한다.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "UI|Star")
+	TObjectPtr<UTexture2D> StarTexture_Empty;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "UI|Star")
+	TObjectPtr<UTexture2D> StarTexture_Filled;
 
 	// 결과 화면 배경. 스테이지의 FStageInfo::ResultBackgroundImage 가 설정되어 있으면 교체한다.
 	UPROPERTY(meta = (BindWidgetOptional), BlueprintReadOnly, Category = "UI|Widget")
@@ -73,4 +97,11 @@ private:
 
 	UFUNCTION()
 	void HandleToTitleClicked();
+
+	// 왼쪽부터 StarCount 개만큼 채운 별 텍스처로 교체한다.
+	void UpdateStarDisplay(int32 StarCount);
+
+	// Bar_Progress 보간 상태(S_InGame::TargetMoneyPercent/DisplayedMoneyPercent와 동일한 방식).
+	float TargetProgressPercent = 0.0f;
+	float DisplayedProgressPercent = 0.0f;
 };

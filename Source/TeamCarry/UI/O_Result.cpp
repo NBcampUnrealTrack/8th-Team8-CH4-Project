@@ -9,6 +9,8 @@
 #include "Input/CommonUIInputTypes.h"
 #include "TeamCarry/UI/MockUIController.h"
 #include "Network/Session/TCSessionFlow.h"
+#include "TeamCarry/Core/TeamCarryGameState.h"
+#include "Engine/World.h"
 
 void UO_Result::NativeConstruct()
 {
@@ -48,14 +50,27 @@ void UO_Result::NativeConstruct()
 		if (Txt_StarCount)
 		{
 			Txt_StarCount->SetText(FText::AsNumber(StarCount));
-			// 일단 별 그래픽 대신 진행도 게이지(Bar_Progress)로 표시한다.
+			// 별 개수는 Img_Star0~2 이미지 교체로 표시하므로 텍스트는 계속 숨겨둔다.
 			Txt_StarCount->SetVisibility(ESlateVisibility::Collapsed);
 		}
 
+		UpdateStarDisplay(StarCount);
+
 		if (Bar_Progress)
 		{
-			constexpr int32 MaxStarCount = 3; // CalculateStar()의 판정 범위(1~3)와 일치.
-			Bar_Progress->SetPercent(FMath::Clamp((float)StarCount / (float)MaxStarCount, 0.0f, 1.0f));
+			// S_InGame의 PB_TeamMoney(4장-7)와 동일 기준(TotalScore/TotalLevelValue)을 그대로 재사용한다.
+			// TotalLevelValue는 스테이지 중 불변이라 결과 화면 시점에도 GameState에 그대로 남아 있다.
+			float LevelValuePercent = 0.0f;
+			if (const UWorld* World = GetWorld())
+			{
+				if (const ATeamCarryGameState* GS = World->GetGameState<ATeamCarryGameState>())
+				{
+					LevelValuePercent = GS->TotalLevelValue > 0 ? (float)FinalScore / (float)GS->TotalLevelValue : 0.0f;
+				}
+			}
+			TargetProgressPercent = FMath::Clamp(LevelValuePercent, 0.0f, 1.0f);
+			// 0%에서 시작해 NativeTick의 보간으로 목표치까지 차오르게 한다(즉시 SetPercent 하지 않음).
+			Bar_Progress->SetPercent(DisplayedProgressPercent);
 		}
 
 		if (Txt_ElapsedTime)
@@ -85,6 +100,17 @@ void UO_Result::NativeConstruct()
 				}
 			}
 		}
+	}
+}
+
+void UO_Result::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
+{
+	Super::NativeTick(MyGeometry, InDeltaTime);
+
+	if (Bar_Progress && !FMath::IsNearlyEqual(DisplayedProgressPercent, TargetProgressPercent, 0.001f))
+	{
+		DisplayedProgressPercent = FMath::FInterpTo(DisplayedProgressPercent, TargetProgressPercent, InDeltaTime, 4.0f);
+		Bar_Progress->SetPercent(DisplayedProgressPercent);
 	}
 }
 
@@ -123,5 +149,21 @@ void UO_Result::HandleToTitleClicked()
 	if (UTCSessionFlow* Flow = GetGameInstance()->GetSubsystem<UTCSessionFlow>())
 	{
 		Flow->LeaveToTitle();
+	}
+}
+
+void UO_Result::UpdateStarDisplay(int32 StarCount)
+{
+	const TObjectPtr<UImage> StarImages[] = { Img_Star0, Img_Star1, Img_Star2 };
+	for (int32 Index = 0; Index < UE_ARRAY_COUNT(StarImages); ++Index)
+	{
+		if (UImage* StarImage = StarImages[Index])
+		{
+			UTexture2D* Texture = (Index < StarCount) ? StarTexture_Filled : StarTexture_Empty;
+			if (Texture)
+			{
+				StarImage->SetBrushFromTexture(Texture);
+			}
+		}
 	}
 }
