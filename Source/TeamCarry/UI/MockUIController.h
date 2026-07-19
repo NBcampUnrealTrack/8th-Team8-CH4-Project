@@ -9,6 +9,7 @@
 // Forward declaration
 class AActor;
 class IUIHost;
+class US_Loading;
 
 UENUM(BlueprintType)
 enum class EE_UIState : uint8
@@ -122,6 +123,17 @@ public:
 	// 전달되는 Client RPC)이 공유하는 단일 진입점 — 로딩 화면 동기화 수정(회의 반영).
 	UFUNCTION(BlueprintCallable, Category = "UI|Controller")
 	void ShowLoadingScreenNow();
+
+	// 전원 로딩 게이트 통과가 확정된 시점의 유일한 하강 지점(ATCPlayerController::
+	// ClientNotifyAllPlayersLoaded 경로). ReplaceState(InGame) 는 더 이상 로딩 위젯을 내리지 않는다.
+	UFUNCTION(BlueprintCallable, Category = "UI|Controller")
+	void HideLoadingScreenNow();
+
+	// 현재 화면을 덮고 있는 지속형 로딩 위젯. 마무리 연출(PlayFinishAnimation) 대상은 항상 이쪽이다
+	// — RootLayout 의 S_Loading 인스턴스는 ZOrder 1000 아래에 가려져 보이지 않고, 트래블 중 PC 와
+	// 함께 파괴된다.
+	UFUNCTION(BlueprintPure, Category = "UI|Controller")
+	US_Loading* GetActiveLoadingWidget() const;
 
 	UFUNCTION(BlueprintCallable, Category = "UI")
 	class UCommonActivatableWidget* PushOverlay(const FString& OverlayName);

@@ -69,6 +69,13 @@ public:
 	// 기록하고, 전원 로딩 완료 여부에 따라 게임 시작 또는 해당 플레이어 단독 진입을 진행한다.
 	void NotifyPlayerFinishedLoading(APlayerController* PC);
 	
+	// 로딩 게이트 지연 안내 시각(초). 이 시점에 게임을 강제 시작하지 않는다 — 전원 로딩 완료가
+	// 게이트의 유일한 통과 조건이다. 대신 클라이언트에 나가기 경로를 열어 영구 정지를 막는다.
+	// "적당히 기다렸다"가 아니라 "확실히 고장났다" 판정선이므로 넉넉해야 한다(무거운 맵에서
+	// 20초는 정상 로딩일 수 있다).
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Loading")
+	float LoadingStallNoticeSeconds = 45.0f;
+	
 	// 게임 저장
 	UFUNCTION(BlueprintCallable)
 	void SaveGame(const FString& StageName);
@@ -133,7 +140,11 @@ private:
 
 	// 전원 로딩 완료 대기 타임아웃 세이프티 타이머(로딩 화면 동기화 수정) — 일부 클라이언트가
 	// 응답 없이 멈추는 경우 전체가 무한 대기하지 않도록 시간 초과 시 강제로 진행한다.
-	FTimerHandle LoadingGateTimeoutHandle;
+	// [삭제] FTimerHandle LoadingGateTimeoutHandle;
+
+	// 로딩 게이트 지연 안내 타이머. 강제 시작용이 아니라, 비정상 지연 시 클라이언트에
+	// 안내/나가기 경로를 노출시키기 위한 1회성 알림이다.
+	FTimerHandle LoadingStallNoticeHandle;
 
 	// 튕긴 플레이어 ID 목록
 	TArray<FUniqueNetIdRepl> DisconnectedPlayerIds;

@@ -11,6 +11,7 @@
 #include "Framework/Application/SlateApplication.h"
 #include "TimerManager.h"
 #include "GameFramework/PlayerController.h"
+#include "TeamCarry/UI/S_Loading.h"
 
 UMockUIController::UMockUIController()
 	: CurrentState(EE_UIState::None)
@@ -58,6 +59,30 @@ void UMockUIController::ShowLoadingScreenNow()
 	ReplaceState(EE_UIState::Loading);
 }
 
+US_Loading* UMockUIController::GetActiveLoadingWidget() const
+{
+	// 화면에 실제로 떠 있는 위젯만 "활성"으로 보고한다. HidePersistentLoadingWidget() 은
+	// RemoveFromParent() 만 하고 포인터를 비우지 않으므로, 포인터 유효성만 보면 이미 내려간
+	// 위젯을 활성으로 착각해 ESC 가드가 영구히 걸린다. AddToViewport() 가 조용히 실패한
+	// 경우에도 같은 함정에 빠진다.
+	if (!PersistentLoadingWidget || !PersistentLoadingWidget->IsInViewport())
+	{
+		return nullptr;
+	}
+	return Cast<US_Loading>(PersistentLoadingWidget);
+}
+
+void UMockUIController::HidePersistentLoadingWidget()
+{
+	if (PersistentLoadingWidget && PersistentLoadingWidget->IsInViewport())
+	{
+		PersistentLoadingWidget->RemoveFromParent();
+	}
+	// 다음 트래블은 어차피 새로 생성한다(CachedWorld 스냅샷 문제로 재사용 불가) — 포인터를
+	// 비워 "내려간 위젯이 계속 활성으로 보이는" 상태를 남기지 않는다.
+	PersistentLoadingWidget = nullptr;
+}
+
 void UMockUIController::ShowPersistentLoadingWidget()
 {
 	if (PersistentLoadingWidget && PersistentLoadingWidget->IsInViewport())
@@ -85,14 +110,11 @@ void UMockUIController::ShowPersistentLoadingWidget()
 	if (PersistentLoadingWidget)
 	{
 		PersistentLoadingWidget->AddToViewport(1000);
-	}
-}
 
-void UMockUIController::HidePersistentLoadingWidget()
-{
-	if (PersistentLoadingWidget && PersistentLoadingWidget->IsInViewport())
-	{
-		PersistentLoadingWidget->RemoveFromParent();
+		UE_LOG(LogTemp, Warning, TEXT("[UI Router] 지속형 로딩 위젯 | 클래스=%s | US_Loading 파생=%d | InViewport=%d"),
+			*GetNameSafe(LoadingWidgetClass),
+			PersistentLoadingWidget->IsA<US_Loading>() ? 1 : 0,
+			PersistentLoadingWidget->IsInViewport() ? 1 : 0);
 	}
 }
 
@@ -113,10 +135,18 @@ void UMockUIController::ReplaceState(EE_UIState NewState)
 
 	// 목적지 State 로 실제 전환되는 시점(= 신규 PC 가 자기 화면을 띄우는 시점)에 지속형
 	// 로딩 위젯을 내린다. Loading 으로 들어가는 경우는 유지(ShowPersistentLoadingWidget 이 올림).
-	if (NewState != EE_UIState::Loading)
-	{
-		HidePersistentLoadingWidget();
-	}
+		// InGame 도 예외다. 스테이지 맵의 ATCPlayerController::BeginPlay() 는 "내 로컬 로딩이 끝난"
+	// 시점에 곧바로 InGame 으로 전환하는데(ESC 등 글로벌 입력이 처음부터 동작하도록 — 명세 4장-9),
+	// 그 시점은 아직 "전원 로딩 완료" 게이트를 통과하기 전이다. 여기서 로딩 위젯을 내리면 남은
+	// 플레이어를 기다리는 동안 게임 월드가 그대로 노출된다. 하강은 HideLoadingScreenNow() 가
+	// 단독으로 담당한다(지속형 위젯은 CommonUI 스택 밖 ZOrder 1000 이라 CurrentState 와 무관하게
+	// 화면을 덮으므로, State 를 InGame 으로 두면서도 화면은 계속 가릴 수 있다).
+	
+	// 로딩 위젯은 여기서 내리지 않는다. 목적지 State 로 가는 도중 다른 State 를 거치는 경우가 있고
+	// (예: 스테이지 진입 시 Loading → MainMenu → InGame — AGameUIPlayerController 가 기본 State 를
+	// 먼저 깐다), 그 중간 State 에서 위젯이 사라져 버린다. 또 스테이지 진입은 "내 로딩 완료" 시점에
+	// InGame 으로 전환하지만 아직 전원 대기 게이트를 통과하기 전이라, State 전환과 하강 시점이
+	// 애초에 일치하지 않는다. 하강은 HideLoadingScreenNow() 호출부가 단독으로 책임진다.
 
 	EE_UIState OldState = CurrentState;
 	PreviousState = OldState;
@@ -300,4 +330,9 @@ void UMockUIController::TriggerGameResult(int32 FinalScore, int32 StarCount, flo
 
 	// O_Result 는 인게임 레벨 위 오버레이다(명세 4장-8) — S_InGame HUD 는 아래에 남은 채 가려진다.
 	PushOverlay(TEXT("O_Result"));
+}
+
+void UMockUIController::HideLoadingScreenNow()
+{
+	HidePersistentLoadingWidget();
 }
