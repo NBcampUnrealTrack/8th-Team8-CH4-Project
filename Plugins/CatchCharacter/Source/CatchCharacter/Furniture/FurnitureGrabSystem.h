@@ -11,6 +11,11 @@ class UStaticMeshComponent;
 class UFurnitureStat;
 class ACharacter;
 
+// 잡은 인원 수 변화 알림 (OldCount -> NewCount).
+// 서버: Grab()/Release() 직후 즉시
+// 클라: OnRep_GrabbedPlayers(복제 도착) 시
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnGrabCountChanged, int32, OldCount, int32, NewCount);
+
 UCLASS( ClassGroup=(Custom), meta=(BlueprintSpawnableComponent) )
 class CATCHCHARACTER_API UFurnitureGrabSystem : public UActorComponent
 {
@@ -44,6 +49,10 @@ public:
 
 	// 외부에서 잡고 있는 플레이어 배열을 가져갈 수 있도록 Getter 추가
 	const TArray<ACharacter*>& GetGrabbedPlayers() const { return GrabbedPlayers; }
+
+	// 잡은 인원 수 변화 구독. 피드백 시스템 등 코스메틱용.
+	UPROPERTY(BlueprintAssignable, Category = "Interaction")
+	FOnGrabCountChanged OnGrabCountChanged;
 
 protected:
 	virtual void BeginPlay() override;

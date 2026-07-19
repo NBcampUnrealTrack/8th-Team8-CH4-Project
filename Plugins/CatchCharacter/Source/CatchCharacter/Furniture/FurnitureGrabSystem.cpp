@@ -174,6 +174,10 @@ void UFurnitureGrabSystem::Grab(ACharacter* Grabber, FVector height, UPrimitiveC
 
 	GrabbedPlayers.Add(Grabber);
 
+	// [델리게이트용] 잡은 인원 변화 알림
+	// 서버는 여기서 즉시, 클라는 OnRep_GrabbedPlayers에서 발화
+	OnGrabCountChanged.Broadcast(GrabbedPlayers.Num() - 1, GrabbedPlayers.Num());
+
 	// [피동 플래그 초기화] 인원 구성이 바뀌면 이전 대형 기준의 피동/도달 추적을 리셋한다
 	DraggedLastTick.Empty();
 	StoppedDraggingLastTick.Empty();
@@ -253,6 +257,9 @@ void UFurnitureGrabSystem::Release(ACharacter* Grabber)
 	GrabbedPlayers.Remove(Grabber);
 	Anchors.Remove(Grabber);
 	DraggedLastTick.Remove(Grabber);
+
+	// [델리게이트용] 잡은 인원 변화 알림 — 서버는 여기서 즉시, 클라는 OnRep_GrabbedPlayers에서 발화
+	OnGrabCountChanged.Broadcast(GrabbedPlayers.Num() + 1, GrabbedPlayers.Num());
 
 	// 남은 그랩 플레이어 이동속도 재계산 (필요 인원 미달이면 대폭 감속)
 	if (FurnitureStat && GrabbedPlayers.Num() > 0)
@@ -733,6 +740,9 @@ void UFurnitureGrabSystem::UpdateClientInterpolation(float DeltaTime)
 
 void UFurnitureGrabSystem::OnRep_GrabbedPlayers()
 {
+	// [델리게이트용] 복제 도착 전 인원 수 = 직전 상태 추적 배열의 크기
+	const int32 PrevGrabCount = ClientTrackedPlayers.Num();
+
 	// 가구 물리/충돌 동기화
 	if (FurnitureMesh)
 	{
@@ -812,6 +822,13 @@ void UFurnitureGrabSystem::OnRep_GrabbedPlayers()
 				bLocalCMCModified = true;
 			}
 		}
+	}
+
+	// [델리게이트용] 클라 측 상태 동기화가 전부 끝난 뒤에 알림
+	// 그랩 카운터의변화로 그랩, 해제를 감지
+	if (ClientTrackedPlayers.Num() != PrevGrabCount)
+	{
+		OnGrabCountChanged.Broadcast(PrevGrabCount, ClientTrackedPlayers.Num());
 	}
 
 	UpdateLocalWalkSpeed();

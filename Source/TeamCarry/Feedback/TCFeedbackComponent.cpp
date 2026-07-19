@@ -13,6 +13,7 @@
 #include "NiagaraFunctionLibrary.h"
 #include "NiagaraSystem.h"
 #include "Sound/SoundBase.h"
+#include "Sound/SoundAttenuation.h"
 #include "Blueprint/UserWidget.h"
 #include "Network/Session/TCSessionFlow.h"
 #include "Engine/Engine.h"
@@ -42,6 +43,8 @@ namespace
 	const TCHAR* DefaultBreakFX = TEXT("/Game/Developers/goldb/VFX/NS_ImpactPuff.NS_ImpactPuff");
 	// 강한 충돌 체감 — 묵직한 '쿵' 레이어 + 만화식 별 팝
 	const TCHAR* DefaultThudSound = TEXT("/Game/Developers/goldb/Audio/SW_Thud.SW_Thud");
+	// 3D 거리 감쇠 (없으면 감쇠 없이 재생 — 기존 동작 유지)
+	const TCHAR* DefaultAttenuation = TEXT("/Game/Developers/1/Furniture/Audio/ATT_Furniture.ATT_Furniture");
 	const TCHAR* DefaultHitStarsFX = TEXT("/Game/Developers/goldb/VFX/NS_HitStars.NS_HitStars");
 	// 파괴 디메리트 체감 — 감점 팝업 + 하강 실패 스팅
 	const TCHAR* BreakPenaltyWidgetPath = TEXT("/Game/Developers/goldb/UI/WBP_BreakPenalty.WBP_BreakPenalty_C");
@@ -87,9 +90,24 @@ void UTCFeedbackComponent::BeginPlay()
 	}
 	bLastGrabbed = ReadGrabbed();
 
+	// [이벤트 구독] 잡기/놓기 — 폴링(20Hz, 최대 50ms 지연) 대신 발생 프레임에 즉시 반응.
+	// 서버(리슨 호스트)는 Grab/Release에서, 클라는 OnRep_GrabbedPlayers에서 발화되므로 전 머신 동작.
+	// 리플렉션 소스(bIsGrabbed) 가구는 이벤트가 없어 기존 폴링 폴백을 유지한다(Tick 참조).
+	if (GrabSystem)
+	{
+		GrabSystem->OnGrabCountChanged.AddDynamic(this, &UTCFeedbackComponent::OnGrabCountChangedHandler);
+	}
+
 	// 내구도 관찰 (있는 가구만) — 파괴 순간 감지용
 	Stat = Owner->FindComponentByClass<UFurnitureStat>();
 	LastHealth = Stat ? Stat->GetCurrentHealth() : -1.f;
+
+	// [이벤트 구독] 타격/파괴 — OnFurnitureDamage는 서버(TakeDamage)·클라(체력 OnRep) 양쪽에서
+	// 브로드캐스트되므로(금 표시와 같은 경로) 전 머신에서 폴링 없이 즉시 반응.
+	if (Stat)
+	{
+		Stat->OnFurnitureDamage.AddDynamic(this, &UTCFeedbackComponent::OnFurnitureHealthChanged);
+	}
 
 	// 기본 에셋 로드 (인스턴스에서 지정했으면 유지)
 	if (!PickupSound) { PickupSound = LoadObject<USoundBase>(nullptr, DefaultPickupSound); }
@@ -109,6 +127,7 @@ void UTCFeedbackComponent::BeginPlay()
 		}
 	}
 	if (!ThudSound) { ThudSound = LoadObject<USoundBase>(nullptr, DefaultThudSound); }
+	if (!SoundAttenuation) { SoundAttenuation = LoadObject<USoundAttenuation>(nullptr, DefaultAttenuation); }
 
 	UE_LOG(LogTemp, Log, TEXT("[Feedback] %s 부착 완료 (sound: %s/%s, fx: %s)"), *GetNameSafe(Owner),
 		PickupSound ? TEXT("O") : TEXT("X"), DropSound ? TEXT("O") : TEXT("X"), PickupFX ? TEXT("O") : TEXT("X"));
@@ -125,85 +144,8 @@ void UTCFeedbackComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 		return;
 	}
 
-	// ── 내구도 관찰: 0 도달 = 파괴(퍼프+파열음), 감소 = 타격음 ──
-	if (Stat)
-	{
-		const float Health = Stat->GetCurrentHealth();
-		if (LastHealth > 0.f && Health <= 0.f)
-		{
-			const FVector Loc = Owner->GetActorLocation();
-			if (BreakSound) { UGameplayStatics::PlaySoundAtLocation(this, BreakSound, Loc); }
-			if (BreakFX) { UNiagaraFunctionLibrary::SpawnSystemAtLocation(this, BreakFX, Loc); }
-
-			// 파괴 디메리트 체감 — 하강 실패 스팅(2D) + 감점 팝업(1.8초 후 자동 제거).
-			// 파괴는 배송 점수를 통째로 잃는 사건인데 연출이 약해 손해가 체감되지 않던 문제.
-			if (USoundBase* PenaltyS = LoadObject<USoundBase>(nullptr, DefaultBreakPenaltySound))
-			{
-				UGameplayStatics::PlaySound2D(this, PenaltyS);
-			}
-			if (UWorld* World = GetWorld())
-			{
-				// 로비는 배송 점수가 없어 감점 문구가 오정보 — 텍스트는 생략하고 사운드만 남긴다
-				const FString MapPath = UWorld::RemovePIEPrefix(World->GetOutermost()->GetName());
-				const UTCSessionFlow* Flow = World->GetGameInstance()
-					? World->GetGameInstance()->GetSubsystem<UTCSessionFlow>() : nullptr;
-				const bool bLobbyMap = Flow && MapPath.Equals(Flow->GetLobbyMapPath(), ESearchCase::IgnoreCase);
-				if (UClass* PenaltyCls = bLobbyMap ? nullptr : BreakPenaltyClass.Get())
-				{
-					if (APlayerController* PC = GEngine ? GEngine->GetFirstLocalPlayerController(World) : nullptr)
-					{
-						if (UUserWidget* Popup = CreateWidget<UUserWidget>(PC, PenaltyCls))
-						{
-							Popup->AddToViewport(45); // HUD 위, 시간 경고(50)보다는 아래
-							TWeakObjectPtr<UUserWidget> WeakPopup = Popup;
-							FTimerHandle PopupTimer;
-							World->GetTimerManager().SetTimer(PopupTimer, [WeakPopup]()
-							{
-								if (WeakPopup.IsValid())
-								{
-									WeakPopup->RemoveFromParent();
-								}
-							}, BreakPenaltyPopupSeconds, false);
-						}
-					}
-				}
-			}
-		}
-		// 이전 값이 MaxHealth를 넘으면 스탯 초기화(생성자 기본 100 → 데이터테이블 값)로 낮아진 것 —
-		// 타격이 아니므로 연출 없이 기준만 재동기화 (레벨 시작 시 저체력 소품의 유령 쿵·별팝 방지)
-		// 인원 미달 운반의 내구도 드레인(잡힌 상태의 지속 소모)은 충돌 히트 피드백 대상이 아님
-		else if (LastHealth > 0.f && Health < LastHealth - KINDA_SMALL_NUMBER
-			&& LastHealth <= Stat->GetMaxHealth() + KINDA_SMALL_NUMBER
-			&& !(ReadGrabbed() && Stat->GetGrabbedPlayerNum() < Stat->GetRequiredPlayer()))
-		{
-			// 내구도 깎임 — 타격음 (목록 중 랜덤 + 피치 흔들림). 가구별 커스텀은 HitSounds 프로퍼티로.
-			if (HitSounds.Num() > 0)
-			{
-				if (USoundBase* HitS = HitSounds[FMath::RandRange(0, HitSounds.Num() - 1)])
-				{
-					UGameplayStatics::PlaySoundAtLocation(this, HitS, Owner->GetActorLocation(),
-						1.f, FMath::RandRange(0.9f, 1.1f));
-				}
-			}
-
-			// 타격음 아래에 저역 '쿵'을 겹쳐 무게감을 만든다 (피치 랜덤으로 반복감 완화)
-			if (ThudSound)
-			{
-				UGameplayStatics::PlaySoundAtLocation(this, ThudSound, Owner->GetActorLocation(),
-					1.f, FMath::RandRange(0.92f, 1.06f));
-			}
-
-			// 만화식 별 팝 — 가구 상단에서 터져 '띵' 하고 부딪힌 게 한눈에 보이게
-			if (UNiagaraSystem* Stars = LoadObject<UNiagaraSystem>(nullptr, DefaultHitStarsFX))
-			{
-				FVector Origin, Extent;
-				Owner->GetActorBounds(false, Origin, Extent);
-				const FVector Top(Origin.X, Origin.Y, Origin.Z + Extent.Z * 0.6f);
-				UNiagaraFunctionLibrary::SpawnSystemAtLocation(this, Stars, Top);
-			}
-		}
-		LastHealth = Health;
-	}
+	// 내구도 폴링 감시 제거 — Stat->OnFurnitureDamage 이벤트 구독으로 대체
+	// 타격/파괴 연출은 OnFurnitureHealthChanged 핸들러가 발생 즉시 처리
 
 	const bool bGrabbed = ReadGrabbed();
 
@@ -278,11 +220,44 @@ void UTCFeedbackComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 		}
 	}
 
+	// GrabSystem 없는 가구(TCCarriableFurniture 계열) — bIsGrabbed라는 bool 변수를 리플렉션으로 몰래 읽는 방식이라 이벤트가 없음
+	// 옛날처럼 매 틱 값을 비교(폴링)해야만 변화를 알 수 있음
+	if (GrabSystem)
+	{
+		return;
+	}
 	if (bGrabbed == bLastGrabbed)
 	{
 		return;
 	}
 	bLastGrabbed = bGrabbed;
+	HandleGrabTransition(bGrabbed);
+}
+
+// ─────────────────────────────────────────────
+// 이벤트 핸들러 (그랩 시스템/스탯 델리게이트 구독)
+// ─────────────────────────────────────────────
+
+void UTCFeedbackComponent::OnGrabCountChangedHandler(int32 OldCount, int32 NewCount)
+{
+	// 인원수만 변한 경우(1→2인 합류 등)는 전이가 아님 — 0↔양수 경계만 처리
+	const bool bGrabbed = NewCount > 0;
+	if (bGrabbed == bLastGrabbed)
+	{
+		return;
+	}
+	bLastGrabbed = bGrabbed;
+	HandleGrabTransition(bGrabbed);
+}
+
+void UTCFeedbackComponent::HandleGrabTransition(bool bGrabbed)
+{
+	AActor* Owner = GetOwner();
+	if (!Owner)
+	{
+		return;
+	}
+
 	UE_LOG(LogTemp, Log, TEXT("[Feedback] %s 잡힘 전이: %s"), *GetNameSafe(Owner),
 		bGrabbed ? TEXT("잡기") : TEXT("놓기"));
 
@@ -320,7 +295,7 @@ void UTCFeedbackComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 	const FVector Loc = GetFXLocation();
 	if (bGrabbed)
 	{
-		if (PickupSound) { UGameplayStatics::PlaySoundAtLocation(this, PickupSound, Loc); }
+		if (PickupSound) { UGameplayStatics::PlaySoundAtLocation(this, PickupSound, Loc, 1.f, 1.f, 0.f, SoundAttenuation); }
 		if (PickupFX)
 		{
 			// 들어올릴 때 바닥 먼지 — 액터 바운즈 밑면에서 스폰
@@ -337,12 +312,99 @@ void UTCFeedbackComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 		{
 			if (USoundBase* ThrowS = LoadObject<USoundBase>(nullptr, DefaultThrowSound))
 			{
-				UGameplayStatics::PlaySoundAtLocation(this, ThrowS, Loc);
+				UGameplayStatics::PlaySoundAtLocation(this, ThrowS, Loc, 1.f, 1.f, 0.f, SoundAttenuation);
 			}
 		}
 		else if (DropSound)
 		{
-			UGameplayStatics::PlaySoundAtLocation(this, DropSound, Loc);
+			UGameplayStatics::PlaySoundAtLocation(this, DropSound, Loc, 1.f, 1.f, 0.f, SoundAttenuation);
+		}
+	}
+}
+
+void UTCFeedbackComponent::OnFurnitureHealthChanged(float MaxHealth, float OldHealth, float NewHealth)
+{
+	AActor* Owner = GetOwner();
+	if (!Owner || !Stat)
+	{
+		return;
+	}
+
+	// ── 파괴 (0 도달): 파열음 + 퍼프 + 감점 연출 ──
+	if (OldHealth > 0.f && NewHealth <= 0.f)
+	{
+		const FVector Loc = Owner->GetActorLocation();
+		if (BreakSound) { UGameplayStatics::PlaySoundAtLocation(this, BreakSound, Loc, 1.f, 1.f, 0.f, SoundAttenuation); }
+		if (BreakFX) { UNiagaraFunctionLibrary::SpawnSystemAtLocation(this, BreakFX, Loc); }
+
+		// 파괴 디메리트 체감 — 하강 실패 스팅(2D) + 감점 팝업(1.8초 후 자동 제거).
+		// 파괴는 배송 점수를 통째로 잃는 사건인데 연출이 약해 손해가 체감되지 않던 문제.
+		if (USoundBase* PenaltyS = LoadObject<USoundBase>(nullptr, DefaultBreakPenaltySound))
+		{
+			UGameplayStatics::PlaySound2D(this, PenaltyS);
+		}
+		if (UWorld* World = GetWorld())
+		{
+			// 로비는 배송 점수가 없어 감점 문구가 오정보 — 텍스트는 생략하고 사운드만 남긴다
+			const FString MapPath = UWorld::RemovePIEPrefix(World->GetOutermost()->GetName());
+			const UTCSessionFlow* Flow = World->GetGameInstance()
+				? World->GetGameInstance()->GetSubsystem<UTCSessionFlow>() : nullptr;
+			const bool bLobbyMap = Flow && MapPath.Equals(Flow->GetLobbyMapPath(), ESearchCase::IgnoreCase);
+			if (UClass* PenaltyCls = bLobbyMap ? nullptr : BreakPenaltyClass.Get())
+			{
+				if (APlayerController* PC = GEngine ? GEngine->GetFirstLocalPlayerController(World) : nullptr)
+				{
+					if (UUserWidget* Popup = CreateWidget<UUserWidget>(PC, PenaltyCls))
+					{
+						Popup->AddToViewport(45); // HUD 위, 시간 경고(50)보다는 아래
+						TWeakObjectPtr<UUserWidget> WeakPopup = Popup;
+						FTimerHandle PopupTimer;
+						World->GetTimerManager().SetTimer(PopupTimer, [WeakPopup]()
+						{
+							if (WeakPopup.IsValid())
+							{
+								WeakPopup->RemoveFromParent();
+							}
+						}, BreakPenaltyPopupSeconds, false);
+					}
+				}
+			}
+		}
+		return;
+	}
+
+	// ── 타격 (감소): 우드히트 + 쿵 + 별팝 ──
+	// 이전 값이 MaxHealth를 넘으면 스탯 초기화(생성자 기본 100 → 데이터테이블 값)로 낮아진 것 —
+	// 타격이 아니므로 연출 없음 (레벨 시작 시 저체력 소품의 유령 쿵·별팝 방지)
+	// 인원 미달 운반의 내구도 드레인(잡힌 상태의 지속 소모)은 충돌 히트 피드백 대상이 아님
+	if (OldHealth > 0.f && NewHealth < OldHealth - KINDA_SMALL_NUMBER
+		&& OldHealth <= Stat->GetMaxHealth() + KINDA_SMALL_NUMBER
+		&& !(ReadGrabbed() && Stat->GetGrabbedPlayerNum() < Stat->GetRequiredPlayer()))
+	{
+		// 내구도 깎임 — 타격음 (목록 중 랜덤 + 피치 흔들림). 가구별 커스텀은 HitSounds 프로퍼티로.
+		if (HitSounds.Num() > 0)
+		{
+			if (USoundBase* HitS = HitSounds[FMath::RandRange(0, HitSounds.Num() - 1)])
+			{
+				UGameplayStatics::PlaySoundAtLocation(this, HitS, Owner->GetActorLocation(),
+					1.f, FMath::RandRange(0.9f, 1.1f), 0.f, SoundAttenuation);
+			}
+		}
+
+		// 타격음 아래에 저역 '쿵'을 겹쳐 무게감을 만든다 (피치 랜덤으로 반복감 완화)
+		if (ThudSound)
+		{
+			UGameplayStatics::PlaySoundAtLocation(this, ThudSound, Owner->GetActorLocation(),
+				1.f, FMath::RandRange(0.92f, 1.06f), 0.f, SoundAttenuation);
+		}
+
+		// 만화식 별 팝 — 가구 상단에서 터져 '띵' 하고 부딪힌 게 한눈에 보이게
+		if (UNiagaraSystem* Stars = LoadObject<UNiagaraSystem>(nullptr, DefaultHitStarsFX))
+		{
+			FVector Origin, Extent;
+			Owner->GetActorBounds(false, Origin, Extent);
+			const FVector Top(Origin.X, Origin.Y, Origin.Z + Extent.Z * 0.6f);
+			UNiagaraFunctionLibrary::SpawnSystemAtLocation(this, Stars, Top);
 		}
 	}
 }
