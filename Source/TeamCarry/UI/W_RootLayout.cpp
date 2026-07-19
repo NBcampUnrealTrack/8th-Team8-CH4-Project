@@ -4,6 +4,7 @@
 
 #include "CommonActivatableWidget.h"
 #include "Widgets/CommonActivatableWidgetContainer.h"
+#include "Components/Image.h"
 
 void UW_RootLayout::NativeConstruct()
 {
@@ -24,6 +25,8 @@ void UW_RootLayout::NativeConstruct()
 	{
 		MenuLayer->SetTransitionDuration(0.0f);
 	}
+
+	UpdateBackdropVisibility();
 }
 
 void UW_RootLayout::ShowScreen(TSubclassOf<UCommonActivatableWidget> ScreenClass)
@@ -46,7 +49,9 @@ UCommonActivatableWidget* UW_RootLayout::PushOverlay(TSubclassOf<UCommonActivata
 	}
 
 	// 스택이 CreateWidget + 활성화 + 입력 컨텍스트 전환을 자동 처리한다.
-	return MenuLayer->AddWidget(OverlayClass);
+	UCommonActivatableWidget* Pushed = MenuLayer->AddWidget(OverlayClass);
+	UpdateBackdropVisibility();
+	return Pushed;
 }
 
 void UW_RootLayout::PopOverlay()
@@ -61,6 +66,8 @@ void UW_RootLayout::PopOverlay()
 	{
 		MenuLayer->RemoveWidget(*Top);
 	}
+
+	UpdateBackdropVisibility();
 }
 
 void UW_RootLayout::ClearOverlays()
@@ -69,4 +76,17 @@ void UW_RootLayout::ClearOverlays()
 	{
 		MenuLayer->ClearWidgets();
 	}
+
+	UpdateBackdropVisibility();
+}
+
+void UW_RootLayout::UpdateBackdropVisibility()
+{
+	if (!Img_Backdrop)
+	{
+		return;
+	}
+
+	const bool bHasActiveOverlay = MenuLayer && MenuLayer->GetActiveWidget() != nullptr;
+	Img_Backdrop->SetVisibility(bHasActiveOverlay ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
 }

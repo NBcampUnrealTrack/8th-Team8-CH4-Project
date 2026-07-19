@@ -193,11 +193,16 @@ void US_Lobby::RefreshLobbyFromGameState()
 		UTextBlock* NameText = nullptr;
 		UTextBlock* StatusText = nullptr;
 		GetSlotTexts(i, NameText, StatusText);
-		if (NameText) NameText->SetText(FText::FromString(TEXT("---")));
+		if (NameText)
+		{
+			NameText->SetText(FText::FromString(TEXT("---")));
+			NameText->SetColorAndOpacity(FSlateColor(FLinearColor::White));
+		}
 		if (StatusText) StatusText->SetText(FText::FromString(TEXT("EMPTY")));
 	}
 
 	// 복제된 PlayerState 로 슬롯 채우기.
+	const APlayerState* LocalPS = GetOwningPlayerState();
 	for (APlayerState* PS : LobbyGS->PlayerArray)
 	{
 		const ATCPlayerState* TCPS = Cast<ATCPlayerState>(PS);
@@ -213,9 +218,39 @@ void US_Lobby::RefreshLobbyFromGameState()
 		UTextBlock* NameText = nullptr;
 		UTextBlock* StatusText = nullptr;
 		GetSlotTexts(SlotIdx, NameText, StatusText);
+
+		// 규칙: 1P 호스트 고정(명세 4장-3) — 슬롯 0이 곧 방장이므로 별도 판정 없이 슬롯 인덱스로 표시한다.
+		const bool bIsHostSlot = (SlotIdx == 0);
+		const bool bIsSelf = (PS == LocalPS);
+
 		if (NameText)
 		{
-			NameText->SetText(FText::FromString(TCPS->GetPlayerName()));
+			const FString Prefix = bIsHostSlot ? TEXT("[방장] ") : TEXT("");
+			const FString Suffix = bIsSelf ? TEXT(" (나)") : TEXT("");
+			NameText->SetText(FText::FromString(Prefix + TCPS->GetPlayerName() + Suffix));
+
+			// 로비 리스트는 입장 순서대로 빨강-파랑-노랑-초록 순으로 표시한다.
+			// 주의: 캐릭터 밑 링 데칼(BP_PlayerCharacter::DecalColor)은 ColorIndex 0=파랑,
+			// 1=빨강으로 구현되어 있어 이 순서와 어긋난다(0/1 반전). 데칼 쪽도 맞추려면
+			// BP_PlayerCharacter::DecalColor 매핑을 0=빨강/1=파랑으로 함께 바꿔야 한다.
+			// 2/3(노랑/초록) 데칼은 아직 미구현이라 여기 값은 잠정값이다.
+			FLinearColor SlotColor = FLinearColor::White;
+			switch (TCPS->GetColorIndex())
+			{
+			case 0: SlotColor = FLinearColor(1.0f, 0.0f, 0.0f, 1.0f); break; // 빨강
+			case 1: SlotColor = FLinearColor(0.0f, 0.0f, 1.0f, 1.0f); break; // 파랑
+			case 2: SlotColor = FLinearColor(1.0f, 1.0f, 0.0f, 1.0f); break; // 노랑(잠정)
+			case 3: SlotColor = FLinearColor(0.0f, 1.0f, 0.0f, 1.0f); break; // 초록(잠정)
+			default: break; // ColorIndex 미배정(-1) 등 — 흰색 유지
+			}
+			NameText->SetColorAndOpacity(FSlateColor(SlotColor));
+
+			// 가시성 강화: 글자색보다 어두운 톤으로 아웃라인을 둘러 배경(밝은 크림색 패널) 위에서도
+			// 잘 읽히게 한다.
+			FSlateFontInfo NameFont = NameText->GetFont();
+			NameFont.OutlineSettings.OutlineSize = 1;
+			NameFont.OutlineSettings.OutlineColor = FLinearColor(SlotColor.R * 0.35f, SlotColor.G * 0.35f, SlotColor.B * 0.35f, 1.0f);
+			NameText->SetFont(NameFont);
 		}
 		if (StatusText)
 		{

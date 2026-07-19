@@ -23,6 +23,24 @@ void UW_FurnitureStatus::NativeConstruct()
 	{
 		Bar_Durability->SetPercent(1.0f);
 	}
+	TargetDurabilityPercent = 1.0f;
+	DisplayedDurabilityPercent = 1.0f;
+}
+
+void UW_FurnitureStatus::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
+{
+	Super::NativeTick(MyGeometry, InDeltaTime);
+
+	if (!Bar_Durability)
+	{
+		return;
+	}
+
+	if (!FMath::IsNearlyEqual(DisplayedDurabilityPercent, TargetDurabilityPercent, 0.001f))
+	{
+		DisplayedDurabilityPercent = FMath::FInterpTo(DisplayedDurabilityPercent, TargetDurabilityPercent, InDeltaTime, 6.0f);
+		Bar_Durability->SetPercent(DisplayedDurabilityPercent);
+	}
 }
 
 void UW_FurnitureStatus::UpdateFurnitureStatus(const FString& Name, float CurrentDurability, float MaxDurability)
@@ -32,14 +50,11 @@ void UW_FurnitureStatus::UpdateFurnitureStatus(const FString& Name, float Curren
 		Txt_FurnitureName->SetText(FText::FromString(Name));
 	}
 
-	if (Bar_Durability)
-	{
-		// MaxDurability 가 0 이면 분모 0 방어. Clamp 로 [0, 1] 범위를 보장한다.
-		const float Percent = (MaxDurability > 0.0f)
-			? FMath::Clamp(CurrentDurability / MaxDurability, 0.0f, 1.0f)
-			: 0.0f;
-		Bar_Durability->SetPercent(Percent);
-	}
+	// MaxDurability 가 0 이면 분모 0 방어. Clamp 로 [0, 1] 범위를 보장한다.
+	// 실제 게이지 값은 즉시 적용하지 않고 목표값만 갱신 — NativeTick 이 서서히 보간해 반영한다.
+	TargetDurabilityPercent = (MaxDurability > 0.0f)
+		? FMath::Clamp(CurrentDurability / MaxDurability, 0.0f, 1.0f)
+		: 0.0f;
 
 	UE_LOG(LogTemp, Log, TEXT("[UI FurnitureStatus] Updated: Name=%s, Durability=%.1f/%.1f"),
 		*Name, CurrentDurability, MaxDurability);
