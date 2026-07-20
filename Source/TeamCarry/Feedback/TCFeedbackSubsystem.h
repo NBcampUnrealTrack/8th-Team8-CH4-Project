@@ -66,7 +66,19 @@ protected:
 
 	// 핫타임 진입 기준 경과시간(초). 이 시간이 지나면 핫타임 시작, 게임 끝까지 유지.
 	UPROPERTY(EditDefaultsOnly, Category = "Feedback|HotTime")
-	float HotTimeElapsedThreshold = 300.f; // 기본 5분
+	float HotTimeElapsedThreshold = 180.f; // 기본 3분
+
+	// 핫타임 진입 비율 (트럭 안 가구 / 유효 가구). 이 값 이하면 1차 핫타임 시작.
+	UPROPERTY(EditDefaultsOnly, Category = "Feedback|HotTime")
+	float HotTimeStartRatio = 0.5f; // 50% 이하
+
+	// 1차 핫타임 종료 비율. 이 값 이상이면 종료.
+	UPROPERTY(EditDefaultsOnly, Category = "Feedback|HotTime")
+	float HotTimeEndRatio = 0.5f; // 50% 이상
+
+	// 2차 핫타임 기준 남은 시간 (초) — 이 시간 이하면 무조건 2차 핫타임 시작.
+	UPROPERTY(EditDefaultsOnly, Category = "Feedback|HotTime")
+	float SecondHotTimeRemaining = 60.0f; // 1분 남았을 때
 
 	UPROPERTY(EditDefaultsOnly, Category = "Feedback|BGM")
 	float BGMSpeedupRemaining = 60.f;
@@ -82,7 +94,8 @@ private:
 	FTimerHandle BGMStartTimer;
 	bool bBGMFadedOut = false;
 	bool bBGMBoosted = false;
-	bool bIsHotTime = false; // 핫타임 활성 여부 (GS->bIsHotTime 과 동기화)
+	bool bIsHotTime = false;       // 1차 핫타임 활성 여부
+	bool bIsSecondHotTime = false; // 2차 핫타임 활성 여부
 
 	FDelegateHandle ActorSpawnedHandle;
 

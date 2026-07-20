@@ -115,13 +115,13 @@ void US_InGame::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 {
 	Super::NativeTick(MyGeometry, InDeltaTime);
 
-	// ElapsedTime은 매 프레임 서버에서 갱신되는 값이라 델리게이트가 아닌 Tick 폴링으로 동기화한다.
+	// RemainingTime 은 매 프레임 서버에서 갱신되는 값이라 델리게이트가 아닌 Tick 폴링으로 동기화한다.
 	// (리슨 서버 호스트는 같은 GameState 인스턴스를 즉시 읽고, 클라이언트는 복제된 최신값을 읽는다.)
 	if (UWorld* World = GetWorld())
 	{
 		if (ATeamCarryGameState* GS = World->GetGameState<ATeamCarryGameState>())
 		{
-			UpdateTimerDisplay(GS->ElapsedTime);
+			UpdateTimerDisplay(GS->RemainingTime);
 		}
 	}
 

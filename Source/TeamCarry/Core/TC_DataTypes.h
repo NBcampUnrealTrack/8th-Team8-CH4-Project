@@ -53,3 +53,23 @@ enum class EGamePhase : uint8
 	Playing         UMETA(DisplayName = "Playing"),         // 게임 진행 중
 	Result          UMETA(DisplayName = "Result")           // 결과창
 };
+
+// 스테이지별 게임 설정 DataTable 행 구조체
+// DT_StageConfig 에 맵 이름을 키로 등록해 스테이지마다 값을 다르게 설정한다.
+USTRUCT(BlueprintType)
+struct FStageConfig : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	// 게임 제한시간 (초)
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	float TimeLimitSeconds = 300.0f; // 기본 5분
+
+	// 핫타임 시작 경과시간 (초) — 이 시간 이후 트럭 비율 20% 이하면 핫타임
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	float HotTimeElapsedThreshold = 180.0f; // 기본 3분
+
+	// 전체 목표 값어치 (UI 게이지 Max 값)
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	int32 TotalLevelValue = 10000;
+};

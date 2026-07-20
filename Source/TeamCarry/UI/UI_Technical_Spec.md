@@ -32,6 +32,13 @@
 > * **세이브 슬롯 시스템 구현 완료 (S_SlotSelect/O_SaveLoad 공용):** 기존에 "미구현"으로 남아 있던 슬롯 카드 UI가 고정 4슬롯(`SaveSlot_0`~`SaveSlot_3`) 구조로 실제 구현됐다. `UTCSessionFlow`에 `FSaveSlotInfo`/`GetAllSaveSlotInfos()`/`DeleteSaveSlot()`/`MakeSaveSlotName()` 신규 추가. 슬롯마다 `Switcher_X` 하위에 `Card_New_X`(빈 슬롯)/`Card_Saved_X`(저장 데이터 있음, 신규 위젯 `UW_GameSlotCard_Saved`) 쌍을 배치해 저장 존재 여부로 자동 전환한다. `ATeamCarryGameMode::SaveGame()`/`LoadGame()`도 고정 슬롯("TCGameSave") 대신 세션이 선택한 슬롯을 사용하도록 변경되고, 인게임 O_SaveLoad에서 다른 슬롯에 저장하면(`SaveGameToSlot()`) 그 슬롯이 세션의 활성 슬롯으로 갱신된다(4장-2, 4장-14, 5장, 7장).
 > * **BP_StageSelectBoard 상호작용 확장:** 근접 시 아웃라인 하이라이트(CustomDepth) 추가. 게시판 클릭 모드 중 기존 마우스 클릭(WidgetInteractionComponent)에 더해 **키보드 리스트 탐색**(`IA_BoardListUp`/`IA_BoardListDown` → `W_StageBoardScreen::NavigateStageSelection()`)이 새로 지원된다. 클릭 모드 진입 시 마우스를 따라다니는 전용 커서 위젯도 추가됐다(Slate 기본 소프트웨어 커서 미표시 우회)(4장-5).
 
+> **개정 요약 (v3 내부 추가, 2026-07-19 — 버전은 v3 유지, v4로 분리하지 않음)**
+> * **S_Lobby 단축키(F1~F4) 신규:** 로비 버튼에 각각 단축키가 배정됐다. F1=Btn_Ready(준비 토글), F2=Btn_Start(게임 시작, 방장 전용), F3=Btn_StageSelect(게시판 앞으로 텔레포트, 방장 전용), F4=조작법 팝업(O_KeyGuide) 열기(전원). `IA_LobbyReady`/`IA_LobbyStart`/`IA_LobbyStageSelect`/`IA_LobbyHelp`(IMC_LobbyShortcuts)로 구현되며, `ATCPlayerController::CanHandleLobbyShortcut()` 공통 가드(Lobby 상태 + 게시판 클릭 모드 아님 + 오버레이 미노출)를 통과해야 동작한다(4장-3).
+> * **S_Lobby 플레이어 목록에 방장/색상 표기 추가:** 슬롯별 이름 텍스트에 방장은 "[방장] " 접두, 본인은 " (나)" 접미가 붙는다. `ATCPlayerState`에 신규 복제 필드 `ColorIndex`(슬롯 인덱스와 동일 순번 배정: 0=빨강/1=파랑/2=노랑(잠정)/3=초록(잠정))가 추가되어 이름 텍스트 색상 및 아웃라인에 반영된다(4장-3, 5장).
+> * **O_Result 결과 표시 보강:** 획득한 별 개수의 구체적 표현 방식(그래픽/게이지 등)은 아직 확정되지 않아 추후 확장을 고려한다. 또한 `FStageInfo`에 `ResultBackgroundImage`(스테이지별 결과 배경) 필드가 추가되어 미설정 시 WBP 기본 배경을 그대로 사용한다(4장-8, 7장-3).
+> * **W_RootLayout에 딤 배경(Img_Backdrop) 추가:** 오버레이가 하나라도 활성화되어 있으면(MenuLayer에 활성 위젯 존재) 자동으로 표시되고, 전부 닫히면 자동으로 숨겨진다(Push/Pop/Clear 직후 `UpdateBackdropVisibility()`가 갱신). GameLayer와 MenuLayer 사이에 위치해 뒤쪽 화면을 시각적으로 가리고 입력도 차단한다(6장).
+> * **O_AudioSettings 볼륨 퍼센트 텍스트 추가:** 마스터/SFX/BGM 슬라이더 옆에 각각 `Txt_MasterVolumePercent`/`Txt_SFXVolumePercent`/`Txt_BGMVolumePercent`가 추가되어 현재 값을 "75%" 형태로 표시한다. 슬라이더 값 변경 시 함께 갱신된다(4장-13).
+
 ---
 
 ## 1. UI 전체 구조도 (화면 흐름도)
@@ -214,13 +221,14 @@ UI와 Steam 세션(UTCGameInstance) 사이의 단일 바인딩 계층(GameInstan
 * **역할:** 모든 플레이어의 집결지(L_Lobby)이자 게임 준비의 허브. **S_InGame처럼 캐릭터를 직접 조작하며 돌아다닐 수 있다.**
 * **구성:**
   * **로비 버튼 (호스트 = 4개 / 일반 클라이언트 = 2개):**
-    | 버튼 | 노출 대상 | 동작 |
-    | :--- | :--- | :--- |
-    | Btn_CharacterSelect (캐릭터 선택) | 전원 | O_CharacterSelect를 PushOverlay |
-    | Btn_StageSelect (스테이지 선택) | **방장 전용** | **(v3 내부 개정)** O_StageSelect를 직접 열지 않고, `GetActorOfClass(ATCStageSelectBoard)`로 씬 유일의 보드 액터(BP_StageSelectBoard)를 찾아 그 액터의 전용 앵커 컴포넌트(TeleportAnchor) 위치로 방장 캐릭터를 순간이동(Teleport)시킨다. 실제 O_StageSelect는 텔레포트 후 보드와의 기존 Interact 상호작용으로 연다(4장-5) |
-    | Btn_Ready (준비/취소) | 전원(참가자 토글) | Ready 상태 토글 — 구 S_CharacterSelect의 Btn_Ready 역할 승계 |
-    | Btn_Start (게임 시작) | **방장 전용** | HostStartGame() — 구 S_CharacterSelect의 Btn_Start 역할 승계 |
+    | 버튼 | 노출 대상 | 단축키 | 동작 |
+    | :--- | :--- | :--- | :--- |
+    | Btn_CharacterSelect (캐릭터 선택) | 전원 | — | O_CharacterSelect를 PushOverlay |
+    | Btn_StageSelect (스테이지 선택) | **방장 전용** | **F3** | **(v3 내부 개정)** O_StageSelect를 직접 열지 않고, `GetActorOfClass(ATCStageSelectBoard)`로 씬 유일의 보드 액터(BP_StageSelectBoard)를 찾아 그 액터의 전용 앵커 컴포넌트(TeleportAnchor) 위치로 방장 캐릭터를 순간이동(Teleport)시킨다. 실제 O_StageSelect는 텔레포트 후 보드와의 기존 Interact 상호작용으로 연다(4장-5) |
+    | Btn_Ready (준비/취소) | 전원(참가자 토글) | **F1** | Ready 상태 토글 — 구 S_CharacterSelect의 Btn_Ready 역할 승계 |
+    | Btn_Start (게임 시작) | **방장 전용** | **F2** | HostStartGame() — 구 S_CharacterSelect의 Btn_Start 역할 승계 |
     * 방장 여부 판정은 `UTCSessionFlow::IsHost()`로 분기하여, 일반 클라이언트에게는 Btn_StageSelect·Btn_Start를 숨긴다(Collapsed).
+    * **로비 단축키(F1~F4, 신규 — v3 내부 추가 2026-07-19):** 위 3개 버튼과 동일 동작에 더해, **F4는 조작법 팝업(O_KeyGuide)을 연다**(전원 사용 가능). `IA_LobbyReady`/`IA_LobbyStart`/`IA_LobbyStageSelect`/`IA_LobbyHelp`(신규 IMC_LobbyShortcuts)로 바인딩되며, 4개 핸들러 모두 `ATCPlayerController::CanHandleLobbyShortcut()` 공통 가드(현재 State가 Lobby, 게시판 클릭 모드가 아님, 오버레이가 떠 있지 않음)를 통과해야 동작한다. F2·F3는 버튼과 동일하게 `IsHost()`를 추가로 확인한다.
   * **W_SessionLog (접속 로그 텍스트 칸):** 방에 접속한 유저에 대한 로그(입장/퇴장 등)를 표시하는 단순 텍스트 위젯(3장).
   * 방 코드 표시(Txt_RoomCode), 플레이어 준비 상태 표시(월드 내 캐릭터 머리 위 마커 또는 간이 리스트 — 프로토타입 재량).
 * **입력 모델:** S_Lobby 자체는 HUD처럼 동작하여 **게임 입력(캐릭터 조작)을 막지 않는다.** 로비 버튼은 지정 키(ESC 메뉴 또는 Tab 등)나 화면 상 커서로 접근한다. O_CharacterSelect / O_StageSelect가 Push되는 순간에만 UI 전용 입력으로 전환된다(GetDesiredInputConfig, 6장).
@@ -229,6 +237,7 @@ UI와 Steam 세션(UTCGameInstance) 사이의 단일 바인딩 계층(GameInstan
   * 위젯은 **ATCLobbyGameState**의 `OnLobbyPlayersChanged`를 구독하고, 이벤트 수신 시 PlayerArray를 다시 읽어 표시를 갱신한다. 입퇴장·Ready·복제값 변경이 모두 이 한 경로로 통지된다.
   * 방 코드는 ATCLobbyGameState의 복제 변수 `RoomCode`로 클라이언트에도 표시된다.
   * 규칙: 1P 호스트 고정. 중도 이탈 시 슬롯 번호 유지. 방 코드로 친구 초대.
+  * **플레이어 목록 표기 (신규 — v3 내부 추가 2026-07-19):** 이름 텍스트에 방장(슬롯 0)은 "[방장] " 접두, 본인은 " (나)" 접미가 붙는다. `ATCPlayerState`에 신규 복제 필드 `ColorIndex`(`PostLogin`/`HandleSeamlessTravelPlayer`에서 `LobbySlotIndex`와 동일 순번으로 배정)가 추가되어, 이름 텍스트 색상(0=빨강/1=파랑/2=노랑(잠정)/3=초록(잠정))과 가독성용 아웃라인에 반영된다. **알려진 불일치:** 캐릭터 밑 링 데칼(`BP_PlayerCharacter::DecalColor`)의 색상 매핑은 0=파랑/1=빨강으로 구현되어 있어 이 순서와 반대다 — 데칼도 맞추려면 별도로 0=빨강/1=파랑으로 통일해야 한다.
 * **접속 로그 생성 경로:** GameMode의 PostLogin/Logout에서 ATCLobbyGameState(또는 인게임 GameState)의 로그 배열에 항목 추가(복제/RepNotify) → 클라 도착 시 UMockUIController의 `OnSessionLogAdded(FText)`를 Broadcast → W_SessionLog 갱신. (5장·7장 참고)
 * **시작 로직:** `ATCLobbyGameState::AreAllPlayersReady()` 충족 시 방장 Btn_Start 활성화. 클릭 시 `HostStartGame()` 호출, 카운트다운 없이 즉시 전환.
   * 새 게임 방 → L_Tutorial. / 이어하기 방 → O_StageSelect에서 선택한 스테이지 맵(미선택 시 기본 1스테이지 = L_LevelProto).
@@ -288,6 +297,8 @@ UI와 Steam 세션(UTCGameInstance) 사이의 단일 바인딩 계층(GameInstan
 * **역할:** 게임 종료 시 **인게임 레벨 위에 뜨는 전체화면 오버레이.** 정산 기능은 v1의 S_Result와 동일.
 * **정산:** 남은 내구도에 따라 0~5 등급. 점수 산정 후 Team_Money 표기.
 * **구성:** 최종 점수(Txt_Score), 세부 통계(Txt_Stats), 획득한 별 개수(Txt_StarCount, 0~3개), 소요 시간, **Btn_ToLobby(로비로 가기), Btn_ToTitle(메인 화면으로 가기)**.
+  * **별 개수 표현 방식 (신규 — v3 내부 추가 2026-07-19):** 구체적인 표현(그래픽/게이지 등)은 아직 확정되지 않아 추후 확장을 고려한다.
+  * **스테이지별 결과 배경 (신규 — v3 내부 추가 2026-07-19):** `FStageInfo::ResultBackgroundImage`(7장-3)가 설정된 스테이지는 결과 화면 배경(Background)을 해당 이미지로 교체하고, 미설정이면 WBP 기본 배경을 그대로 사용한다.
 * **연동 로직 (이벤트 주도):**
   * GameMode가 게임 종료를 확정하면(FinishGame) GameState의 `TotalScore`, `StarCount`, `ElapsedTime`, `bIsGameFinished`가 함께 갱신되고, `OnRep_bIsGameFinished`가 UMockUIController의 `TriggerGameResult(FinalScore, StarCount, ElapsedTime)`를 호출한다.
   * `TriggerGameResult`는 값을 컨트롤러 내부에 캐시한 뒤 **`PushOverlay("O_Result")`로 오버레이를 띄운다** (v1의 `ReplaceState(Result)`에서 변경 — S_InGame HUD는 아래에 남아 있되 가려진다). O_Result는 `NativeConstruct` 시점에 `GetLastFinalScore()`/`GetLastStarCount()`/`GetLastElapsedTime()`으로 캐시된 값을 즉시 읽어 반영한다(위젯 생성이 델리게이트 브로드캐스트보다 먼저 동기적으로 일어나기 때문 — 캐시 방식은 v1과 동일).
@@ -350,6 +361,7 @@ UI와 Steam 세션(UTCGameInstance) 사이의 단일 바인딩 계층(GameInstan
 ### 13) O_Settings (설정 창)
 * **구성:** 하위 탭은 별도 서브 위젯 클래스로 분리 — **O_AudioSettings**(오디오), **O_GraphicsSettings**(비디오). 하위 탭은 UCommonUserWidget 상속(6장 규칙).
 * **동작 로직:** 값 변경 후 적용 클릭 시 UGameUserSettings 호출. 비디오 설정 시 15초 미확인 시 이전 상태로 원복하는 안전 로직 구현.
+* **O_AudioSettings 볼륨 퍼센트 텍스트 (신규 — v3 내부 추가 2026-07-19):** 마스터/SFX/BGM 슬라이더 옆에 각각 `Txt_MasterVolumePercent`/`Txt_SFXVolumePercent`/`Txt_BGMVolumePercent`(BindWidgetOptional)가 현재 값을 "75%" 형태의 정수 퍼센트로 표시한다. 슬라이더 값 변경(드래그) 시 함께 갱신되며, `NativeConstruct` 시점에도 1회 채워진다.
 
 ### 14) O_SaveLoad (저장/불러오기 창)
 * **역할:** O_PauseMenu의 [수동 저장] 선택 시 Push되는 오버레이. S_SlotSelect와 동일한 4슬롯 카드 UI(구성/조회는 4장-2 참고)를 인게임 컨텍스트에서 재사용한다.
@@ -381,7 +393,7 @@ UI와 Steam 세션(UTCGameInstance) 사이의 단일 바인딩 계층(GameInstan
 | :--- | :--- | :--- |
 | **세이브 슬롯 (디스크, UTCSaveGame)** | 영구 보존, 고정 4슬롯(`UTCSessionFlow::NumSaveSlots`, Config) | `StageRecords: TMap<FString, FStageRecord>` (bIsCleared, BestStar, BestScore), `LastPlayedStage`, **(확장 예정) bTutorialCompleted**. 슬롯 이름은 `MakeSaveSlotName(Index)`("SaveSlot_0".."SaveSlot_3", Index 0..NumSaveSlots-1)로 통일 — S_SlotSelect/O_SaveLoad가 카드 위치와 슬롯을 매칭하는 단일 규칙(4장-2, 4장-14). `ATeamCarryGameMode::SaveGame()`/`LoadGame()`은 `UTCSessionFlow::GetSelectedSlotName()`(세션이 선택한 슬롯)을 사용하며, 미선택 시(구버전 호환)에만 `"TCGameSave"`로 폴백한다 |
 | **세이브 슬롯 요약 (런타임 조회 전용, FSaveSlotInfo — 신규, 구현 완료)** | 복제/저장되지 않음, 호출마다 재조회 | `SlotIndex`, `SlotName`, `bHasSaveData`(`UGameplayStatics::DoesSaveGameExist`), `LastPlayedStage`. `UTCSessionFlow::GetAllSaveSlotInfos()`가 NumSaveSlots개를 매번 새로 스캔해 배열로 반환 — S_SlotSelect/O_SaveLoad가 슬롯별 Card_New/Card_Saved 전환에 사용(4장-2, 4장-14) |
-| **멀티 로비 (복제)** | 세션 내 유지 | ATCPlayerState: `bIsReady`, `LobbySlotIndex`, `CharacterIndex` / ATCLobbyGameState: `RoomCode`, **(신규) `SelectedStageId`**, **(신규) `SessionLogEntries: TArray<FText>` (RepNotify)** — 준비/외형/입퇴장 변경 알림은 `OnLobbyPlayersChanged` 단일 경로, 로그는 `OnSessionLogAdded` 경로, **`SelectedStageId` 변경 알림은 `OnSelectedStageChanged` 경로(v3 내부 신규 — BP_StageSelectBoard의 W_StageBoardScreen 실시간 갱신용, 4장-5·7장)** |
+| **멀티 로비 (복제)** | 세션 내 유지 | ATCPlayerState: `bIsReady`, `LobbySlotIndex`, `CharacterIndex`, **`ColorIndex`(신규 — v3 내부 추가 2026-07-19, LobbySlotIndex와 동일 순번 배정, 로비 목록 이름 색상에 사용, 4장-3)** / ATCLobbyGameState: `RoomCode`, **(신규) `SelectedStageId`**, **(신규) `SessionLogEntries: TArray<FText>` (RepNotify)** — 준비/외형/입퇴장 변경 알림은 `OnLobbyPlayersChanged` 단일 경로, 로그는 `OnSessionLogAdded` 경로, **`SelectedStageId` 변경 알림은 `OnSelectedStageChanged` 경로(v3 내부 신규 — BP_StageSelectBoard의 W_StageBoardScreen 실시간 갱신용, 4장-5·7장)** |
 | **스테이지 정의 (정적, 도입 예정)** | 에셋/Config | `DT_Stages` (FStageInfo: StageId, DisplayName, MapPath, …). 현재는 1스테이지(L_LevelProto) 단일 기본 항목 |
 | **가구/운반 (액터)** | 스테이지 내 유지 | MaxHealth, CurrentHealth, RequiredPlayer, CurrentGrabbedPlayer, BaseScore |
 | **전역 설정 (로컬)** | 클라이언트별 | MasterVolume, GraphicsQuality, InputBindings |
@@ -424,6 +436,8 @@ UI와 Steam 세션(UTCGameInstance) 사이의 단일 바인딩 계층(GameInstan
 9. **월드 스페이스 위젯 예외 (신규):**
    * BP_StageSelectBoard에 부착되는 **W_StageBoardScreen**은 화면 전체를 뒤덮는 CommonUI 화면 스택(State/Overlay)에 속하지 않는 3D 월드 스페이스 위젯입니다. `UMockUIController`의 `ReplaceState()`/`PushOverlay()`/`PopCurrentOverlay()` 경로를 타지 않고, 액터에 직접 부착된 `UWidgetComponent`를 통해 렌더링됩니다.
    * 규칙 3(중앙 라우터 통제)의 "CreateWidget/AddToViewport 직접 호출 금지"는 화면 전체를 차지하는 State/Overlay에 적용되는 규칙이며, 월드에 배치되는 액터 부착형 위젯(W_StageBoardScreen)에는 적용되지 않습니다. 대신 `ATCLobbyGameState`의 `OnSelectedStageChanged` 델리게이트를 직접 구독해 갱신합니다(7장).
+10. **W_RootLayout 딤 배경 (신규 — v3 내부 추가 2026-07-19):**
+    * `UW_RootLayout`(PlayerController 소유 루트 레이아웃, GameLayer와 MenuLayer 사이)에 `Img_Backdrop`이 추가되어, `PushOverlay()`/`PopOverlay()`/`ClearOverlays()` 직후 `UpdateBackdropVisibility()`가 호출됩니다. MenuLayer에 활성 위젯이 하나라도 있으면(`GetActiveWidget() != nullptr`) 표시되어 뒤쪽 화면을 가리고 입력을 차단하며, 없으면 자동으로 숨겨집니다. 개별 State/Overlay 위젯이 각자 배경을 그릴 필요가 없습니다.
 
 ---
 
@@ -457,6 +471,7 @@ O_StageSelect 목록과 HostStartGame 트래블 대상 해석에 사용할 정�
 * int32 StageId;
 * FText DisplayName;
 * FString MapPath;
+* **`TSoftObjectPtr<UTexture2D> ResultBackgroundImage`(신규 — v3 내부 추가 2026-07-19):** O_Result 배경(스테이지별). 미설정 시 O_Result 위젯의 기본 배경을 그대로 사용한다(4장-8).
 * (확장 여지: 썸네일 SoftObjectPtr, 해금 조건, 별 획득 조건 등)
 
 **현재 상태:** 스테이지 데이터가 존재하지 않으므로 StageId=1 / L_LevelProto 단일 기본 항목만 하드코딩 폴백으로 제공하며, DT_Stages가 채워지면 그대로 목록이 확장된다.
@@ -516,42 +531,3 @@ S_SlotSelect/O_SaveLoad가 슬롯 카드(Card_New/Card_Saved) 전환에 사용�
 | 기절 | TCStunnable | 기절 상태 표시 |
 | 파괴 가능 구조물 | BreakableWindow, DamageableWall, InteractableDoor, BreakableProp | 상호작용 프롬프트 (`OnInteractTargetChanged` 재사용) |
 | 움직이는 트럭 | TCMovingTruck | 트럭 위치/적재 안내 |
-
---- 
-
-## 9. v1 → v2 마이그레이션 체크리스트 (구현 순서 가이드)
-
-1. `EE_UIState`에 Lobby, Loading 추가 / CharacterSelect·StageSelect·Result는 Deprecated 처리.
-2. UTCSessionFlow: `SetStageSelection`/`GetSelectedStageId` 추가, `HostStartGame` 이어하기 분기를 선택 스테이지 직행으로 수정, `HostTravelToStage`·`HostReturnToStageSelect` 제거, `OnTravelStarted` 델리게이트 추가, `StageSelectMapPath` Config 제거.
-3. L_Lobby의 GameMode/PC가 S_CharacterSelect 대신 S_Lobby를 띄우도록 변경. S_Lobby는 캐릭터 스폰/조작이 가능한 로비 GameMode 위에서 HUD형으로 동작.
-4. 기존 S_CharacterSelect 위젯의 외형 선택 부분을 O_CharacterSelect로 분리, Ready/Start 로직을 S_Lobby로 이관.
-5. O_StageSelect 신규 작성 (DT_Stages 폴백 = 1스테이지 단일 항목).
-6. S_Result → O_Result 전환: TriggerGameResult가 ReplaceState 대신 PushOverlay 호출, 버튼 2종([로비로]/[메인으로]) 배선, bIsGameFinished 기반 코어 루프 정지 게이팅 확인.
-7. S_Loading 신규 작성 + OnTravelStarted 바인딩.
-8. W_SessionLog 신규 작성, GameMode PostLogin/Logout → GameState 로그 복제 → OnSessionLogAdded 경로 구축, S_Lobby·S_InGame에 배치.
-9. 튜토리얼 완료 라우팅을 HostReturnToLobby()로 변경 + 세이브에 bTutorialCompleted 기록.
-10. L_StageSelect 맵 및 관련 에셋/참조 제거.
-
----
-
-## 10. v2 → v3 마이그레이션 체크리스트 (회의 반영, 구현 순서 가이드)
-
-1. GameState에 `TotalLevelValue` 필드 추가. 스테이지 시작 시 GameMode가 레벨 내 전체 가구 값어치 합으로 1회 산정해 복제(5장).
-2. S_InGame: 기존 HUD_Score 텍스트 위젯을 PB_TeamMoney(ProgressBar) + 내부 텍스트("현재/전체")로 교체. `OnTeamMoneyUpdated` 델리게이트 바인딩을 채움 비율 계산 로직으로 갱신(4장-7).
-3. W_HelpPanel 신규 작성(`UCommonUserWidget`). S_InGame 화면 우측 중단~하단에 배치하고 조작 키·게임 팁 콘텐츠 구성(3장, 4장-15).
-4. O_KeyGuide 오버레이 클래스 및 Push/Pop 경로 제거, O_PauseMenu의 Btn_KeyGuide 제거.
-5. O_PauseMenu에서 Btn_ToTitle 제거. 방장 전용 Btn_ToLobby·Btn_Reset 신규 추가(각각 O_Confirm 경유, `IsHost()` 노출 분기).
-6. UTCSessionFlow에 `RestartStage()` 의도 함수 추가 — `GetSelectedStageMapPath()`로 현재 스테이지 맵에 재트래블(2장).
-
----
-
-## 11. v3 내부 추가 체크리스트 (2026-07-14 회의 반영, 구현 순서 가이드)
-
-1. **BP_StageSelectBoard 신규 제작:** `ATCStageSelectBoard`(신규 네이티브 클래스)의 블루프린트 자식으로 L_Lobby에 씬 유일 인스턴스 배치. 전용 `TeleportAnchor`(USceneComponent) 부착, 기존 `IA_Interact`/`OnInteractTargetChanged` 경로 재사용(별도 트리거 시스템 신설 금지), 방장이 아니면 상호작용 프롬프트 자체를 숨김 처리, 월드 스페이스 위젯(W_StageBoardScreen) 부착. 상호작용 시 `PushOverlay("O_StageSelect")` 호출(4장-5). S_Lobby HUD에 `OnInteractTargetChanged` 구독용 경량 프롬프트 텍스트(Txt_InteractPrompt)도 함께 신설(W_FurnitureStatus 재사용 불가).
-2. **ATCLobbyGameState:** `OnSelectedStageChanged(int32)` 델리게이트 추가, `SelectedStageId`의 RepNotify에서 Broadcast(7장). W_StageBoardScreen과 O_StageSelect 하이라이트가 이를 구독.
-3. **S_Lobby의 Btn_StageSelect 동작 변경:** `PushOverlay(O_StageSelect)` 직접 호출 → `GetActorOfClass(ATCStageSelectBoard)`로 보드 액터(BP_StageSelectBoard)를 찾아 `TeleportAnchor` 위치/회전으로 방장 캐릭터를 순간이동(Teleport)시키는 로직으로 교체(4장-3).
-4. **S_InGame 가구 개수 표기 교체:** `Txt_RemainingFurniture` → `Txt_FurnitureCount`(분수 표기)로 변경. GameState의 기존 `TotalFurnitureCount` 필드를 `NativeConstruct`에서 1회 조회해 분모로 캐시, `RemainingFurniture`를 분자로 사용(4장-7).
-5. **로딩 화면 동기화 수정 반영:** `UI_v3_Implementation_Plan.md` Phase 1(모든 클라이언트 로딩 화면 노출 + 스테이지 맵 진입 전원 대기 게이트) 구현 착수 전 해당 문서의 "착수 전 재확인 체크리스트"를 먼저 따른다(2장, 4장-9).
-6. **W_HelpPanel 위치/콘텐츠 갱신:** WBP 배치를 화면 우측 하단 정렬로 변경. 실제 IMC(Input Mapping Context) 바인딩 기준으로 조작 키 안내 텍스트 갱신(4장-15).
-7. **O_PauseMenu에 Lobby 컨텍스트 추가:** `UO_PauseMenu::RefreshContextVisibility()` 신규 추가 — 새 enum 없이 기존 `MockUIController::GetCurrentState()`를 재사용(구현 단순화, 7장-6). Btn_KeyGuide/Btn_ToTitle 위젯을 각각 Btn_ToLobby/Btn_Reset으로 리네임(기존 스타일 재사용), Btn_LeaveRoom 신규 추가 + 컨텍스트별(Lobby/Tutorial/InGame) 노출 분기 구현(4장-12). 호출부(S_Lobby·S_Tutorial·S_InGame)는 변경 불필요. S_Lobby의 ESC 라우팅(`NativeOnHandleBackAction`)을 O_PauseMenu 경유로 변경, Btn_Back(나가기 버튼)은 기존 O_Confirm 직행 단축 경로를 유지(4장-3). 별도 O_LobbyMenu 클래스는 만들지 않는다. TCSessionFlow::RestartStage() 신규 추가.
-8. **범위 제외 확인:** 인게임 폰트, 버튼 세부 디자인(톤앤매너)은 이번 체크리스트에 포함하지 않는다 — 담당자 별도 확정 후 반영.

@@ -7,7 +7,7 @@
 #include "Core/TeamCarryGameState.h"
 #include "Core/TCSaveGame.h"
 #include "Player/PlayerController/TCPlayerController.h"
-#include "TeamCarry/UI/W_MovieLoadingScreen.h"
+#include "TeamCarry/UI/S_Loading.h"
 #include "Engine/World.h"
 #include "Kismet/GameplayStatics.h"
 #include "Blueprint/UserWidget.h"
@@ -20,8 +20,12 @@ UTCSessionFlow::UTCSessionFlow()
 	// MoviePlayer 로딩 화면 위젯 클래스(hard travel 보강용, 2장·4장-9). 자산이 아직 없으면
 	// FClassFinder가 실패해 nullptr로 남고, HandlePreLoadMap()이 경고 로그만 남긴 채 넘어간다
 	// (MockUIController::LoadingWidgetClass와 동일한 폴백 패턴).
+	// (2026-07-19) 전용 WBP_MovieLoadingScreen 대신 기존 WBP_S_Loading을 그대로 재사용한다 —
+	// hard travel이든 seamless travel이든 사용자에게 보이는 로딩 화면 디자인이 항상 동일해야
+	// 한다는 요청 반영. 내부적으로는 여전히 MoviePlayer(별도 렌더 경로)가 hard travel 구간의
+	// 게임 스레드 블로킹을 덮고, WBP_S_Loading은 그 위에 표시되는 "겉모습"만 담당한다.
 	static ConstructorHelpers::FClassFinder<UUserWidget> MovieLoadingWidgetFinder(
-		TEXT("/Game/Developers/MinkiCho/Blueprint/UI/WBP_MovieLoadingScreen"));
+		TEXT("/Game/Developers/MinkiCho/Blueprint/UI/WBP_S_Loading"));
 	if (MovieLoadingWidgetFinder.Succeeded())
 	{
 		MovieLoadingWidgetClass = MovieLoadingWidgetFinder.Class;
@@ -175,6 +179,31 @@ void UTCSessionFlow::SetStageSelection(int32 InStageId)
 			LobbyGS->SetSelectedStageIdAuthoritative(InStageId);
 		}
 	}
+
+	// 방장이 스테이지를 바꿀 때마다 새로 선택된 맵도 백그라운드 프리로드 대상으로 삼는다
+	// (기본 선택 스테이지는 InitGameState()에서 이미 1회 트리거됨).
+	PreloadSelectedStageMapAsync();
+}
+
+void UTCSessionFlow::PreloadSelectedStageMapAsync()
+{
+	const FString MapPath = GetSelectedStageMapPath();
+	if (MapPath.IsEmpty())
+	{
+		return;
+	}
+
+	UE_LOG(LogTCNet, Log, TEXT("[SessionFlow] 스테이지 맵 백그라운드 프리로드 시작: %s"), *MapPath);
+
+	// Best-effort — 실패/지연돼도 실제 트래블 시점엔 어차피 정상적으로 (다시) 로드되므로
+	// 기능적으로 문제없다. 목적은 로비 대기 시간을 이용해 그 레벨의 머티리얼/텍스처 패키지를
+	// 미리 메모리에 올려, 실제 진입 시점의 로드 부담을 조금이라도 줄이는 것뿐이다.
+	LoadPackageAsync(MapPath, FLoadPackageAsyncDelegate::CreateLambda(
+		[MapPath](const FName& PackageName, UPackage* LoadedPackage, EAsyncLoadingResult::Type Result)
+		{
+			UE_LOG(LogTCNet, Log, TEXT("[SessionFlow] 스테이지 맵 백그라운드 프리로드 완료: %s (결과=%d)"),
+				*MapPath, static_cast<int32>(Result));
+		}));
 }
 
 int32 UTCSessionFlow::GetSelectedStageId() const
@@ -336,6 +365,15 @@ void UTCSessionFlow::HostServerTravel(const FString& MapPath)
 	UE_LOG(LogTCNet, Log, TEXT("[SessionFlow] ServerTravel → %s"), *MapPath);
 	OnTravelStarted.Broadcast(MapPath);
 
+	// (2026-07-19 되돌림) seamless travel 도중 StartMovieLoadingScreen()을 직접 호출해 보았으나,
+	// 실측 결과 게임 스레드가 완전히 멈추는 행(hang)이 발생해 되돌렸다 — SeamlessTravel 도중에는
+	// 엔진이 계속 게임 스레드로 패키지 로딩/월드 전환 작업을 진행해야 하는데, MoviePlayer의
+	// bWaitForManualStop 로딩 화면이 렌더 스레드를 통째로 점유하는 방식과 충돌해 데드락으로
+	// 보인다(로그가 SeamlessTravel 시작 직후 수십 초간 완전히 끊김, 강제 종료 전까지 회복 안 됨).
+	// MoviePlayer는 hard travel(?listen, PreLoadMap이 실제로 발화하는 경우)에서만 안전하다 —
+	// StartMovieLoadingScreen()은 그쪽(HandlePreLoadMap) 경로로만 호출한다. seamless travel의
+	// "레벨 첫 방문 시 셰이더 컴파일 스톨" 문제는 별도 접근(예: PSO 사전 워밍업)이 필요하다.
+
 	// 알려진 문제 수정(명세 2장): OnTravelStarted는 이 프로세스(호스트) 로컬에서만 발화되어,
 	// 다른 클라이언트는 로딩 화면을 못 보고 곧장 목적지 화면으로 순간이동한 것처럼 보였다.
 	// 서버 트래블 직전, 접속 중인 모든 PC에 Client RPC로 로딩 화면 표시를 명시적으로 지시한다.
@@ -359,10 +397,28 @@ bool UTCSessionFlow::IsKnownNonStageMapPath(const FString& MapName) const
 
 void UTCSessionFlow::HandlePreLoadMap(const FString& MapName)
 {
+	// hard travel(?listen) 전용 발화 경로 — 실제 로직은 StartMovieLoadingScreen()이 담당한다.
+	// (HostServerTravel의 seamless travel 호출과 중복될 일이 없다: PreLoadMap은 seamless에서
+	// 아예 발화되지 않으므로 — StartMovieLoadingScreen() 내부의 "이미 재생 중" 가드는 순수 방어용.)
+	StartMovieLoadingScreen(MapName);
+}
+
+void UTCSessionFlow::StartMovieLoadingScreen(const FString& MapName)
+{
 	if (!MovieLoadingWidgetClass)
 	{
 		UE_LOG(LogTCNet, Warning, TEXT("[SessionFlow] MovieLoadingWidgetClass 없음 — MoviePlayer 로딩 화면 생략 (%s)"), *MapName);
 		return;
+	}
+
+	// 이미 재생 중이면 재시작하지 않는다(중복 호출 방어 — 예: 짧은 시간 안에 연속 트래블).
+	if (IGameMoviePlayer* ExistingPlayer = GetMoviePlayer())
+	{
+		if (ExistingPlayer->IsMovieCurrentlyPlaying())
+		{
+			UE_LOG(LogTCNet, Verbose, TEXT("[SessionFlow] MoviePlayer 이미 재생 중 — 재시작 생략 (%s)"), *MapName);
+			return;
+		}
 	}
 
 	UGameInstance* GI = GetGameInstance();
@@ -374,7 +430,7 @@ void UTCSessionFlow::HandlePreLoadMap(const FString& MapName)
 	// GameInstance 소유로 생성한다 — 이 시점(PreLoadMap)엔 아직 새 World가 없고, 기존 World도
 	// 곧 파괴될 예정이라 World 컨텍스트에 의존할 수 없다(MockUIController::PersistentLoadingWidget과
 	// 동일한 이유).
-	ActiveMovieLoadingWidget = CreateWidget<UW_MovieLoadingScreen>(GI, MovieLoadingWidgetClass);
+	ActiveMovieLoadingWidget = CreateWidget<US_Loading>(GI, MovieLoadingWidgetClass);
 	if (!ActiveMovieLoadingWidget)
 	{
 		return;
@@ -417,8 +473,10 @@ void UTCSessionFlow::HandlePostLoadMap(UWorld* LoadedWorld)
 	if (!IsKnownNonStageMapPath(MapName))
 	{
 		// 이 클라이언트의 로컬 로딩은 끝났지만, MoviePlayer는 아직 내려가지 않는다
-		// (SetupLoadingScreen()에서 bWaitForManualStop=true로 설정됨) — 문구만 "대기 중"으로 전환.
-		ActiveMovieLoadingWidget->SetStatusText(NSLOCTEXT("TeamCarry", "WaitingForPlayers", "다른 플레이어를 기다리는 중..."));
+		// (SetupLoadingScreen()에서 bWaitForManualStop=true로 설정됨) — WBP_S_Loading 자신의
+		// 상태 머신(Traveling → LocalComplete)을 그대로 진행시켜 "다른 플레이어를 기다리는 중..."
+		// 문구와 99% 표시로 자연스럽게 전환한다(지속형 인스턴스가 쓰는 것과 동일한 공개 API).
+		ActiveMovieLoadingWidget->NotifyLocalLoadComplete();
 	}
 }
 
@@ -487,7 +545,12 @@ void UTCSessionFlow::LeaveToTitle()
 	// 세션 파기는 비동기지만, 타이틀 복귀는 로컬 맵 오픈으로 즉시 진행.
 	if (!TitleMapPath.IsEmpty())
 	{
-		OnTravelStarted.Broadcast(TitleMapPath);
+		// (2026-07-19) OnTravelStarted를 여기서 Broadcast하지 않는다 — OpenLevel()은 hard travel이라
+		// 엔진의 PreLoadMap 델리게이트가 자체적으로 발화되고, HandlePreLoadMap()이 MoviePlayer로
+		// 이 구간을 이미 전부 덮는다(WBP_S_Loading 재사용, 위 주석 참고). 예전처럼 여기서도
+		// 같이 Broadcast하면 지속형 인스턴스가 별도로 한 번 더 뜨면서 "같은 로딩 화면이 두 번
+		// 나온다"는 체감 버그가 생긴다(실측 확인) — hard travel 구간은 MoviePlayer 단독 담당,
+		// seamless travel(HostServerTravel)만 지속형 인스턴스가 담당하도록 역할을 분리한다.
 		UGameplayStatics::OpenLevel(this, FName(*TitleMapPath));
 	}
 }
@@ -497,10 +560,10 @@ void UTCSessionFlow::HandleCreateSessionComplete(bool bSuccess)
 {
 	if (bSuccess)
 	{
-		// 실제 트래블은 HostSteamSession 콜백이 수행하며, 이 Broadcast가 그보다 먼저 온다
-		// (UTCGameInstance::HandleCreateSessionComplete 참고: OnCreateSessionComplete 통지 후 ServerTravel).
+		// 실제 트래블(HostSteamSession 콜백의 hard ServerTravel(?listen))은 이 Broadcast를 거치지
+		// 않는다 — hard travel은 엔진 PreLoadMap이 자체 발화되어 MoviePlayer가 전담한다(2026-07-19,
+		// LeaveToTitle() 주석 참고). 여기서 같이 Broadcast하면 로딩 화면이 두 번 뜬다.
 		SetPhase(ETCSessionPhase::Hosting, TEXT("방 생성 완료 — 로비 진입"));
-		OnTravelStarted.Broadcast(LobbyMapPath);
 	}
 	else
 	{
@@ -549,11 +612,10 @@ void UTCSessionFlow::HandleJoinSessionComplete(bool bSuccess)
 {
 	if (bSuccess)
 	{
-		// ClientTravel 은 JoinFoundSession 콜백이 수행하며, 이 Broadcast가 그보다 먼저 온다
-		// (UTCGameInstance::HandleJoinSessionComplete 참고: OnJoinSessionComplete 통지 후 ClientTravel).
-		// 접속 대상은 호스트가 광고한 로비 맵으로 근사한다(정확한 목적지는 S_Loading 표시용 힌트일 뿐).
+		// ClientTravel(TRAVEL_Absolute) 도 hard travel이라 이 클라이언트 프로세스에서 엔진
+		// PreLoadMap이 자체 발화되어 MoviePlayer가 전담한다(2026-07-19, LeaveToTitle() 주석 참고).
+		// 여기서 같이 Broadcast하면 로딩 화면이 두 번 뜬다.
 		SetPhase(ETCSessionPhase::Joined, TEXT("방 접속 완료"));
-		OnTravelStarted.Broadcast(LobbyMapPath);
 	}
 	else
 	{

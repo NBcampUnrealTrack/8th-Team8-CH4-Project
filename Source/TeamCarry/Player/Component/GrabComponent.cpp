@@ -297,6 +297,14 @@ FVector UGrabComponent::FilterCarryInput(const FVector& WorldInput) const
 // 대상이 존재하면 서버로 상호작용-잡기 시도 요청
 bool UGrabComponent::TryInteract()
 {
+	// [잡기 진단] F9 동안 입력 시점 상태 기록 — '눌러도 반응 없음'이 어느 단계인지 가른다
+	if (CVarGrabDebug.GetValueOnGameThread() != 0)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[잡기] E입력: 대상=%s 들고있음=%s"),
+			CurrentBestTarget ? *CurrentBestTarget->GetName() : TEXT("없음"),
+			GrabbedActor ? *GrabbedActor->GetName() : TEXT("-"));
+	}
+
 	// 대상이 있는지 확인
 	if (CurrentBestTarget != nullptr)
 	{
@@ -657,6 +665,8 @@ void UGrabComponent::ServerTryInteract_Implementation(AActor* TargetActor)
 {
 	if (IsGameFinishedAuthoritative())
 	{
+		UE_LOG(LogTemp, Warning, TEXT("[ServerTryInteract] 차단: 게임 종료 상태 (대상=%s)"),
+			TargetActor ? *TargetActor->GetName() : TEXT("없음"));
 		return;
 	}
 

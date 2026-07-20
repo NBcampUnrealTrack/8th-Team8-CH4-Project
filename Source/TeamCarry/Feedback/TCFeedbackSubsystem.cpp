@@ -8,6 +8,7 @@
 #include "Components/AudioComponent.h"
 #include "TimerManager.h"
 #include "Core/TeamCarryGameState.h"
+#include "Core/TeamCarryGameMode.h"
 #include "Network/Carry/TCCarriableFurniture.h"
 #include "CatchCharacter/Furniture/FurnitureGrabSystem.h"
 #include "Level/Vehicle/TCMovingTruck.h"
@@ -246,16 +247,35 @@ void UTCFeedbackSubsystem::Tick(float DeltaTime)
 		}
 	}
 
-	// ── 핫타임 연출: 5분 경과 시 진입, 게임 끝까지 유지 ──
-	// 적재존 밖 가구의 빨간 링은 TCFeedbackComponent 가 GS->bIsHotTime 복제를 구독해 표시한다
-	// (적재존 안 가구는 컴포넌트가 링 제외).
+	// ── 핫타임 연출 ──
+	// 1차: 3분 경과 후 트럭 비율 50% 이하 → 50% 이상이면 종료
+	// 2차: 1분 남았을 때 무조건 시작 → 게임 종료 시 종료
+	// 적재존 밖 가구의 빨간 링은 TCFeedbackComponent 가 GS->bIsHotTime 복제를 구독해 표시한다.
 	if (Phase == EGamePhase::Playing)
 	{
-		if (!bIsHotTime && GS->ElapsedTime >= HotTimeElapsedThreshold)
+		// 핫타임 임계시간은 GameMode 에서 읽는다 (DataTable 로 스테이지마다 다름)
+		float EffectiveHotTimeThreshold = HotTimeElapsedThreshold;
+		if (const ATeamCarryGameMode* GM = World->GetAuthGameMode<ATeamCarryGameMode>())
+		{
+			EffectiveHotTimeThreshold = GM->HotTimeElapsedThreshold;
+		}
+
+		// 트럭 비율 계산
+		int32 TotalCount = 0;
+		if (const ATeamCarryGameMode* GM = World->GetAuthGameMode<ATeamCarryGameMode>())
+		{
+			TotalCount = GM->GetTargetCount();
+		}
+		const int32 EffectiveTotal = FMath::Max(1, TotalCount - GS->DestroyedFurnitureCount);
+		const int32 InTruckCount = FMath::Max(0, TotalCount - GS->RemainingFurniture - GS->DestroyedFurnitureCount);
+		const float TruckRatio = (float)InTruckCount / (float)EffectiveTotal;
+
+		// ── 1차 핫타임: 3분 경과 후 트럭 비율 50% 이하 ──
+		if (!bIsHotTime && !bIsSecondHotTime && GS->ElapsedTime >= EffectiveHotTimeThreshold && TruckRatio <= HotTimeStartRatio)
 		{
 			bIsHotTime = true;
-			GS->bIsHotTime = true;        // 클라이언트 복제 → TCFeedbackComponent 가 빨간 링 표시
-			GS->NotifyHotTimeChanged();   // 리슨 서버 호스트 수동 호출
+			GS->bIsHotTime = true;
+			GS->NotifyHotTimeChanged();
 			if (!bBGMBoosted)
 			{
 				bBGMBoosted = true;
@@ -264,7 +284,38 @@ void UTCFeedbackSubsystem::Tick(float DeltaTime)
 					BGMComp->SetPitchMultiplier(BGMSpeedupPitch);
 				}
 			}
-			UE_LOG(LogTemp, Warning, TEXT("[Feedback] 핫타임 시작 (경과: %.0f초)"), GS->ElapsedTime);
+			UE_LOG(LogTemp, Warning, TEXT("[Feedback] 1차 핫타임 시작 (경과: %.0f초, 트럭 비율: %.0f%%)"), GS->ElapsedTime, TruckRatio * 100.f);
+		}
+		// ── 1차 핫타임 종료: 트럭 비율 50% 이상 ──
+		else if (bIsHotTime && !bIsSecondHotTime && TruckRatio >= HotTimeEndRatio)
+		{
+			bIsHotTime = false;
+			bBGMBoosted = false;
+			GS->bIsHotTime = false;
+			GS->NotifyHotTimeChanged();
+			if (BGMComp && BGMComp->IsPlaying())
+			{
+				BGMComp->SetPitchMultiplier(1.f);
+			}
+			UE_LOG(LogTemp, Warning, TEXT("[Feedback] 1차 핫타임 종료 (트럭 비율: %.0f%%)"), TruckRatio * 100.f);
+		}
+
+		// ── 2차 핫타임: 1분 남았을 때 무조건 시작 ──
+		if (!bIsSecondHotTime && GS->RemainingTime <= SecondHotTimeRemaining)
+		{
+			bIsSecondHotTime = true;
+			bIsHotTime = false; // 1차 핫타임은 종료
+			GS->bIsHotTime = true;
+			GS->NotifyHotTimeChanged();
+			if (!bBGMBoosted)
+			{
+				bBGMBoosted = true;
+				if (BGMComp && BGMComp->IsPlaying())
+				{
+					BGMComp->SetPitchMultiplier(BGMSpeedupPitch);
+				}
+			}
+			UE_LOG(LogTemp, Warning, TEXT("[Feedback] 2차 핫타임 시작 (남은 시간: %.0f초)"), GS->RemainingTime);
 		}
 	}
 

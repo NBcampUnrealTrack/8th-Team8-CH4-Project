@@ -19,6 +19,24 @@ namespace
 	const FName TC_ROOMCODE_KEY = TEXT("TCRoomCode");
 }
 
+void UTCGameInstance::Init()
+{
+	Super::Init();
+
+	// 레벨 트래블 중 엔진이 기본으로 그리는 파란 전환 텍스트("LOADING"/"PRECACHING" 등,
+	// UGameViewportClient::DrawTransition())를 끈다. bSuppressTransitionMessage는
+	// UPROPERTY(config)가 아니라서(엔진 소스 확인) DefaultEngine.ini로는 설정이 불가능하고
+	// SetSuppressTransitionMessage() 호출로만 바꿀 수 있다 — 처음에 ini로 시도했던 건 아무
+	// 효과가 없는 설정이었다(조용히 무시됨). GameViewportClient는 세션 내내 유지되는 단일
+	// 인스턴스이므로 Init()에서 한 번만 호출하면 된다.
+	// 주의: DrawTransition()은 텍스트만 그리고 검은 배경 자체를 그리지 않는다(엔진 소스 확인) —
+	// 이 호출은 "PRECACHING" 등 문구 제거만 담당하고, 검은 화면의 근본 원인은 별개다.
+	if (UGameViewportClient* VPC = GetGameViewportClient())
+	{
+		VPC->SetSuppressTransitionMessage(true);
+	}
+}
+
 // ─────────────────────────────────────────────────────────────
 // 레거시: LAN / 직접 IP
 // ─────────────────────────────────────────────────────────────

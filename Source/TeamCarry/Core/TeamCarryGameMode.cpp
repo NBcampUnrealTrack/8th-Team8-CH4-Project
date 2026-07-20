@@ -1,4 +1,6 @@
 ﻿#include "TeamCarryGameMode.h"
+#include "Engine/DataTable.h"
+#include "TC_DataTypes.h"
 #include "TeamCarryGameState.h"
 #include "Kismet/GameplayStatics.h"
 #include "TCSaveGame.h"
@@ -34,6 +36,24 @@ namespace
 					FString::Printf(TEXT("[타이머 디버그] %s"), NewVal ? TEXT("정지") : TEXT("재개")));
 			}
 		}));
+
+	// 디버그: 강제 게임 종료(클리어 처리). 타이머 대기 없이 즉시 FinishGame(true) 경로를 태워
+	// O_Result·세이브까지 한 번에 테스트할 수 있다. 서버(호스트)에서만 의미가 있다.
+	FAutoConsoleCommandWithWorld CmdForceFinishGame(
+		TEXT("TC.ForceFinishGame"),
+		TEXT("디버그: 게임을 즉시 클리어 처리하여 강제 종료한다 (F6)"),
+		FConsoleCommandWithWorldDelegate::CreateLambda([](UWorld* World)
+		{
+			if (!World) return;
+			if (ATeamCarryGameMode* GM = World->GetAuthGameMode<ATeamCarryGameMode>())
+			{
+				GM->DebugForceFinishGame();
+				if (GEngine)
+				{
+					GEngine->AddOnScreenDebugMessage(9103, 2.f, FColor::Green, TEXT("[디버그] 강제 게임 종료(클리어)"));
+				}
+			}
+		}));
 }
 
 ATeamCarryGameMode::ATeamCarryGameMode()
@@ -67,6 +87,25 @@ void ATeamCarryGameMode::BeginPlay()
 {
     Super::BeginPlay();
 
+    // ── DataTable 에서 스테이지 설정 로드 ──
+    // DT_StageConfig 에 맵 이름(RowName)으로 등록된 설정값을 자동으로 읽어온다.
+    if (StageConfigTable)
+    {
+        const FString MapName = UWorld::RemovePIEPrefix(GetWorld()->GetMapName());
+        if (const FStageConfig* Config = StageConfigTable->FindRow<FStageConfig>(FName(*MapName), TEXT("StageConfig")))
+        {
+            TimeLimitSeconds = Config->TimeLimitSeconds;
+            HotTimeElapsedThreshold = Config->HotTimeElapsedThreshold;
+            TotalLevelValue = Config->TotalLevelValue;
+            UE_LOG(LogTemp, Log, TEXT("[GameMode] 스테이지 설정 로드: %s | 제한시간: %.0f초 | 핫타임: %.0f초 | 목표값어치: %d"),
+                *MapName, TimeLimitSeconds, HotTimeElapsedThreshold, TotalLevelValue);
+        }
+        else
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[GameMode] 스테이지 설정 없음: %s — 기본값 사용"), *MapName);
+        }
+    }
+
     TArray<AActor*> FurnitureActors;
     UGameplayStatics::GetAllActorsOfClass(GetWorld(), ATCFurnitureActor::StaticClass(), FurnitureActors);
     SetTotalFurnitureCount(FurnitureActors.Num());
@@ -76,6 +115,7 @@ void ATeamCarryGameMode::BeginPlay()
     {
         // 스톱워치 초기화
         GS->ElapsedTime = 0.0f;
+        GS->RemainingTime = TimeLimitSeconds;
 
         // 팀 값어치 게이지의 Max 값(전체 목표 값어치)을 스테이지 시작 시 1회 복제한다. 스테이지 중 불변.
         GS->TotalLevelValue = TotalLevelValue;
@@ -208,8 +248,18 @@ void ATeamCarryGameMode::Tick(float DeltaTime)
     // Playing 단계일 때만 스톱워치 작동 (디버그 정지 CVar가 켜져 있으면 보류)
     if (GS->CurrentPhase == EGamePhase::Playing && CVarTimerPause.GetValueOnGameThread() == 0)
     {
-        // 경과 시간 증가 (시간 제한 없음 — 모든 가구가 트럭에 들어오면 게임 종료)
+        // 경과 시간 증가
         GS->ElapsedTime += DeltaTime;
+
+        // 남은 시간 갱신 — UI 카운트다운용
+        GS->RemainingTime = FMath::Max(0.0f, TimeLimitSeconds - GS->ElapsedTime);
+
+        // 제한시간 초과 시 게임 종료
+        if (GS->ElapsedTime >= TimeLimitSeconds)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("제한시간 %.0f초 초과 — 게임 종료"), TimeLimitSeconds);
+            FinishGame(true);
+        }
     }
 
     // 트럭 안 가구 내구도 변화 감지 — 변화 시 즉시 점수 갱신
@@ -740,6 +790,11 @@ void ATeamCarryGameMode::FinishGame(bool bIsClear)
             GS->TotalScore, GS->StarCount, GS->ElapsedTime);
 
     }, 5.0f, false);
+}
+
+void ATeamCarryGameMode::DebugForceFinishGame()
+{
+	FinishGame(true);
 }
 
 bool ATeamCarryGameMode::IsStageCleared() const
