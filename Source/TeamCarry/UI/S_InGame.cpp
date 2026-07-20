@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 
 #include "TeamCarry/UI/S_InGame.h"
@@ -65,7 +65,6 @@ void US_InGame::NativeConstruct()
 	{
 		Btn_Menu->OnClicked.AddUniqueDynamic(this, &US_InGame::HandleMenuClicked);
 	}
-
 
 	// Setup initial placeholder value
 	if (UWorld* World = GetWorld())
@@ -140,6 +139,21 @@ TOptional<FUIInputConfig> US_InGame::GetDesiredInputConfig() const
 
 void US_InGame::HandleTeamMoneyUpdated(int32 NewTotalMoney)
 {
+	// CachedTotalLevelValue는 NativeConstruct에서 1회만 캐시하는데, 클라이언트에서는 이 위젯이
+	// (로컬 로딩 완료 직후) GameState의 TotalLevelValue 복제가 아직 도착하기 전에 생성될 수 있다.
+	// 그 경우 0으로 캐시된 채 영영 갱신되지 않아 분모가 0 → 게이지가 점수와 무관하게 항상 0%로
+	// 보이는 문제가 있었다. 아직 0이면(=캐시 실패) 매 업데이트마다 최신값으로 재시도한다.
+	if (CachedTotalLevelValue <= 0)
+	{
+		if (const UWorld* World = GetWorld())
+		{
+			if (const ATeamCarryGameState* GS = World->GetGameState<ATeamCarryGameState>())
+			{
+				CachedTotalLevelValue = GS->TotalLevelValue;
+			}
+		}
+	}
+
 	UE_LOG(LogTemp, Log, TEXT("[UI InGameHUD] HUD Received Team Money Update: $%d / $%d"), NewTotalMoney, CachedTotalLevelValue);
 
 	// 게이지는 즉시 점프하지 않고 NativeTick의 보간을 통해 목표값을 서서히 따라간다.

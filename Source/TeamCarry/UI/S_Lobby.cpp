@@ -196,7 +196,7 @@ void US_Lobby::RefreshLobbyFromGameState()
 		if (NameText)
 		{
 			NameText->SetText(FText::FromString(TEXT("---")));
-			NameText->SetColorAndOpacity(FSlateColor(FLinearColor::White));
+			NameText->SetColorAndOpacity(FSlateColor(FLinearColor::Black));
 		}
 		if (StatusText) StatusText->SetText(FText::FromString(TEXT("EMPTY")));
 	}
@@ -248,8 +248,6 @@ void US_Lobby::RefreshLobbyFromGameState()
 			// 가시성 강화: 글자색보다 어두운 톤으로 아웃라인을 둘러 배경(밝은 크림색 패널) 위에서도
 			// 잘 읽히게 한다.
 			FSlateFontInfo NameFont = NameText->GetFont();
-			NameFont.OutlineSettings.OutlineSize = 1;
-			NameFont.OutlineSettings.OutlineColor = FLinearColor(SlotColor.R * 0.35f, SlotColor.G * 0.35f, SlotColor.B * 0.35f, 1.0f);
 			NameText->SetFont(NameFont);
 		}
 		if (StatusText)
