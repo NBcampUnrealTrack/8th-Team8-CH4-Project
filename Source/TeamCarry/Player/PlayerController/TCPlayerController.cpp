@@ -149,7 +149,7 @@ void ATCPlayerController::BeginPlay()
 					LoadingWidget->NotifyLocalLoadComplete();
 				}
 
-				ServerReportMapLoaded();
+				StartMapLoadedReportRetry();
 				UE_LOG(LogTCNet, Log, TEXT("[PlayerController] 인게임 맵 진입: InGame 전환 완료, 로딩 완료 보고."));
 			}
 		}
@@ -258,8 +258,25 @@ void ATCPlayerController::ServerReportMapLoaded_Implementation()
 	}
 }
 
+void ATCPlayerController::StartMapLoadedReportRetry()
+{
+	ServerReportMapLoaded();
+
+	// 서버 응답(ClientNotifyAllPlayersLoaded)이 올 때까지 1초 간격 재전송.
+	// 호스트(리슨서버)는 RPC 가 로컬 직접 호출이라 첫 발에서 바로 응답이 와 타이머가 곧 정리된다.
+	GetWorldTimerManager().SetTimer(MapLoadedReportRetryHandle,
+		FTimerDelegate::CreateWeakLambda(this, [this]()
+		{
+			UE_LOG(LogTCNet, Warning, TEXT("[PlayerController] 로딩 완료 보고 응답 없음 — 재전송"));
+			ServerReportMapLoaded();
+		}), 1.0f, true);
+}
+
 void ATCPlayerController::ClientNotifyAllPlayersLoaded_Implementation()
 {
+	// 서버가 보고를 접수했다 — 재전송 중단.
+	GetWorldTimerManager().ClearTimer(MapLoadedReportRetryHandle);
+
 	UMockUIController* MockController = GetGameInstance() ? GetGameInstance()->GetSubsystem<UMockUIController>() : nullptr;
 
 	// BeginPlay() 의 스테이지 맵 분기가 이미 InGame 전환 + 입력 모드를 적용해 두었으므로 정상

@@ -221,4 +221,12 @@ private:
 
 	FTimerHandle FinishAnimSafetyHandle;
 	bool bLoadingScreenFinished = false;
+
+	// 맵 로딩 완료 보고 재시도. 트래블 직후에는 이 PC 의 액터 채널이 아직 완전히 열리지 않아
+	// 서버 RPC 한 발이 유실될 수 있는데, 게이트는 전원 보고를 요구하고 강제 시작 폴백이 없어
+	// 한 명만 유실돼도 전원이 로딩에서 영구 대기한다. 보고는 멱등(플래그 set + 게이트 재평가)이라
+	// 서버가 응답(ClientNotifyAllPlayersLoaded)할 때까지 주기적으로 다시 보낸다.
+	void StartMapLoadedReportRetry();
+
+	FTimerHandle MapLoadedReportRetryHandle;
 };
