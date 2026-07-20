@@ -81,8 +81,6 @@ void UFurnitureStat::TakeDamage(AActor* DamagedActor, float Damage, const UDamag
 	float PreviousHealth = CurrentHealth;
 	CurrentHealth = FMath::Max(0.f, CurrentHealth - Damage);
 
-	//GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red,
-		//FString::Printf(TEXT("가구 최대 체력 : %f / 남은 체력 : %f"), DefaultStats.MaxHealth, CurrentHealth));
 
 	// 서버에서 즉시 브로드캐스트 (OnRep은 서버에서 안 돌므로 서버 시각 처리는 여기서)
 	OnFurnitureDamage.Broadcast(MaxHealth, PreviousHealth, CurrentHealth);

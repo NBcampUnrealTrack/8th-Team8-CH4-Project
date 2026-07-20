@@ -4,12 +4,14 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "CatchCharacter/Furniture/FurnitureCarryDebug.h"
 #include "FurnitureGrabSystem.generated.h"
 
 
 class UStaticMeshComponent;
 class UFurnitureStat;
 class ACharacter;
+class UCharacterMovementComponent;
 
 // 잡은 인원 수 변화 알림 (OldCount -> NewCount).
 // 서버: Grab()/Release() 직후 즉시
@@ -308,6 +310,21 @@ private:
 
 	// 현재 보간 적용 중인 가구 높이 오프셋
 	float CurrentHeightOffset = 0.0f;
+
+	// 전원 내려다봄 하한 완화의 이력 래치 — 임계 근처 뒤집힘 방지
+	bool bLookDownRelaxLatched = false;
+
+	// 운반 입력 유무 판정 — 모드는 TC.Carry.InputGate
+	bool HasCarryMoveInput(ACharacter* P, const UCharacterMovementComponent* CMC);
+
+	// 입력 게이트 래치 — 운반자별 마지막 입력 관측 시각(초)
+	TMap<TWeakObjectPtr<ACharacter>, double> LastInputSeenTime;
+
+	// 운반자별 가중치 점유율 래치 (비율 스무딩용)
+	TMap<TWeakObjectPtr<ACharacter>, double> SmoothedWeight;
+
+	// 운반 진단 상태·출력 (FurnitureCarryDebug.cpp)
+	FCarryDebugState CarryDbg;
 
 	// 미달 운반 내구도 드레인의 1초 단위 적용용 누적 시간
 	float UnderMannedDrainAccum = 0.0f;
