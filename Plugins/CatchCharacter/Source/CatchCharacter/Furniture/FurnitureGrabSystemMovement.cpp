@@ -20,6 +20,20 @@
 
 void UFurnitureGrabSystem::HandleMovement(float DeltaTime)
 {
+	// [운반틱 하트비트] F9 동안 2초마다 — 운반 틱 생존 확인용 (플러그인 로그 전체 침묵 사고 판별)
+	if (IsCarryDebugEnabled() && GetOwner())
+	{
+		static double GLastBeatLog = -10.0;
+		const double NowT = FPlatformTime::Seconds();
+		if (NowT - GLastBeatLog > 2.0)
+		{
+			GLastBeatLog = NowT;
+			UE_LOG(LogCarry, Log, TEXT("[운반틱] %s N=%d 스탯=%d 권위=%d"),
+				*GetOwner()->GetName(), GrabbedPlayers.Num(),
+				FurnitureStat ? 1 : 0, GetOwner()->HasAuthority() ? 1 : 0);
+		}
+	}
+
 	FGrabMoveContext Ctx;
 	Ctx.DeltaTime = DeltaTime;
 
@@ -43,8 +57,20 @@ bool UFurnitureGrabSystem::MovePrepare(FGrabMoveContext& Ctx)
 	const float DeltaTime = Ctx.DeltaTime;
 
 	AActor* Owner = GetOwner();
-	if (!Owner || !Owner->HasAuthority() || !FurnitureStat)
+	if (!Owner || !Owner->HasAuthority())
 		return false;
+	if (!FurnitureStat)
+	{
+		// 스탯 포인터 소실 = 운반 틱 전체가 조용히 죽는 치명 상태 — 스로틀 걸고 반드시 기록
+		static double GLastNoStatLog = -10.0;
+		const double NowT = FPlatformTime::Seconds();
+		if (NowT - GLastNoStatLog > 2.0)
+		{
+			GLastNoStatLog = NowT;
+			UE_LOG(LogCarry, Warning, TEXT("[운반틱] %s FurnitureStat=nullptr — 운반 이동 전체 불가"), *Owner->GetName());
+		}
+		return false;
+	}
 	// ---- 0. 유효 플레이어 수집 ----
 	TArray<ACharacter*> Players;
 	Players.Reserve(GrabbedPlayers.Num());
@@ -493,7 +519,8 @@ void UFurnitureGrabSystem::MoveComputeHeight(FGrabMoveContext& Ctx)
 			if (FurnitureMesh)
 			{
 				const FVector BoundsOrigin = FurnitureMesh->Bounds.Origin;
-				FCollisionQueryParams DropParams(SCENE_QUERY_STAT(UnderMannedDrop), false, Owner);
+				// 복합 콜리전까지 지지면으로 인정 — 심플 콜리전 없는 그레이박스 바닥(모델링 툴 메시) 대응
+				FCollisionQueryParams DropParams(SCENE_QUERY_STAT(UnderMannedDrop), true, Owner);
 				DropParams.AddIgnoredActor(Players[0]);
 				const float ExtAlong = FMath::Abs(Ext.X * UnderMannedDir.X) + FMath::Abs(Ext.Y * UnderMannedDir.Y);
 				const FVector SamplePts[2] = {
@@ -564,6 +591,7 @@ void UFurnitureGrabSystem::MoveComputeHeight(FGrabMoveContext& Ctx)
 
 	// [요건 충족 시 최소 운반 높이] 인원 충족 시 가구 하단이 '평균 발밑+20' 위로 오도록 높이 하한을 끌어올린다.
 	// '같이 내려놓기'는 전원이 -25° 이하를 보고 + 가구가 실제로 들려 있을 때만 허용한다
+	bool bAllLookingDown = false;
 	bool bLoweringTogether = false;
 	if (!bUnderManned && FurnitureMesh)
 	{
@@ -573,6 +601,7 @@ void UFurnitureGrabSystem::MoveComputeHeight(FGrabMoveContext& Ctx)
 			if (FoldAimPitch(Players[i]->GetBaseAimRotation().Pitch) > -25.0f)
 				bAllDown = false;
 		}
+		bAllLookingDown = bAllDown;
 		if (bAllDown)
 		{
 			float LowFootZ = 0.0f;
@@ -589,7 +618,7 @@ void UFurnitureGrabSystem::MoveComputeHeight(FGrabMoveContext& Ctx)
 		}
 	}
 
-	if (!bUnderManned && !bLoweringTogether && FurnitureMesh)
+	if (!bUnderManned && FurnitureMesh)
 	{
 		float AvgFootZ = 0.0f;
 		for (int32 i = 0; i < N; ++i)
@@ -605,12 +634,15 @@ void UFurnitureGrabSystem::MoveComputeHeight(FGrabMoveContext& Ctx)
 
 		const FVector ExtNow  = FurnitureMesh->Bounds.BoxExtent;
 		const float CenterOff = FurnitureMesh->Bounds.Origin.Z - Owner->GetActorLocation().Z;
-		float MinCenterZ = AvgFootZ + 20.0f + ExtNow.Z;
+		// 내려놓는 중에는 발밑 호버 하한을 풀고 아래 지지면 접지 하한만 남긴다 — 목표가 지지면
+		// 아래로 내려가지 않아 심플 콜리전 없는 바닥에서도 파묻히지 않는다 (물리 스윕 의존 제거)
+		float MinCenterZ = bLoweringTogether ? -FLT_MAX : AvgFootZ + 20.0f + ExtNow.Z;
 		// [가구 밑 바닥 체크] 발밑 기준만으론 가구 아래 단차·지지물을 모른다 — 실제 지지면 위
 		// 12uu 유격을 보장해 바닥에 눌린 채 스윕이 막히는 것(끌기·들기 불능)을 방지
 		{
 			const FVector BO = FurnitureMesh->Bounds.Origin;
-			FCollisionQueryParams FloorParams(SCENE_QUERY_STAT(CarryFloorCheck), false, Owner);
+			// 복합 콜리전까지 지지면으로 인정 (심플 없는 그레이박스 바닥 대응)
+			FCollisionQueryParams FloorParams(SCENE_QUERY_STAT(CarryFloorCheck), true, Owner);
 			for (ACharacter* P : Players)
 				FloorParams.AddIgnoredActor(P);
 			// 풋프린트 판 하향 스윕 — 점 트레이스는 가구가 지지물에 이미 파묻힌 경우 시작점이
@@ -618,7 +650,8 @@ void UFurnitureGrabSystem::MoveComputeHeight(FGrabMoveContext& Ctx)
 			const FCollisionShape Plate = FCollisionShape::MakeBox(
 				FVector(ExtNow.X * 0.9f, ExtNow.Y * 0.9f, 2.0f));
 			const FVector SweepStart(BO.X, BO.Y, BO.Z - ExtNow.Z + 60.0f);
-			const FVector SweepEnd(BO.X, BO.Y, AvgFootZ - 50.0f);
+			// 내려놓기는 발밑 아래 단차(낮은 지지면)까지 탐색을 연장한다
+			const FVector SweepEnd(BO.X, BO.Y, AvgFootZ - (bLoweringTogether ? 300.0f : 50.0f));
 			FCollisionObjectQueryParams FloorObj(ECC_WorldStatic);
 			FloorObj.AddObjectTypesToQuery(ECC_WorldDynamic);
 			FloorObj.AddObjectTypesToQuery(ECC_PhysicsBody);
@@ -628,12 +661,21 @@ void UFurnitureGrabSystem::MoveComputeHeight(FGrabMoveContext& Ctx)
 				&& !FloorHit.bStartPenetrating
 				&& FloorHit.ImpactNormal.Z > 0.7f)
 			{
-				MinCenterZ = FMath::Max(MinCenterZ, FloorHit.Location.Z - 2.0f + ExtNow.Z + 12.0f);
+				// 내려놓기는 접지(+2), 평상시는 유격(+12)
+				const float Clearance = bLoweringTogether ? 2.0f : 12.0f;
+				MinCenterZ = FMath::Max(MinCenterZ, FloorHit.Location.Z - 2.0f + ExtNow.Z + Clearance);
 			}
 		}
-		const float NeededOffset = MinCenterZ - (TargetLoc.Z + CenterOff);
-		TargetHeightOffset = FMath::Max(TargetHeightOffset, NeededOffset);
+		if (MinCenterZ > -FLT_MAX * 0.5f)
+		{
+			const float NeededOffset = MinCenterZ - (TargetLoc.Z + CenterOff);
+			TargetHeightOffset = FMath::Max(TargetHeightOffset, NeededOffset);
+		}
 	}
+
+	// 폭주 안전핀: 정상 시나리오(피치 ±270 · 호버/접지 하한 ≤ ~400)를 넘는 목표는 버그 신호 —
+	// 앵커 재기록 랠리 등이 만드는 무한 증식을 여기서 끊는다
+	TargetHeightOffset = FMath::Clamp(TargetHeightOffset, -500.0f, 500.0f);
 
 	// 현재 높이 오프셋에서 목표 높이 오프셋으로 부드럽게 보간.
 	if (bUnderManned)
@@ -659,9 +701,11 @@ void UFurnitureGrabSystem::MoveComputeHeight(FGrabMoveContext& Ctx)
 		// 시각 위치가 범위 안에 맞음(천장/바닥 관통 방지, 위치 일관).
 		const float MeshCenterOffZ = FurnitureMesh ? (FurnitureMesh->Bounds.Origin.Z - Owner->GetActorLocation().Z) : 0.0f;
 		const float DesiredCenterZ = TargetLoc.Z + CurrentHeightOffset + MeshCenterOffZ;
-		// 인원 미달 드래그 자세·같이 내려놓기(전원 내려다봄)는 바닥 접지까지 하한 완화
+		// 인원 미달 드래그 자세·같이 내려놓기(전원 내려다봄)는 바닥 접지까지 하한 완화.
+		// 완화는 '들림 게이트'가 아니라 '내려다봄 의도' 기준 — 게이트는 바닥 근처에서 매 틱
+		// 깜빡이므로 게이트 기준 완화 해제는 즉시 스냅 상승(가구 튐)을 만든다
 		const float MinZ = AvgPlayerZ + FurnitureHeightMin
-			- ((bUnderManned || bLoweringTogether) ? 250.0f : 0.0f);
+			- ((bUnderManned || bAllLookingDown) ? 250.0f : 0.0f);
 		// 상한은 '메시 하단 ≤ 플레이어+Max' 기준 — 세로로 길거나 높이 놓인 가구도 들 수 있게 한다
 		const float MaxCenterZ = AvgPlayerZ + FurnitureHeightMax
 			+ (FurnitureMesh ? FurnitureMesh->Bounds.BoxExtent.Z : 0.0f);
@@ -673,7 +717,7 @@ void UFurnitureGrabSystem::MoveComputeHeight(FGrabMoveContext& Ctx)
 		if (IsCarryDebugEnabled())
 		{
 			static double GLastHeightLog = -10.0;
-			const double NowT = GetWorld()->GetTimeSeconds();
+			const double NowT = FPlatformTime::Seconds();
 			if (NowT - GLastHeightLog > 0.5)
 			{
 				GLastHeightLog = NowT;
@@ -714,9 +758,13 @@ void UFurnitureGrabSystem::MoveSweepFurniture(FGrabMoveContext& Ctx)
 	const FVector UnderMannedDir = Ctx.UnderMannedDir;
 
 	// ---- 3. 가구 이동 (sweep=true, 가구 자체 충돌) ----
-	// Pitch/Roll은 현재 값 유지: 물리로 쓰러진 가구는 그 자세 그대로 운반 (억지로 세우면 바닥 파고듦)
-	FRotator TargetRot = Owner->GetActorRotation();
-	TargetRot.Yaw = TargetYaw;
+	// Pitch/Roll은 현재 값 유지: 물리로 쓰러진 가구는 그 자세 그대로 운반 (억지로 세우면 바닥 파고듦).
+	// Yaw는 FRotator .Yaw 대입이 아니라 월드 Z축 쿼터니언 델타로 적용 — 눕거나 기운 자세
+	// (피치 ±90 짐벌)에서 .Yaw 수술은 비-요 성분이 섞인 회전을 명령하게 되고, 회전 가드의
+	// 부분적용·피벗 보정과 맞물려 가구가 매 틱 가라앉고 미끄러진다 (들것·끌림 분기와 동일 방식)
+	const FQuat SoloYawDeltaQ(FVector::UpVector, FMath::DegreesToRadians(
+		FMath::FindDeltaAngleDegrees(Owner->GetActorRotation().Yaw, TargetYaw)));
+	FRotator TargetRot = (SoloYawDeltaQ * Owner->GetActorQuat()).Rotator();
 
 	// [들것 기울기 — 측정-보정형] 각자의 피치가 자기 쪽 손 높이, 차이가 목표 경사(45°/s 보정).
 	// 공동운반은 정립 게이트 없이 항상 수평 복원한다
@@ -981,7 +1029,7 @@ void UFurnitureGrabSystem::MoveSweepFurniture(FGrabMoveContext& Ctx)
 			static double GLastValveLogTime = -10.0;
 			static int32  GValveCountSinceLog = 0;
 			++GValveCountSinceLog;
-			const double NowT = GetWorld()->GetTimeSeconds();
+			const double NowT = FPlatformTime::Seconds();
 			if (NowT - GLastValveLogTime > 0.5)
 			{
 				GLastValveLogTime = NowT;
@@ -1032,7 +1080,7 @@ void UFurnitureGrabSystem::MoveSweepFurniture(FGrabMoveContext& Ctx)
 			//{
 			//	// '툭 올라감' 추적용 (0.5초 스로틀)
 			//	static double GLastStepLog = -10.0;
-			//	const double NowT = GetWorld()->GetTimeSeconds();
+			//	const double NowT = FPlatformTime::Seconds();
 			//	if (NowT - GLastStepLog > 0.5)
 			//	{
 			//		GLastStepLog = NowT;
@@ -1060,7 +1108,7 @@ void UFurnitureGrabSystem::MoveSweepFurniture(FGrabMoveContext& Ctx)
 		{
 			// 봉인 진단 (0.5초 스로틀)
 			static double GLastStuckLog = -10.0;
-			const double NowT = GetWorld()->GetTimeSeconds();
+			const double NowT = FPlatformTime::Seconds();
 			if (NowT - GLastStuckLog > 0.5)
 			{
 				GLastStuckLog = NowT;
@@ -1115,7 +1163,7 @@ void UFurnitureGrabSystem::MoveSweepFurniture(FGrabMoveContext& Ctx)
 			//{
 			//	// '기울기/회전 고정' 추적용 (0.5초 스로틀)
 			//	static double GLastRotRollbackLog = -10.0;
-			//	const double NowT = GetWorld()->GetTimeSeconds();
+			//	const double NowT = FPlatformTime::Seconds();
 			//	if (NowT - GLastRotRollbackLog > 0.5)
 			//	{
 			//		GLastRotRollbackLog = NowT;
@@ -1141,10 +1189,41 @@ void UFurnitureGrabSystem::MoveSweepFurniture(FGrabMoveContext& Ctx)
 			if (!Comp.IsNearlyZero(0.01f))
 			{
 				Owner->AddActorWorldOffset(Comp, true);
+
+				// [피벗보정 진단] 보정 발동량 추적 — 접지 회전 시 피벗 드리프트 감시 (F9, 0.5초)
+				if (IsCarryDebugEnabled() && Comp.Size() > 1.0f)
+				{
+					static double GLastCompLog = -10.0;
+					const double NowT = FPlatformTime::Seconds();
+					if (NowT - GLastCompLog > 0.5)
+					{
+						GLastCompLog = NowT;
+						UE_LOG(LogCarry, Log, TEXT("[피벗보정] %s Comp=(%.1f, %.1f, %.1f)"),
+							*Owner->GetName(), Comp.X, Comp.Y, Comp.Z);
+					}
+				}
 			}
 		}
 	}
 
+	// [스윕Z 진단] 명령 대비 실제 Z 미달 프로파일 — 상승을 깎는 지점 특정용 (F9, 0.5초)
+	if (IsCarryDebugEnabled())
+	{
+		const float ZShort = DesiredPos.Z - Owner->GetActorLocation().Z;
+		if (FMath::Abs(ZShort) > 2.0f)
+		{
+			static double GLastZProbeLog = -10.0;
+			const double NowT = FPlatformTime::Seconds();
+			if (NowT - GLastZProbeLog > 0.5)
+			{
+				GLastZProbeLog = NowT;
+				UE_LOG(LogCarry, Log, TEXT("[스윕Z] %s 미달=%.1fuu 명령Z=%.0f 실제Z=%.0f 차단=%s%s"),
+					*Owner->GetName(), ZShort, DesiredPos.Z, Owner->GetActorLocation().Z,
+					MoveHit.GetActor() ? *MoveHit.GetActor()->GetName() : TEXT("-"),
+					MoveHit.bStartPenetrating ? TEXT("(관통)") : TEXT(""));
+			}
+		}
+	}
 
 	Ctx.bValveJammed    = bValveJammed;
 	Ctx.bFurnitureStuck = bFurnitureStuck;
@@ -1202,7 +1281,11 @@ bool UFurnitureGrabSystem::MoveReconcileAnchors(FGrabMoveContext& Ctx)
 					if (DraggedLastTick.Contains(P) || StoppedDraggingLastTick.Contains(P)) continue;
 
 					FGrabAnchor& Anc        = Anchors[P];
-					Anc.InitialOffset       = ActualLoc - P->GetActorLocation();
+					// Z는 보존: 회전 리셋은 XY/Yaw 재정렬이며(Z축 회전은 Z 불변),
+					// Z까지 재기록하면 상승이 막힌 동안 앵커 Z가 매 틱 깎여 나간다
+					Anc.InitialOffset       = FVector(ActualLoc.X - P->GetActorLocation().X,
+					                                  ActualLoc.Y - P->GetActorLocation().Y,
+					                                  Anc.InitialOffset.Z);
 					// 몸통 기준은 델타 시프트로 연속 보존 — 가구기준만 현재로 재기록하면
 					// 몸통 목표가 그랩 시점 값으로 되돌아가 몸이 휙 돌아간다
 					Anc.InitialPlayerYaw    = FRotator::NormalizeAxis(Anc.InitialPlayerYaw
@@ -1216,29 +1299,30 @@ bool UFurnitureGrabSystem::MoveReconcileAnchors(FGrabMoveContext& Ctx)
 		}
 	}
 
-	// ---- 3.6. Z 상승 막힘(천장 등) → Z 오프셋 리셋 ----
-	// '위로 막힘'(목표 > 실제)만 재기록한다 (실제가 더 높은 경우는 스윕이 자연 하강시킴).
-	// 낀 틱(밸브 잼)은 제외 — 스윕 전면 거부로 실제 Z가 얼어 있는 동안 재기록하면
-	// 피치로 쌓은 들어올림이 매 틱 소거된다 (카메라를 크게 들어도 조금만 들리는 원인)
+	// ---- 3.6. Z 상승 막힘(천장 등) → 높이 오프셋 드레인 ----
+	// '위로 막힘'(목표 > 실제)의 초과 의도는 앵커가 아니라 높이 오프셋에서 비운다.
+	// 앵커 Z 재기록은 최소 운반 높이의 목표 재상승과 맞물려 앵커↓/오프셋↑ 무한 랠리
+	// (가구 바닥 고정 + 부착거리 폭주 + 리쉬 붕괴)가 됐다 — 오프셋 드레인은 앵커를
+	// 보존하므로 다음 틱 목표가 그대로라 증식 경로가 없고, 재상승은 보간이 재시도한다.
+	// 낀 틱(밸브 잼)은 제외 — 실제 Z가 얼어 있는 동안 비우면 들어올림 의도가 매 틱 소거된다
 	if (!Ctx.bValveJammed && TargetLoc.Z - ActualLoc.Z > CorrectionDeadzone)
 	{
-		if (IsCarryDebugEnabled() && TargetLoc.Z - ActualLoc.Z > 10.0f)
+		const float Excess = TargetLoc.Z - ActualLoc.Z;
+		if (IsCarryDebugEnabled() && Excess > 10.0f)
 		{
-			// Z 리셋 진단 (0.5초 스로틀): 얼마나 깎이는지 추적
+			// Z 드레인 진단 (0.5초 스로틀): 어디서 상승이 새는지 프로파일용 좌표 포함
 			static double GLastZResetLog = -10.0;
-			const double NowT = GetWorld()->GetTimeSeconds();
+			const double NowT = FPlatformTime::Seconds();
 			if (NowT - GLastZResetLog > 0.5)
 			{
 				GLastZResetLog = NowT;
-				UE_LOG(LogCarry, Log, TEXT("[Z리셋] %s 목표-실제=%.0fuu 소거 (상승 막힘 재기록)"),
-					*Owner->GetName(), TargetLoc.Z - ActualLoc.Z);
+				UE_LOG(LogCarry, Log, TEXT("[Z리셋] %s 초과=%.0fuu 드레인 (목표Z=%.0f 실제Z=%.0f 오프셋=%.0f 액터Z=%.0f)"),
+					*Owner->GetName(), Excess, TargetLoc.Z, ActualLoc.Z,
+					CurrentHeightOffset, Owner->GetActorLocation().Z);
 			}
 		}
-		for (ACharacter* P : Players)
-		{
-			if (FGrabAnchor* Anc = Anchors.Find(P))
-				Anc->InitialOffset.Z = ActualLoc.Z - P->GetActorLocation().Z;
-		}
+		CurrentHeightOffset -= Excess;
+		ActualLoc.Z = Owner->GetActorLocation().Z - CurrentHeightOffset;
 	}
 
 	// 안전장치: 너무 멀어진 플레이어 자동 해제
@@ -1329,7 +1413,7 @@ bool UFurnitureGrabSystem::MoveReconcileAnchors(FGrabMoveContext& Ctx)
 			//{
 			//	// 후퇴는 벽 옆에서 매 틱 연속 발동이 정상이라 0.5초 스로틀로만 기록
 			//	static double GLastRetreatLogTime = -10.0;
-			//	const double NowT = GetWorld()->GetTimeSeconds();
+			//	const double NowT = FPlatformTime::Seconds();
 			//	if (NowT - GLastRetreatLogTime > 0.5)
 			//	{
 			//		GLastRetreatLogTime = NowT;
@@ -1688,7 +1772,7 @@ void UFurnitureGrabSystem::MoveFinalize(FGrabMoveContext& Ctx)
 		Release(P);
 	}
 
-	// ---- 7. 클라 보간용 트랜스폼 갱신 ----
+	// ---- 7. 클라 보간용 트랜스폼 갱신 ----	
 	ServerLocation = Owner->GetActorLocation();
 	ServerRotation = Owner->GetActorRotation();
 	Multicast_UpdateFurnitureTransform(ServerLocation, ServerRotation, SystemOffsetSequence);

@@ -111,10 +111,23 @@ void UFurnitureGrabSystem::TickComponent(float DeltaTime, ELevelTick TickType, F
 void UFurnitureGrabSystem::Grab(ACharacter* Grabber, FVector height, UPrimitiveComponent* GrabberComponent)
 {
 	AActor* Owner = GetOwner();
-	if (!Owner || !Owner->HasAuthority() || !Grabber || GrabbedPlayers.Contains(Grabber))
+	if (!Owner || !Owner->HasAuthority() || !Grabber)
 		return;
+	// [잡기 진단] 조용한 거부 2종을 F9 동안 기록 — '눌러도 안 잡힘'의 서버측 원인 판별
+	if (GrabbedPlayers.Contains(Grabber))
+	{
+		if (IsCarryDebugEnabled())
+			UE_LOG(LogCarry, Warning, TEXT("[잡기] %s 거부: %s 이미 잡는 중(스테일 상태?)"),
+				*Owner->GetName(), *Grabber->GetName());
+		return;
+	}
 	if (FurnitureStat && GrabbedPlayers.Num() >= FurnitureStat->GetRequiredPlayer())
+	{
+		if (IsCarryDebugEnabled())
+			UE_LOG(LogCarry, Warning, TEXT("[잡기] %s 거부: 정원 초과 (%d/%d)"),
+				*Owner->GetName(), GrabbedPlayers.Num(), FurnitureStat->GetRequiredPlayer());
 		return;
+	}
 
 	SetGrabCollisionState(Grabber, true);
 
