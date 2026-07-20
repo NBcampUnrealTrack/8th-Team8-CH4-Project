@@ -49,9 +49,9 @@ void ATCLobbyGameMode::InitGameState()
 			LobbyGS->SetSelectedStageIdAuthoritative(Flow->GetSelectedStageId());
 			UE_LOG(LogTCNet, Log, TEXT("[Lobby] SelectedStageId 복제 주입: %d"), Flow->GetSelectedStageId());
 
-			// 로비 대기 시간을 이용해 현재 선택된 스테이지 맵을 백그라운드로 미리 로드해 둔다
-			// (실제 스테이지 진입 시 렌더 스레드 스톨 완화 목적, best-effort — TCSessionFlow.h 참고).
-			Flow->PreloadSelectedStageMapAsync();
+			// (2026-07-20 비활성) 스테이지 맵 백그라운드 프리로드 호출을 제거했다 —
+			// 맵 패키지를 미리 올려두면 곧이어 실행되는 ServerTravel 의 LoadMap 과 충돌한다.
+			// 자세한 경위는 UTCSessionFlow::PreloadSelectedStageMapAsync() 주석 참고.
 		}
 	}
 }
