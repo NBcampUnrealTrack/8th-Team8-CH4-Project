@@ -96,6 +96,7 @@ void ATCPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 	EIC->BindAction(JumpAction, ETriggerEvent::Completed, this, &ACharacter::StopJumping);
 	EIC->BindAction(RunAction, ETriggerEvent::Started, this, &ThisClass::StartRun);
 	EIC->BindAction(RunAction, ETriggerEvent::Completed, this, &ThisClass::StopRun);
+	EIC->BindAction(RunAction, ETriggerEvent::Canceled, this, &ThisClass::StopRun);
 	EIC->BindAction(InteractAction, ETriggerEvent::Started, this, &ThisClass::Interact);
 	EIC->BindAction(InteractAction, ETriggerEvent::Completed, this, &ThisClass::ReleaseInteract);
 	EIC->BindAction(ThrowAction, ETriggerEvent::Started, this, &ThisClass::Throw);
@@ -287,8 +288,18 @@ void ATCPlayerCharacter::Interact(const FInputActionValue& InValue)
 	// 유효성 검사
 	if (GrabComponent)
 	{
+		// 가구를 들고 있었는지 상태 백업
+		bool bWasCarrying = (GrabComponent->GetGrabbedActor() != nullptr);
+
 		// 상호작용 - 잡기 실행 명령을 먼저 호출하고 성공 여부를 반환받음
 		bool bIsGrabSuccess = GrabComponent->TryInteract();
+
+		// 가구를 놓았을 때 강제로 걷기 상태로 전환
+		if (bWasCarrying)
+		{
+			GetCharacterMovement()->MaxWalkSpeed = 250.f;
+			ServerStopRun();
+		}
 
 		// 가구 잡기에 성공(true)했을 경우에만 애니메이션 재생
 		if (bIsGrabSuccess && GrabMontage)
@@ -300,8 +311,6 @@ void ATCPlayerCharacter::Interact(const FInputActionValue& InValue)
 			ServerPlayActionMontage(0);
 		}
 
-		// 상호작용-잡기 실행 명령
-		// GrabComponent->TryInteract();
 	}
 }
 
@@ -325,6 +334,8 @@ void ATCPlayerCharacter::Throw(const FInputActionValue& InValue)
 	// 유효성 검사
 	if (GrabComponent)
 	{
+		bool bWasCarrying = false;
+
 		// 현재 들고 있는 가구가 있는지 확인
 		if (AActor* GrabbedActor = GrabComponent->GetGrabbedActor())
 		{
@@ -338,6 +349,7 @@ void ATCPlayerCharacter::Throw(const FInputActionValue& InValue)
 			{
 				return;
 			}
+			bWasCarrying = true;
 		}
 
 		// 애니메이션 재생
@@ -352,6 +364,13 @@ void ATCPlayerCharacter::Throw(const FInputActionValue& InValue)
 
 		// 상호작용-던지기 실행 명령
 		GrabComponent->TryThrow();
+
+		// 가구를 던진 직후 걷기 상태로 만들기
+		if (bWasCarrying)
+		{
+			GetCharacterMovement()->MaxWalkSpeed = 250.f;
+			ServerStopRun();
+		}
 	}
 }
 
@@ -365,9 +384,10 @@ void ATCPlayerCharacter::ToggleView(const FInputActionValue& InValue)
 
 	if (bIsFirstPerson)
 	{
-		// 1인칭: 스프링암 길이를 0으로 만들고 높이를 캐릭터 눈높이(약 65)로 올림
+		// 1인칭: 스프링암 길이를 0으로 만들고 높이를 캐릭터 눈높이로 올림
 		SpringArm->TargetArmLength = 0.f;
-		SpringArm->SocketOffset = FVector(30.f, 0.f, 65.f);
+		SpringArm->TargetOffset = FVector(0.f, 0.f, 55.f);
+		SpringArm->SocketOffset = FVector(50.f, 0.f, 0.f);
 	}
 	else
 	{
