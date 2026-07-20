@@ -64,21 +64,10 @@ protected:
 	UPROPERTY()
 	TObjectPtr<UClass> TimeToastClass;
 
-	// 핫타임 진입 기준 경과시간(초). 이 시간이 지나면 핫타임 시작, 게임 끝까지 유지.
+	// 핫타임 진입 기준 남은 시간(초). 이 시간 이하로 남으면 시작해 게임 끝까지 유지한다.
+	// (트럭 적재 비율 기반 진입/해제는 제거 — 진행도와 무관하게 남은 시간만으로 재촉)
 	UPROPERTY(EditDefaultsOnly, Category = "Feedback|HotTime")
-	float HotTimeElapsedThreshold = 180.f; // 기본 3분
-
-	// 핫타임 진입 비율 (트럭 안 가구 / 유효 가구). 이 값 이하면 1차 핫타임 시작.
-	UPROPERTY(EditDefaultsOnly, Category = "Feedback|HotTime")
-	float HotTimeStartRatio = 0.5f; // 50% 이하
-
-	// 1차 핫타임 종료 비율. 이 값 이상이면 종료.
-	UPROPERTY(EditDefaultsOnly, Category = "Feedback|HotTime")
-	float HotTimeEndRatio = 0.5f; // 50% 이상
-
-	// 2차 핫타임 기준 남은 시간 (초) — 이 시간 이하면 무조건 2차 핫타임 시작.
-	UPROPERTY(EditDefaultsOnly, Category = "Feedback|HotTime")
-	float SecondHotTimeRemaining = 60.0f; // 1분 남았을 때
+	float SecondHotTimeRemaining = 120.0f; // 2분 남았을 때(잔여 경고 토스트와 동일 시점)
 
 	UPROPERTY(EditDefaultsOnly, Category = "Feedback|BGM")
 	float BGMSpeedupRemaining = 60.f;
@@ -94,8 +83,7 @@ private:
 	FTimerHandle BGMStartTimer;
 	bool bBGMFadedOut = false;
 	bool bBGMBoosted = false;
-	bool bIsHotTime = false;       // 1차 핫타임 활성 여부
-	bool bIsSecondHotTime = false; // 2차 핫타임 활성 여부
+	bool bIsSecondHotTime = false; // 핫타임 활성 여부(중복 진입 방지)
 
 	FDelegateHandle ActorSpawnedHandle;
 
@@ -111,11 +99,11 @@ private:
 	float PendingTimeLeft = 0.f;
 	int32 PendingBaseScore = 0;
 
-	// 경과 시간 토스트: 마지막으로 알린 경과 분. -1 = 미초기화(Playing 첫 관찰 때 현재 분으로 동기화)
+	// 잔여 시간 경고: 마지막으로 알린 잔여 분. -1 = 미초기화(Playing 첫 관찰 때 현재 분으로 동기화)
 	int32 LastAnnouncedMinute = -1;
 	TWeakObjectPtr<UUserWidget> ActiveTimeToast;
 	FTimerHandle TimeToastTimer;
 
 	void PlayDeposit();
-	void ShowElapsedMinuteToast(int32 Minutes);
+	void ShowRemainingMinuteToast(int32 Minutes);
 };
