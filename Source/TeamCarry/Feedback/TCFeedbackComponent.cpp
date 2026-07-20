@@ -192,7 +192,7 @@ void UTCFeedbackComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 	else
 	{
 		// ── 핫타임: 남아 있는(안 잡힌) 가구에 빨간 링(스텐실 4) 재주장 ──
-		// TCFeedbackSubsystem 이 트럭 비율 기준으로 GS->bIsHotTime 을 설정하면
+		// TCFeedbackSubsystem 이 잔여 시간 기준으로 GS->bIsHotTime 을 설정하면
 		// 모든 클라이언트에 복제되어 이곳에서 빨간 링을 표시한다.
 		UWorld* W = GetWorld();
 		const ATeamCarryGameState* GS = W ? W->GetGameState<ATeamCarryGameState>() : nullptr;

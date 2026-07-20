@@ -38,8 +38,8 @@ namespace
 	const TCHAR* DefaultGameClear = TEXT("/Game/Developers/goldb/Audio/SW_GameClear.SW_GameClear");
 	const TCHAR* TimeWarningWidgetPath = TEXT("/Game/Developers/goldb/UI/WBP_TimeWarning.WBP_TimeWarning_C");
 
-	// 경과 시간 토스트: 이 분(分)부터 매 분 "N분 경과했습니다"를 잠깐 띄운다
-	constexpr int32 TimeNoticeStartMinute = 5;
+	// 잔여 시간 경고: 이 분(分) 이하로 남으면 매 분 "N분 남았습니다"를 잠깐 띄운다(2분 → 1분)
+	constexpr int32 TimeNoticeStartRemainingMin = 2;
 	constexpr float TimeNoticeSeconds = 3.f;
 }
 
@@ -230,81 +230,38 @@ void UTCFeedbackSubsystem::Tick(float DeltaTime)
 		}
 	}
 
-	// ── 경과 시간 토스트: 5분부터 매 분 "N분 경과했습니다"(2초) ──
-	// 카운트다운이 아닌 스톱워치 게임이라 '남은 시간'이 아닌 '경과 시간'을 알린다.
+	// ── 잔여 시간 경고: 2분 / 1분 남았을 때 "N분 남았습니다" ──
+	// 제한시간은 스테이지마다 다르므로(DT_StageConfig: L_Level1 5분, L_Level2 7분)
+	// 절대 경과분이 아니라 GameState 가 매 틱 갱신하는 RemainingTime 을 기준으로 알린다.
 	if (Phase == EGamePhase::Playing)
 	{
-		const int32 ElapsedMin = FMath::FloorToInt(GS->ElapsedTime / 60.f);
+		// 남은 분을 올림 처리 — 120초 이하로 떨어지는 순간이 "2분 남음"이다.
+		const int32 RemainingMin = FMath::CeilToInt(GS->RemainingTime / 60.f);
 		if (LastAnnouncedMinute < 0)
 		{
-			// 첫 관찰(레이트 조인 포함)은 현재 분으로 동기화 — 밀린 알림이 몰아서 뜨는 것 방지
-			LastAnnouncedMinute = FMath::Max(ElapsedMin, TimeNoticeStartMinute - 1);
+			// 첫 관찰(레이트 조인 포함)은 현재 잔여분으로 동기화 — 밀린 알림이 몰아서 뜨는 것 방지
+			LastAnnouncedMinute = FMath::Max(RemainingMin, TimeNoticeStartRemainingMin + 1);
 		}
-		else if (ElapsedMin > LastAnnouncedMinute)
+		else if (RemainingMin < LastAnnouncedMinute)
 		{
-			LastAnnouncedMinute = ElapsedMin;
-			ShowElapsedMinuteToast(ElapsedMin);
+			LastAnnouncedMinute = RemainingMin;
+			// 2분·1분 두 지점에서만 띄운다(0분은 종료 연출이 담당).
+			if (RemainingMin >= 1 && RemainingMin <= TimeNoticeStartRemainingMin)
+			{
+				ShowRemainingMinuteToast(RemainingMin);
+			}
 		}
 	}
 
 	// ── 핫타임 연출 ──
-	// 1차: 3분 경과 후 트럭 비율 50% 이하 → 50% 이상이면 종료
-	// 2차: 1분 남았을 때 무조건 시작 → 게임 종료 시 종료
+	// 잔여 2분 시점에 시작 → 게임 종료 시 종료(잔여 경고 토스트와 같은 시점).
 	// 적재존 밖 가구의 빨간 링은 TCFeedbackComponent 가 GS->bIsHotTime 복제를 구독해 표시한다.
+	// (트럭 적재 비율 기반 1차 핫타임은 제거 — 진행도가 아니라 남은 시간만으로 재촉한다)
 	if (Phase == EGamePhase::Playing)
 	{
-		// 핫타임 임계시간은 GameMode 에서 읽는다 (DataTable 로 스테이지마다 다름)
-		float EffectiveHotTimeThreshold = HotTimeElapsedThreshold;
-		if (const ATeamCarryGameMode* GM = World->GetAuthGameMode<ATeamCarryGameMode>())
-		{
-			EffectiveHotTimeThreshold = GM->HotTimeElapsedThreshold;
-		}
-
-		// 트럭 비율 계산
-		int32 TotalCount = 0;
-		if (const ATeamCarryGameMode* GM = World->GetAuthGameMode<ATeamCarryGameMode>())
-		{
-			TotalCount = GM->GetTargetCount();
-		}
-		const int32 EffectiveTotal = FMath::Max(1, TotalCount - GS->DestroyedFurnitureCount);
-		const int32 InTruckCount = FMath::Max(0, TotalCount - GS->RemainingFurniture - GS->DestroyedFurnitureCount);
-		const float TruckRatio = (float)InTruckCount / (float)EffectiveTotal;
-
-		// ── 1차 핫타임: 3분 경과 후 트럭 비율 50% 이하 ──
-		if (!bIsHotTime && !bIsSecondHotTime && GS->ElapsedTime >= EffectiveHotTimeThreshold && TruckRatio <= HotTimeStartRatio)
-		{
-			bIsHotTime = true;
-			GS->bIsHotTime = true;
-			GS->NotifyHotTimeChanged();
-			if (!bBGMBoosted)
-			{
-				bBGMBoosted = true;
-				if (BGMComp && BGMComp->IsPlaying())
-				{
-					BGMComp->SetPitchMultiplier(BGMSpeedupPitch);
-				}
-			}
-			UE_LOG(LogTemp, Warning, TEXT("[Feedback] 1차 핫타임 시작 (경과: %.0f초, 트럭 비율: %.0f%%)"), GS->ElapsedTime, TruckRatio * 100.f);
-		}
-		// ── 1차 핫타임 종료: 트럭 비율 50% 이상 ──
-		else if (bIsHotTime && !bIsSecondHotTime && TruckRatio >= HotTimeEndRatio)
-		{
-			bIsHotTime = false;
-			bBGMBoosted = false;
-			GS->bIsHotTime = false;
-			GS->NotifyHotTimeChanged();
-			if (BGMComp && BGMComp->IsPlaying())
-			{
-				BGMComp->SetPitchMultiplier(1.f);
-			}
-			UE_LOG(LogTemp, Warning, TEXT("[Feedback] 1차 핫타임 종료 (트럭 비율: %.0f%%)"), TruckRatio * 100.f);
-		}
-
-		// ── 2차 핫타임: 1분 남았을 때 무조건 시작 ──
 		if (!bIsSecondHotTime && GS->RemainingTime <= SecondHotTimeRemaining)
 		{
 			bIsSecondHotTime = true;
-			bIsHotTime = false; // 1차 핫타임은 종료
 			GS->bIsHotTime = true;
 			GS->NotifyHotTimeChanged();
 			if (!bBGMBoosted)
@@ -315,7 +272,7 @@ void UTCFeedbackSubsystem::Tick(float DeltaTime)
 					BGMComp->SetPitchMultiplier(BGMSpeedupPitch);
 				}
 			}
-			UE_LOG(LogTemp, Warning, TEXT("[Feedback] 2차 핫타임 시작 (남은 시간: %.0f초)"), GS->RemainingTime);
+			UE_LOG(LogTemp, Warning, TEXT("[Feedback] 핫타임 시작 (남은 시간: %.0f초)"), GS->RemainingTime);
 		}
 	}
 
@@ -407,7 +364,7 @@ void UTCFeedbackSubsystem::PlayDeposit()
 	}
 }
 
-void UTCFeedbackSubsystem::ShowElapsedMinuteToast(int32 Minutes)
+void UTCFeedbackSubsystem::ShowRemainingMinuteToast(int32 Minutes)
 {
 	UWorld* World = GetWorld();
 	if (!World)
@@ -434,7 +391,7 @@ void UTCFeedbackSubsystem::ShowElapsedMinuteToast(int32 Minutes)
 	if (UTextBlock* Txt = Cast<UTextBlock>(Toast->GetWidgetFromName(TEXT("WarnText"))))
 	{
 		Txt->SetText(FText::Format(
-			NSLOCTEXT("Feedback", "ElapsedMinutes", "{0}분 경과했습니다"), FText::AsNumber(Minutes)));
+			NSLOCTEXT("Feedback", "RemainingMinutes", "{0}분 남았습니다"), FText::AsNumber(Minutes)));
 	}
 	Toast->AddToViewport(50); // HUD 위, 결과창 아래쯤
 	ActiveTimeToast = Toast;
