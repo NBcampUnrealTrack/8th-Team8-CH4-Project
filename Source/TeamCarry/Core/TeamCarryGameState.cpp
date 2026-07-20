@@ -10,6 +10,7 @@ ATeamCarryGameState::ATeamCarryGameState()
 	TotalLevelValue = 0;
 	RemainingFurniture = 0;
 	ElapsedTime = 0.0f;
+	RemainingTime = 0.0f;
 	TotalFurnitureCount = 0;
 	DestroyedFurnitureCount = 0;
 	bIsHotTime = false;
@@ -26,6 +27,7 @@ void ATeamCarryGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 	DOREPLIFETIME(ATeamCarryGameState, TotalLevelValue);
 	DOREPLIFETIME(ATeamCarryGameState, RemainingFurniture);
 	DOREPLIFETIME(ATeamCarryGameState, ElapsedTime);
+	DOREPLIFETIME(ATeamCarryGameState, RemainingTime);
 	DOREPLIFETIME(ATeamCarryGameState, TotalFurnitureCount);
 	DOREPLIFETIME(ATeamCarryGameState, DestroyedFurnitureCount);
 	DOREPLIFETIME(ATeamCarryGameState, bIsHotTime);
