@@ -34,6 +34,24 @@ namespace
 					FString::Printf(TEXT("[타이머 디버그] %s"), NewVal ? TEXT("정지") : TEXT("재개")));
 			}
 		}));
+
+	// 디버그: 강제 게임 종료(클리어 처리). 타이머 대기 없이 즉시 FinishGame(true) 경로를 태워
+	// O_Result·세이브까지 한 번에 테스트할 수 있다. 서버(호스트)에서만 의미가 있다.
+	FAutoConsoleCommandWithWorld CmdForceFinishGame(
+		TEXT("TC.ForceFinishGame"),
+		TEXT("디버그: 게임을 즉시 클리어 처리하여 강제 종료한다 (F6)"),
+		FConsoleCommandWithWorldDelegate::CreateLambda([](UWorld* World)
+		{
+			if (!World) return;
+			if (ATeamCarryGameMode* GM = World->GetAuthGameMode<ATeamCarryGameMode>())
+			{
+				GM->DebugForceFinishGame();
+				if (GEngine)
+				{
+					GEngine->AddOnScreenDebugMessage(9103, 2.f, FColor::Green, TEXT("[디버그] 강제 게임 종료(클리어)"));
+				}
+			}
+		}));
 }
 
 ATeamCarryGameMode::ATeamCarryGameMode()
@@ -740,6 +758,11 @@ void ATeamCarryGameMode::FinishGame(bool bIsClear)
             GS->TotalScore, GS->StarCount, GS->ElapsedTime);
 
     }, 5.0f, false);
+}
+
+void ATeamCarryGameMode::DebugForceFinishGame()
+{
+	FinishGame(true);
 }
 
 bool ATeamCarryGameMode::IsStageCleared() const
