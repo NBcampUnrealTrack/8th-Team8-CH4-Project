@@ -73,7 +73,7 @@ protected:
 	int32 CharacterIndex = 0;
 
 	// ColorIndex 변수
-	UPROPERTY(Replicated, VisibleAnywhere, BlueprintReadOnly, Category = "TeamCarry|Color")
+	UPROPERTY(ReplicatedUsing = OnRep_LobbyInfo, VisibleAnywhere, BlueprintReadOnly, Category = "TeamCarry|Color")
 	int32 ColorIndex = -1;
 
 	UFUNCTION()

@@ -75,7 +75,13 @@ void ATCPlayerState::SetColorIndexAuthoritative(int32 InColorIndex)
 		UE_LOG(LogTCNet, Warning, TEXT("SetColorIndexAuthoritative: 비권위 호출 무시"));
 		return;
 	}
+	if (ColorIndex == InColorIndex)
+	{
+		return;
+	}
 	ColorIndex = InColorIndex;
+	// 서버 자신은 OnRep 이 안 불리므로 직접 알린다(리슨서버 로컬 UI 갱신).
+	NotifyLobbyChanged();
 }
 
 void ATCPlayerState::SetHasLoadedCurrentMapAuthoritative(bool bInLoaded)
