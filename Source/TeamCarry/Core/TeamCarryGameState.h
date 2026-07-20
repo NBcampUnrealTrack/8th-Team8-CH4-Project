@@ -27,9 +27,13 @@ public:
 	UPROPERTY(ReplicatedUsing = OnRep_RemainingFurniture, BlueprintReadOnly)
 	int32 RemainingFurniture;
 
-	// 스톱워치 경과 시간 (초) — UI에 표시되는 값. Playing 단계에서 매 프레임 증가한다.
+	// 스톱워치 경과 시간 (초) — Playing 단계에서 매 프레임 증가한다.
 	UPROPERTY(Replicated, BlueprintReadOnly)
 	float ElapsedTime;
+
+	// 남은 시간 (초) — TimeLimitSeconds - ElapsedTime. UI 에 표시되는 카운트다운 값.
+	UPROPERTY(Replicated, BlueprintReadOnly)
+	float RemainingTime;
 
 	// 스테이지 전체 가구 개수 — BeginPlay 시 1회 설정. S_InGame UI 에서 사용.
 	UPROPERTY(Replicated, BlueprintReadOnly)

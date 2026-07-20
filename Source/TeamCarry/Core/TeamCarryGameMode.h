@@ -8,6 +8,7 @@
 #include "TCSaveGame.h"
 #include "StageClearProvider.h"
 #include "StageHost.h"
+#include "Engine/DataTable.h"
 #include "TeamCarryGameMode.generated.h"
 
 // 트럭 안 가구 정보 구조체
@@ -97,6 +98,18 @@ public:
 	// 카운트다운 시작
 	void StartCountdown();
 
+	// 스테이지 설정 DataTable — DT_StageConfig 를 에디터에서 지정.
+	// 맵 이름을 RowName 으로 조회해 아래 값들을 자동 설정한다.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite)
+	UDataTable* StageConfigTable = nullptr;
+
+	// 게임 제한시간 (초). DataTable 미설정 시 기본값 사용.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite)
+	float TimeLimitSeconds = 300.0f; // 기본 5분
+
+	// 핫타임 시작 경과시간 (초). DataTable 미설정 시 기본값 사용.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite)
+	float HotTimeElapsedThreshold = 180.0f; // 기본 3분
 	// 디버그: 강제로 게임을 클리어 처리하여 즉시 종료한다(콘솔 "TC.ForceFinishGame", F6 바인딩).
 	// FinishGame(true)를 그대로 호출하므로 SaveGame·O_Result 트리거 등 정상 클리어 경로와 동일하게 동작한다.
 	UFUNCTION(BlueprintCallable)
