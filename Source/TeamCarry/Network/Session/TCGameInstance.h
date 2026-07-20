@@ -21,6 +21,8 @@ class TEAMCARRY_API UTCGameInstance : public UGameInstance
 	GENERATED_BODY()
 
 public:
+	virtual void Init() override;
+
 	// ── 레거시: LAN / 직접 IP (OSS 미초기화 환경 폴백용으로 유지) ──
 
 	// 리슨 서버로 호스트 — 지정 맵을 listen 모드로 오픈(호스트도 플레이)

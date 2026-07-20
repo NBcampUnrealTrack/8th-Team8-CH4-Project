@@ -110,6 +110,10 @@ public:
 	// 핫타임 시작 경과시간 (초). DataTable 미설정 시 기본값 사용.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite)
 	float HotTimeElapsedThreshold = 180.0f; // 기본 3분
+	// 디버그: 강제로 게임을 클리어 처리하여 즉시 종료한다(콘솔 "TC.ForceFinishGame", F6 바인딩).
+	// FinishGame(true)를 그대로 호출하므로 SaveGame·O_Result 트리거 등 정상 클리어 경로와 동일하게 동작한다.
+	UFUNCTION(BlueprintCallable)
+	void DebugForceFinishGame();
 
 	// 이 스테이지에서 획득 가능한 전체 목표 값어치. 가구별 BaseScore가 블루프린트 이벤트 그래프에서만
 	// 관리되어(C++/DataTable에 없음) 자동 합산이 불가능하므로, 다른 스테이지별 상수와

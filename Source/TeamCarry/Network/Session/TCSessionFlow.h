@@ -10,7 +10,7 @@
 class UTCGameInstance;
 class UWorld;
 class UUserWidget;
-class UW_MovieLoadingScreen;
+class US_Loading;
 class UTexture2D;
 
 // 스테이지 정의(명세 2장·7장-3). DT_Stages(DataTable) 의 행 구조체.
@@ -158,6 +158,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "TeamCarry|Session")
 	FString GetSelectedStageMapPath() const;
 
+	// 현재 선택된 스테이지 맵 패키지를 백그라운드에서 비동기로 미리 로드해 둔다(best-effort,
+	// 실패해도 안전 — 실제 트래블 시점엔 어차피 정상 로드된다). 로비에서 대기하는 동안 호출해
+	// 두면, 실제 스테이지 진입(seamless travel) 시점에 그 레벨 머티리얼들을 처음 로드/렌더하며
+	// 생기는 렌더 스레드 스톨(셰이더 컴파일)을 다소 줄일 수 있다. 호출부: ATCLobbyGameMode::
+	// InitGameState()(로비 진입 시 1회), SetStageSelection()(스테이지 재선택 시).
+	void PreloadSelectedStageMapAsync();
+
 	// O_StageSelect 목록 UI 용 전체 스테이지 조회(DT_Stages 미설정 시 빈 배열).
 	UFUNCTION(BlueprintPure, Category = "TeamCarry|Session")
 	TArray<FStageInfo> GetAllStageInfos() const;
@@ -261,25 +268,38 @@ private:
 	void UnbindGameInstanceEvents();
 
 	// ── MoviePlayer 로딩 화면(hard travel 전용 보강, 2장·4장-9 "로딩 화면 동기화 문제") ──
-	// UW_MovieLoadingScreen 클래스(생성자에서 ConstructorHelpers::FClassFinder로 기본값 지정).
-	// 기존 CommonUI S_Loading(OnTravelStarted/ClientShowLoadingScreen 경로)은 그대로 두고,
-	// MoviePlayer는 게임 스레드가 블로킹되는 hard travel 구간까지 추가로 덮는 용도로만 붙는다 —
-	// 두 시스템이 동시에 존재해도 문제 없다(MoviePlayer가 먼저 화면을 가리고, 이후 CommonUI가
-	// 자연스럽게 이어받는다).
+	// (2026-07-19) 전용 UW_MovieLoadingScreen 클래스 대신 WBP_S_Loading(US_Loading)을 그대로
+	// 재사용한다 — hard travel이든 seamless travel이든 사용자에게 보이는 로딩 화면이 항상 동일한
+	// 디자인이어야 한다는 요청 반영(생성자에서 ConstructorHelpers::FClassFinder로 기본값 지정).
+	// MoviePlayer는 게임 스레드가 블로킹되는 hard travel 구간을 덮는 렌더 경로 역할만 하고,
+	// 그 위에 그려지는 위젯 자체는 지속형 인스턴스(MockUIController::PersistentLoadingWidget)와
+	// 같은 클래스를 쓴다 — 다만 별개의 인스턴스이며 두 시스템이 동시에 존재해도 문제 없다
+	// (MoviePlayer가 먼저 화면을 가리고, 이후 CommonUI 쪽 지속형 인스턴스가 자연스럽게 이어받는다).
 	UPROPERTY()
 	TSubclassOf<class UUserWidget> MovieLoadingWidgetClass;
 
-	// SetupLoadingScreen()에 넘긴 위젯 인스턴스. StopMovieLoadingScreen()/상태 문구 갱신에 쓰기
+	// SetupLoadingScreen()에 넘긴 위젯 인스턴스. StopMovieLoadingScreen()/상태 갱신에 쓰기
 	// 위해 참조를 유지한다(MoviePlayer 쪽 TakeWidget()은 SWidget만 가져가므로 UObject 수명은
 	// 이쪽에서 별도로 관리해야 한다).
 	UPROPERTY()
-	TObjectPtr<class UW_MovieLoadingScreen> ActiveMovieLoadingWidget;
+	TObjectPtr<class US_Loading> ActiveMovieLoadingWidget;
 
-	// FCoreUObjectDelegates::PreLoadMap 핸들러 — 트래블 대상 맵이 결정된 직후(로드 시작 직전)
-	// MoviePlayer 로딩 화면을 띄운다. 스테이지 맵(S_InGame)이면 bWaitForManualStop=true로
-	// StopMovieLoadingScreen() 호출 전까지 유지하고, 그 외(Title/Lobby/Tutorial)는
-	// bAutoCompleteWhenLoadingCompletes=true로 로드 완료 시 자동으로 사라진다.
+	// FCoreUObjectDelegates::PreLoadMap 핸들러 — hard travel(?listen)에서만 발화된다.
+	// StartMovieLoadingScreen()으로 위임한다.
 	void HandlePreLoadMap(const FString& MapName);
+
+	// MoviePlayer 로딩 화면을 실제로 띄우는 공통 로직. 스테이지 맵(S_InGame)이면
+	// bWaitForManualStop=true로 StopMovieLoadingScreen() 호출 전까지 유지하고, 그 외
+	// (Title/Lobby/Tutorial)는 bAutoCompleteWhenLoadingCompletes=true로 로드 완료 시 자동으로
+	// 사라진다. 이미 재생 중이면 재시작하지 않고 no-op(중복 호출 방지).
+	//
+	// HandlePreLoadMap()에서만 호출한다 — 즉 hard travel(?listen) 전용이다.
+	// (2026-07-19) 한때 HostServerTravel()에서도 seamless travel 보강용으로 직접 호출해 봤으나,
+	// 실측 결과 게임 스레드 행(hang)이 발생해 되돌렸다(HostServerTravel의 주석 참고). MoviePlayer의
+	// bWaitForManualStop 로딩 화면은 렌더 스레드를 통째로 점유하는 방식이라, 게임 스레드가 계속
+	// 작업 중이어야 하는 seamless travel 도중에 걸면 안전하지 않다 — 게임 스레드가 완전히 멈춰
+	// 있는 hard travel(UEngine::LoadMap)에서만 안전하게 사용할 수 있다.
+	void StartMovieLoadingScreen(const FString& MapName);
 
 	// FCoreUObjectDelegates::PostLoadMapWithWorld 핸들러 — 이 프로세스의 로컬 로딩이 끝난 시점.
 	// 스테이지 맵 도착이면 "전원 대기" 문구로 전환한다(StopMovie는 아직 호출하지 않음).
