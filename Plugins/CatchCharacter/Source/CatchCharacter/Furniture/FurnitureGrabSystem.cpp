@@ -17,6 +17,28 @@
 
 DEFINE_LOG_CATEGORY(LogCarry);
 
+// 운반 떨림 진단·튜닝 스위치 — 기본값은 기존 동작 유지
+static TAutoConsoleVariable<int32> CVarCarryLookDownRelax(
+	TEXT("TC.Carry.LookDownRelax"), 1,
+	TEXT("운반 높이 하한 완화: 0=끔, 1=현재(임계 -25°·이력 없음), 2=이력(-25° 진입 / -15° 이탈)"),
+	ECVF_Default);
+
+// 가중치 비율 스무딩 시정수(초) — 2인 동시 입력의 목표 위치 자기발진을 감쇠
+static TAutoConsoleVariable<float> CVarCarryWeightSmooth(
+	TEXT("TC.Carry.WeightSmooth"), 0.15f,
+	TEXT("운반 가중치 스무딩 시정수(초). 0=끔"),
+	ECVF_Default);
+
+static TAutoConsoleVariable<int32> CVarCarryInputGate(
+	TEXT("TC.Carry.InputGate"), 0,
+	TEXT("운반 입력 게이트: 0=가속도 원본(원격에서 0으로 읽힘), 1=속도(견인과 되먹임), 2=가속도 래치(권장)"),
+	ECVF_Default);
+
+static TAutoConsoleVariable<int32> CVarCarryFloorComplex(
+	TEXT("TC.Carry.FloorComplex"), 1,
+	TEXT("가구 밑 지지면 스윕 복합 콜리전: 0=심플만, 1=복합 포함"),
+	ECVF_Default);
+
 // =====================================================================
 // 생성 / 초기화
 // =====================================================================
@@ -170,8 +192,6 @@ void UFurnitureGrabSystem::Grab(ACharacter* Grabber, FVector height, UPrimitiveC
 					OtherMesh->SetPhysicsAngularVelocityInDegrees(FVector::ZeroVector);
 					if (FBodyInstance* BI = OtherMesh->GetBodyInstance())
 						BI->SetMaxDepenetrationVelocity(120.0f);
-					//UE_LOG(LogCarry, Log, TEXT("[스택 웨이크] %s (%s 그랩 시 겹침)"),
-					//	*OtherA->GetName(), *Owner->GetName());
 				}
 			}
 		}
@@ -244,8 +264,6 @@ void UFurnitureGrabSystem::Grab(ACharacter* Grabber, FVector height, UPrimitiveC
 		FurnitureStat->UpdateGrabbedPlayers(GrabbedPlayers.Num());
 	}
 
-	//UE_LOG(LogCarry, Log, TEXT("[그랩] %s ← %s (N=%d, 필요=%d)"),
-	//	*Owner->GetName(), *Grabber->GetName(), GrabbedPlayers.Num(),
 	//	FurnitureStat ? FurnitureStat->GetRequiredPlayer() : -1);
 }
 
@@ -270,6 +288,29 @@ void UFurnitureGrabSystem::Release(ACharacter* Grabber)
 	GrabbedPlayers.Remove(Grabber);
 	Anchors.Remove(Grabber);
 	DraggedLastTick.Remove(Grabber);
+	StoppedDraggingLastTick.Remove(Grabber);
+	LastInputSeenTime.Remove(Grabber);
+	SmoothedWeight.Remove(Grabber);
+
+	// [앵커 재기준] 남은 운반자 앵커는 떠난 사람이 있던 대형 기준이라 가구가 빈 자리로 멀어진다.
+	// 현재 트랜스폼으로 다시 잡아 가구가 있던 자리에 머물게 한다.
+	{
+		const FVector  FurnLoc = Owner->GetActorLocation();
+		const float    FurnYaw = Owner->GetActorRotation().Yaw;
+		for (ACharacter* P : GrabbedPlayers)
+		{
+			FGrabAnchor* Anc = Anchors.Find(P);
+			if (!Anc || !P)
+				continue;
+			Anc->InitialOffset       = FurnLoc - P->GetActorLocation();
+			Anc->InitialFurnitureYaw = FurnYaw;
+			Anc->InitialAimYaw       = P->GetBaseAimRotation().Yaw;
+			Anc->InitialPlayerYaw    = P->GetActorRotation().Yaw;
+			Anc->PrevAimYaw          = Anc->InitialAimYaw;
+			Multicast_SetPlayerAnchor(P, Anc->InitialFurnitureYaw, Anc->InitialPlayerYaw,
+				Anc->InitialAimYaw, Anc->InitialOffset);
+		}
+	}
 
 	// [델리게이트용] 잡은 인원 변화 알림 — 서버는 여기서 즉시, 클라는 OnRep_GrabbedPlayers에서 발화
 	OnGrabCountChanged.Broadcast(GrabbedPlayers.Num() + 1, GrabbedPlayers.Num());
@@ -353,8 +394,6 @@ void UFurnitureGrabSystem::Release(ACharacter* Grabber)
 	if (FurnitureStat)
 		FurnitureStat->UpdateGrabbedPlayers(GrabbedPlayers.Num());
 
-	//UE_LOG(LogCarry, Log, TEXT("[해제] %s ← %s (남은 N=%d)"),
-	//	*Owner->GetName(), *Grabber->GetName(), GrabbedPlayers.Num());
 }
 float UFurnitureGrabSystem::ComputeCarrySpeed() const
 {
@@ -446,11 +485,6 @@ void UFurnitureGrabSystem::AddFurnitureOffset(FVector LocationOffset, float YawO
 
 	// 가구 단독 이동 및 회전 적용
 	// Pitch(기울이기)는 HandleMovement가 매 틱 현재값을 유지하므로 여기서 바꾸면 그대로 운반됨
-	FVector NewLoc = OldLoc + LocationOffset;
-	//FRotator NewRot = Owner->GetActorRotation();
-	//NewRot.Yaw += YawOffset;
-	//NewRot.Pitch += PitchOffset;
-	//Owner->SetActorLocationAndRotation(NewLoc, NewRot, true);
 	Owner->AddActorLocalRotation(FRotator(PitchOffset, YawOffset, 0.0f), true);
 	Owner->AddActorLocalOffset(LocationOffset, true);
 
@@ -482,12 +516,6 @@ void UFurnitureGrabSystem::AddFurnitureOffset(FVector LocationOffset, float YawO
 		}
 	}
 
-	// 위치 이동
-	//Owner->SetActorLocation(NewLoc, true);
-	//
-	//// 짐벌락 방지를 위해 AddActorRotation 사용
-	//Owner->AddActorWorldRotation(FRotator(PitchOffset, YawOffset, 0.0f), true);
-	////Owner->AddActorLocalRotation(FRotator(PitchOffset, YawOffset, 0.0f), true);
 
 	FVector ActualLoc = Owner->GetActorLocation();
 	float ActualYaw = Owner->GetActorRotation().Yaw;
