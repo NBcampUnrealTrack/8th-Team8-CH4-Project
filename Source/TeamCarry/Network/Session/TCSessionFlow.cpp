@@ -180,30 +180,20 @@ void UTCSessionFlow::SetStageSelection(int32 InStageId)
 		}
 	}
 
-	// 방장이 스테이지를 바꿀 때마다 새로 선택된 맵도 백그라운드 프리로드 대상으로 삼는다
-	// (기본 선택 스테이지는 InitGameState()에서 이미 1회 트리거됨).
-	PreloadSelectedStageMapAsync();
+	// (2026-07-20 비활성) 여기서 호출하던 PreloadSelectedStageMapAsync() 를 제거했다 —
+	// 아래 함수 주석의 트래블 충돌 문제 참고.
 }
 
 void UTCSessionFlow::PreloadSelectedStageMapAsync()
 {
-	const FString MapPath = GetSelectedStageMapPath();
-	if (MapPath.IsEmpty())
-	{
-		return;
-	}
-
-	UE_LOG(LogTCNet, Log, TEXT("[SessionFlow] 스테이지 맵 백그라운드 프리로드 시작: %s"), *MapPath);
-
-	// Best-effort — 실패/지연돼도 실제 트래블 시점엔 어차피 정상적으로 (다시) 로드되므로
-	// 기능적으로 문제없다. 목적은 로비 대기 시간을 이용해 그 레벨의 머티리얼/텍스처 패키지를
-	// 미리 메모리에 올려, 실제 진입 시점의 로드 부담을 조금이라도 줄이는 것뿐이다.
-	LoadPackageAsync(MapPath, FLoadPackageAsyncDelegate::CreateLambda(
-		[MapPath](const FName& PackageName, UPackage* LoadedPackage, EAsyncLoadingResult::Type Result)
-		{
-			UE_LOG(LogTCNet, Log, TEXT("[SessionFlow] 스테이지 맵 백그라운드 프리로드 완료: %s (결과=%d)"),
-				*MapPath, static_cast<int32>(Result));
-		}));
+	// (2026-07-20 비활성) 로딩 히치 완화용으로 스테이지 '맵 패키지'를 로비에서 미리
+	// LoadPackageAsync 하던 코드를 껐다. 맵 패키지는 일반 에셋과 달리 곧이어 ServerTravel 의
+	// LoadMap 이 같은 패키지를 다시 여는 대상이라, 미리 올려둔 UWorld 가 트래블 경로와 충돌한다
+	// (호스트만 프리로드하므로 증상도 호스트 쪽에서 먼저 터진다 — 로딩 중 크래시, 클라는 그
+	//  호스트를 기다리다 로딩에서 멈춤).
+	// 히치 완화가 다시 필요하면 맵이 아니라 '그 맵이 쓰는 머티리얼/텍스처'만 개별로 프리로드하거나,
+	// PSO 사전 워밍업으로 접근할 것.
+	return;
 }
 
 int32 UTCSessionFlow::GetSelectedStageId() const
