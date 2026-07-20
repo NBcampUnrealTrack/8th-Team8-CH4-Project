@@ -234,7 +234,7 @@ void US_Lobby::RefreshLobbyFromGameState()
 			// 1=빨강으로 구현되어 있어 이 순서와 어긋난다(0/1 반전). 데칼 쪽도 맞추려면
 			// BP_PlayerCharacter::DecalColor 매핑을 0=빨강/1=파랑으로 함께 바꿔야 한다.
 			// 2/3(노랑/초록) 데칼은 아직 미구현이라 여기 값은 잠정값이다.
-			FLinearColor SlotColor = FLinearColor::White;
+			FLinearColor SlotColor = FLinearColor::Black;
 			switch (TCPS->GetColorIndex())
 			{
 			case 0: SlotColor = FLinearColor(1.0f, 0.0f, 0.0f, 1.0f); break; // 빨강
