@@ -56,6 +56,7 @@ void AInteractableDoor::OnInteract_Implementation(ATCPlayerCharacter* /*Player*/
 
 void AInteractableDoor::OnFocus_Implementation()
 {
+	DoorMesh->SetCustomDepthStencilValue(1); // PP 하이라이트 링은 스텐실==1 기준
 	DoorMesh->SetRenderCustomDepth(true);  // 외곽선 하이라이트 ON
 }
 

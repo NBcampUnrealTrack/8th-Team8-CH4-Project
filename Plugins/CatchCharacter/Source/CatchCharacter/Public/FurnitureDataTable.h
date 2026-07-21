@@ -34,4 +34,8 @@ public:
 	// 마찰력 (감속 비율)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	float Friction = 4.f;
+
+	// 가구 가격
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	int32 Price = 200;
 };

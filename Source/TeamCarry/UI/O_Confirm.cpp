@@ -1,10 +1,12 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 
 #include "TeamCarry/UI/O_Confirm.h"
-#include "Components/Button.h"
+#include "Components/TextBlock.h"
+#include "CommonButtonBase.h"
 #include "TeamCarry/UI/MockUIController.h"
 #include "Input/CommonUIInputTypes.h"
+#include "Engine/GameInstance.h"
 
 UO_Confirm::UO_Confirm()
 {
@@ -20,17 +22,18 @@ void UO_Confirm::NativeConstruct()
 {
 	Super::NativeConstruct();
 
-	// Bind Confirm Button (예 / 확인)
+	// CommonUI의 네이티브 바인딩 방식인 OnClicked().AddUObject 를 적용했습니다.
 	if (Btn_Confirm)
 	{
-		Btn_Confirm->OnClicked.AddUniqueDynamic(this, &UO_Confirm::HandleConfirmClicked);
+		Btn_Confirm->OnClicked().AddUObject(this, &UO_Confirm::HandleConfirmClicked);
 	}
 
-	// Bind Cancel Button (아니오 / 취소)
 	if (Btn_Cancel)
 	{
-		Btn_Cancel->OnClicked.AddUniqueDynamic(this, &UO_Confirm::HandleCancelClicked);
+		Btn_Cancel->OnClicked().AddUObject(this, &UO_Confirm::HandleCancelClicked);
 	}
+
+	SetIsFocusable(true);
 }
 
 TOptional<FUIInputConfig> UO_Confirm::GetDesiredInputConfig() const
@@ -51,8 +54,27 @@ UWidget* UO_Confirm::NativeGetDesiredFocusTarget() const
 	return Super::NativeGetDesiredFocusTarget();
 }
 
+void UO_Confirm::SetupConfirm(const FText& InTitle, const FText& InMessage, FOnConfirmYesAction InOnYesAction)
+{
+	if (Txt_Title)
+	{
+		Txt_Title->SetText(InTitle);
+	}
+
+	if (Txt_Message)
+	{
+		Txt_Message->SetText(InMessage);
+	}
+
+	// 실행할 콜백 액션 저장
+	OnYesAction = InOnYesAction;
+}
+
 void UO_Confirm::HandleConfirmClicked()
 {
+	// 바인딩된 파괴적 액션(예: 슬롯 삭제, 게임 종료 등)이 유효하다면 즉시 실행
+	OnYesAction.ExecuteIfBound();
+
 	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
 	{
 		// 프로토타입: 호출 측이 위임한 파괴적 액션은 백엔드 연동 단계에서 처리한다.
@@ -69,4 +91,16 @@ void UO_Confirm::HandleCancelClicked()
 		UE_LOG(LogTemp, Log, TEXT("[UI Confirm] Cancel(No) clicked. Closing modal without action."));
 		MockController->PopCurrentOverlay();
 	}
+}
+
+bool UO_Confirm::NativeOnHandleBackAction()	
+{
+	// ESC = 취소(No)와 동일하게 처리. 라우터를 통해 닫아 상태/스택 동기화를 유지한다.
+	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
+	{
+		UE_LOG(LogTemp, Log, TEXT("[UI Confirm] Back(ESC) handled as Cancel. Popping via MockUIController."));
+		MockController->PopCurrentOverlay();
+	}
+	// 처리했음을 알려 상위 스택으로 Back 전파를 막는다.
+	return true;
 }

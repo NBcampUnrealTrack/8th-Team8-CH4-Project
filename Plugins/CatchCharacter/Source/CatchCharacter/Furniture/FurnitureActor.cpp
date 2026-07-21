@@ -20,6 +20,21 @@ AFurnitureActor::AFurnitureActor()
 	GrabSystem = CreateDefaultSubobject<UFurnitureGrabSystem>(TEXT("GrabSystem"));
 	
 	DamageSystem = CreateDefaultSubobject<UFurnitureDamage>(TEXT("DamageSystem"));
+
+
+	// 데이터 테이블의 Mass를 실제 물리 바디에 반영.
+	// 주의: 생성자(CDO 포함)에서 SetMassOverrideInKg를 부르면 질량 재계산이 물리 머티리얼을
+	// 조회(GEngine 미초기화)해 에러가 찍히고 쿠킹이 실패한다. BodyInstance에 직접 기록하면
+	// 바디 초기화 시점에 같은 값이 적용된다.
+	const float StatMass = GetFurnitureStat()->GetMass();
+	if (FurnitureMesh && StatMass > 0.f)
+	{
+		FurnitureMesh->BodyInstance.SetMassOverride(StatMass, true);
+	}
+
+
+
+	FurnitureMesh->OnComponentHit.AddDynamic(DamageSystem, &UFurnitureDamage::OnHit);
 }
 
 void AFurnitureActor::BeginPlay()
@@ -41,8 +56,14 @@ void AFurnitureActor::BeginPlay()
 			FFurnitureData* Data = FurnitureDataRow.GetRow<FFurnitureData>(TEXT("FurnitureActor_Init"));
 			if (Data && FurnitureStat)
 			{
-				FurnitureStat->InitializeStats(*Data);
+				// 로우 이름도 함께 전달 — 스탯이 보관·복제해 어디서든 GetRowName()으로 조회 가능
+				FurnitureStat->InitializeStats(*Data, FurnitureDataRow.RowName);
+				FurnitureMesh->SetMassOverrideInKg(NAME_None, FurnitureStat->GetMass(), true);
 			}
+		}
+		if (IsValid(FurnitureStat) && IsValid(DamageSystem))
+		{
+			DamageSystem->Setup(FurnitureStat);
 		}
 	}
 
@@ -50,6 +71,18 @@ void AFurnitureActor::BeginPlay()
 	if (GrabSystem)
 	{
 		GrabSystem->Setup(FurnitureMesh, FurnitureStat);
+	}
+
+	// 가구만 이동/회전 디버깅용 코드
+	if (HasAuthority())
+	{
+		GetWorldTimerManager().SetTimer(
+			TestTimerHandle,
+			this,
+			&AFurnitureActor::ExecuteTestOffset,
+			1.f,
+			true
+		);
 	}
 }
 
@@ -60,5 +93,28 @@ void AFurnitureActor::Tick(float DeltaTime)
 
 void AFurnitureActor::SetHighlight(bool bEnabled)
 {
-	// 지금은 더미임
+	// PP 아웃라인 셰이더(M_PP_OutlineHLSL)가 CustomStencil==1 실루엣 둘레에 하이라이트 링을 그린다
+	if (FurnitureMesh)
+	{
+		FurnitureMesh->SetCustomDepthStencilValue(1);
+		FurnitureMesh->SetRenderCustomDepth(bEnabled);
+	}
+}
+
+void AFurnitureActor::FurnitureOffset(FVector LocationOffset, float YawOffset, float PitchOffset)
+{
+	// 서버에서만 이루어짐
+	if (HasAuthority() && GrabSystem)
+	{
+		GrabSystem->AddFurnitureOffset(LocationOffset, YawOffset, PitchOffset);
+	}
+}
+
+void AFurnitureActor::ExecuteTestOffset()
+{
+	// 디버그 자동 이동/회전: bTestAutoOffset 켠 가구만
+	if (HasAuthority() && bTestAutoOffset && GrabSystem)
+	{
+		GrabSystem->AddFurnitureOffset(TestLocationSpeed, TestYawSpeed, TestPitchSpeed);
+	}
 }

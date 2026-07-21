@@ -5,10 +5,28 @@
 #include "Components/Button.h"
 #include "TeamCarry/UI/MockUIController.h"
 #include "Kismet/GameplayStatics.h"
+#include "TeamCarry/UI/O_Confirm.h"
+#include "Kismet/KismetSystemLibrary.h"
+
+US_MainMenu::US_MainMenu()
+{
+	bSupportsActivationFocus = true;
+
+	UE_LOG(LogTemp, Log, TEXT("US_MainMenu Constructor"));
+}
 
 void US_MainMenu::NativeConstruct()
 {
 	Super::NativeConstruct();
+
+	if (Btn_Start)
+	{
+		Btn_Start->SetKeyboardFocus();
+
+		UE_LOG(LogTemp, Log, TEXT("Force Focus Start"));
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("US_MainMenu NativeConstruct"));
 
 	// Bind Start Button (게임 시작 → 세이브 슬롯 선택)
 	if (Btn_Start)
@@ -38,14 +56,21 @@ void US_MainMenu::NativeConstruct()
 	SetIsFocusable(true);
 }
 
+UWidget* US_MainMenu::NativeGetDesiredFocusTarget() const
+{
+	UE_LOG(LogTemp, Log, TEXT("US_MainMenu Focus Target"));
+
+	return Btn_Start;
+}
+
 void US_MainMenu::HandleStartClicked()
 {
 	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
 	{
-		// 명세 ③①: 게임 시작 → 세이브 슬롯 관리 화면(S_SlotSelect)으로 전환.
-		// 이어하기/새 게임 분기는 슬롯 선택 시점에 결정된다.
-		UE_LOG(LogTemp, Log, TEXT("[UI MainMenu] Start clicked. Transitioning to S_SlotSelect..."));
-		MockController->ReplaceState(EE_UIState::SlotSelect);
+		// 명세 3-1 / 3-8: 게임 시작 → 통합 접속 팝업(O_JoinRoom)을 오버레이로 띄운다(PushOverlay).
+		// 방 만들기/방 참가 분기와 S_SlotSelect·S_CharacterSelect 전환은 팝업 내부에서 결정된다.
+		UE_LOG(LogTemp, Log, TEXT("[UI MainMenu] Start clicked. Pushing O_JoinRoom overlay..."));
+		MockController->PushOverlay(TEXT("O_JoinRoom"));
 	}
 }
 
@@ -70,6 +95,39 @@ void US_MainMenu::HandleQuitClicked()
 	if (UMockUIController* MockController = GetGameInstance()->GetSubsystem<UMockUIController>())
 	{
 		UE_LOG(LogTemp, Log, TEXT("[UI MainMenu] Quit clicked. Opening Exit Confirm overlay..."));
-		MockController->PushOverlay(TEXT("O_Confirm"));
+
+		// 1. PushOverlay의 반환값(팝업 위젯 포인터)을 받습니다.
+		UCommonActivatableWidget* OverlayWidget = MockController->PushOverlay(TEXT("O_Confirm"));
+
+		// 2. UO_Confirm 타입으로 캐스팅합니다.
+		if (UO_Confirm* ConfirmUI = Cast<UO_Confirm>(OverlayWidget))
+		{
+			// 3. 게임 종료 브릿지 함수를 델리게이트에 바인딩합니다.
+			FOnConfirmYesAction YesAction;
+			YesAction.BindDynamic(this, &US_MainMenu::OnConfirmQuit);
+
+			// 4. 팝업 내용과 액션을 주입합니다.
+			ConfirmUI->SetupConfirm(
+				FText::FromString(TEXT("게임 종료")),
+				FText::FromString(TEXT("정말 게임을 종료하시겠습니까?")),
+				YesAction
+			);
+		}
+	}
+}
+
+void US_MainMenu::OnConfirmQuit()
+{
+	UE_LOG(LogTemp, Log, TEXT("[UI MainMenu] Quitting Game..."));
+
+	// 현재 위젯을 소유한 로컬 플레이어 컨트롤러를 가져와 안전하게 게임을 종료합니다.
+	if (APlayerController* PC = GetOwningPlayer())
+	{
+		UKismetSystemLibrary::QuitGame(
+			this,
+			PC,
+			EQuitPreference::Quit,
+			false // true로 할 경우 백그라운드 강제 종료처럼 작동합니다. 기본값인 false가 안전합니다.
+		);
 	}
 }

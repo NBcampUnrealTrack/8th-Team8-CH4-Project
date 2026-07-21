@@ -4,26 +4,20 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "CatchCharacter/Furniture/FurnitureCarryDebug.h"
 #include "FurnitureGrabSystem.generated.h"
 
 
 class UStaticMeshComponent;
 class UFurnitureStat;
 class ACharacter;
+class UCharacterMovementComponent;
 
-/**
- * 가구 운반(그랩) 시스템.
- *
- * 설계 핵심
- *  - 서버 권위: Grab/Release/이동계산은 모두 서버에서만 수행한다.
- *  - 강체 추종(Rigid Follow): 가구의 목표 트랜스폼은 "잡고 있는 플레이어들의 현재 위치"로부터
- *    매 틱 절대좌표로 새로 계산한다. (누적 AddOffset 금지 - 보간 깨짐 방지)
- *      · 1인 캐리: 플레이어 트랜스폼에 잡은 순간의 상대 트랜스폼을 곱해 그대로 따라간다.
- *      · 2인 캐리: 두 사람의 위치에 2D 강체정합(Kabsch)을 적용해 위치+Yaw를 동시에 푼다.
- *  - 가구는 항상 SetActorLocationAndRotation(sweep=true) 절대좌표 세팅으로 이동한다.
- *  - 클라이언트는 복제된 ServerLocation/ServerRotation 단 하나의 소스만 보간한다.
- *    (잡는 동안 SetReplicateMovement(false) 로 엔진 이동복제를 꺼서 writer 를 1개로 단일화)
- */
+// 잡은 인원 수 변화 알림 (OldCount -> NewCount).
+// 서버: Grab()/Release() 직후 즉시
+// 클라: OnRep_GrabbedPlayers(복제 도착) 시
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnGrabCountChanged, int32, OldCount, int32, NewCount);
+
 UCLASS( ClassGroup=(Custom), meta=(BlueprintSpawnableComponent) )
 class CATCHCHARACTER_API UFurnitureGrabSystem : public UActorComponent
 {
@@ -35,45 +29,48 @@ public:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
-	// 서버에서 실행될 상호작용 함수 (GrabActorComponent 의 ServerRPC 를 통해 호출됨)
-	// height: 첫 번째로 잡을 때 가구를 살짝 들어올리는 오프셋
 	UFUNCTION(BlueprintCallable, Category = "Interaction")
 	void Grab(ACharacter* Grabber, FVector height, UPrimitiveComponent* GrabberComponent = nullptr);
 
 	UFUNCTION(BlueprintCallable, Category = "Interaction")
 	void Release(ACharacter* Grabber);
+	void AllRelease();
 
-	// 초기화 시 호출 (가구 본체에서 넘겨줌)
+	// 가구만 이동/회전 (플레이어는 회전·이동하지 않음)
+	// YawOffset = Z축 회전, PitchOffset = Y축 회전(기울이기, 좁은 곳 통과용)
+	UFUNCTION(BlueprintCallable, Category = "Interaction")
+	void AddFurnitureOffset(FVector LocationOffset, float YawOffset, float PitchOffset = 0.0f);
+
 	void Setup(UStaticMeshComponent* InMesh, UFurnitureStat* InStat);
 
-	// === 외부 상호작용(인터페이스 어댑터)용 조회 헬퍼 ===
-	// 이 플레이어가 지금 이 가구를 잡고 있는가 (놓기/잡기 토글 판정용)
 	UFUNCTION(BlueprintPure, Category = "Interaction")
 	bool IsGrabbedBy(ACharacter* Player) const { return Player != nullptr && GrabbedPlayers.Contains(Player); }
 
-	// 정원이 아직 차지 않아 더 잡을 수 있는가
 	UFUNCTION(BlueprintPure, Category = "Interaction")
 	bool CanAcceptGrab() const;
+
+	// 외부에서 잡고 있는 플레이어 배열을 가져갈 수 있도록 Getter 추가
+	const TArray<ACharacter*>& GetGrabbedPlayers() const { return GrabbedPlayers; }
+
+	// 잡은 인원 수 변화 구독. 피드백 시스템 등 코스메틱용.
+	UPROPERTY(BlueprintAssignable, Category = "Interaction")
+	FOnGrabCountChanged OnGrabCountChanged;
 
 protected:
 	virtual void BeginPlay() override;
 
-	// --- 참조 캐싱 ---
 	UPROPERTY()
 	UStaticMeshComponent* FurnitureMesh;
 
 	UPROPERTY()
 	UFurnitureStat* FurnitureStat;
 
-	// --- 상태 변수 ---
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, ReplicatedUsing = OnRep_GrabbedPlayers, Category = "Furniture|State")
 	TArray<ACharacter*> GrabbedPlayers;
 
-	// 클라에서도 충돌/물리/속도 셋업을 반영하기 위한 콜백
 	UFUNCTION()
 	void OnRep_GrabbedPlayers();
 
-	// 클라 보간의 단일 진실원본(서버가 계산한 가구 최종 트랜스폼)
 	UPROPERTY(Replicated)
 	FVector ServerLocation;
 
@@ -81,69 +78,263 @@ protected:
 	FRotator ServerRotation;
 
 public:
-	// 클라 보간 속도 (VInterpTo/RInterpTo)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
 	float ClientInterpSpeed = 18.0f;
 
-	// 안전장치: 이상위치에서 이만큼 벌어지면 자동으로 놓는다.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
 	float MaxGrabSeparationDistance = 300.0f;
 
-	// 플레이어 위치 보정량 상한 (cm/s). 평소엔 거의 발동 안 함(안전장치).
+	// 피동 플레이어를 끌어당기는 최대 속도 (cm/s)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
-	float MaxCorrectionSpeed = 2000.0f;
+	float MaxCorrectionSpeed = 5000.0f;
 
-	// 이보다 작은 위치 보정은 잡음으로 보고 무시(떨림 방지)
+	// 이보다 작은 위치 오차는 무시 (cm)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
-	float CorrectionDeadzone = 0.5f; // cm
+	float CorrectionDeadzone = 0.5f;
 
-	// 이보다 작은 시선(Yaw) 보정은 잡음으로 보고 무시(떨림 방지)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
-	float YawCorrectionDeadzone = 0.25f; // deg
+	float YawCorrectionDeadzone = 0.25f;
 
-	// true 면, 끌려가는 사람이 벽/장애물에 막혔을 때 그만큼 가구를 후퇴시켜 정지시킨다(조건3).
+	// 캐릭터 몸통 Yaw 보간 속도. 목표(DesiredYaw)로 즉시 스냅하지 않고 이 속도로 부드럽게 회전.
+	// 낮을수록 부드럽지만 굼뜸, 높을수록 즉시에 가까움. 0 이하면 즉시 스냅.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
+	float BodyYawInterpSpeed = 12.0f;
+
+	// [서버] 원격 운반자 몸통 Yaw에 대한 서버 개입 허용 오차(도).
+	// 원격 몸통 Yaw는 그 클라가 로컬에서(복제된 가구 Yaw 기준 = 한두 틱 낡음) 돌려서 ServerMove로 올라오는데,
+	// 서버 Step 5가 최신 가구 Yaw로 매 틱 덮어쓰면 '낡은 값 ↔ 최신 값'이 서버 사본에서 매 틱 왕복
+	// → 회전 중에만 뚝뚝 끊김(직진은 두 값이 같아 무증상). 정상 신선도 차(회전속도×지연 ≈ 2~5°)는
+	// 클라 값을 존중하고, 이 값 이상 어긋날 때만 서버가 교정. 호스트는 지연이 없어 기존 정밀 데드존 사용.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
+	float RemoteBodyYawTolerance = 8.0f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
 	bool bBlockedCarrierStopsFurniture = true;
 
-	// 이보다 크게 막혔을 때만 가구를 후퇴시킨다(미세 충돌 무시).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
-	float BlockStopThreshold = 1.0f; // cm
+	float BlockStopThreshold = 1.0f;
+
+	// 가구 최대 회전 속도 (도/초). 빠른 카메라 회전 시 가구 위치 튐 방지.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
+	float FurnYawRotationSpeed = 90.0f;
+
+	// [들것 회전] 2인 이상 운반 시 가구 Yaw를 카메라 대신 '두 운반자를 잇는 선'의 회전으로
+	// 결정한다 (걸어서 도는 방식). 1인 운반은 항상 기존 카메라 추종. false면 기존 방식.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
+	bool bPairLineRotation = true;
+
+	// [들것 회전] 두 운반자가 이 거리(cm)보다 가까우면 선 방향이 수치적으로 불안정하므로
+	// 그 틱은 회전 의도를 누적하지 않는다.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
+	float PairLineMinDistance = 40.0f;
+
+	// [견인 데드존] 자기 목표 지점에서 이 반경(cm) 안에서는 견인 없이 자유 이동.
+	// 견인이 일단 시작되면 CorrectionDeadzone까지 완전히 끌어 대형을 복원한다
+	// (진입·해제 반경이 같으면 도달 앵커 재기록에 오차가 구워져 대형이 누적 이탈).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
+	float PullStartRadius = 50.0f;
+
+	// [리쉬 이동 제한] true면 견인·정지 속도 주입을 끄고, 입력 필터(+바깥 속도 감쇠)로
+	// 대형 이탈을 애초에 차단한다 — CMC 예측 위 이중 보정(러버밴딩) 제거. false=기존 견인 방식.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
+	bool bLeashMovement = true;
+
+	// 리쉬 반경(cm): 자기 대형 지점에서 이 이상 벌어지는 방향의 이동을 차단
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
+	float LeashRadius = 70.0f;
+
+	// 리쉬 계산: 플레이어의 대형 지점(Att)과 허용 반경. 서버·클라 공통(로컬 앵커+현재 트랜스폼).
+	// 막힘(잼·가구 전진 막힘·운반자 막힘) 동안은 반경을 현재 거리로 동결해 벌어짐 자체를 막는다.
+	bool GetCarryLeash(ACharacter* Player, FVector& OutAttach, float& OutRadius) const;
+
+	// 인원 미달 시 '1인당' 이동속도 기여분 (기본속도 대비). 0.2 = 1/5.
+	//   속도 = Base × min(1, 인원수 × 이 값). 예) 필요3인에 2명 = 2×0.2 = 2/5.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
+	float UnderMannedSpeedFactor = 0.2f;
+
+	// 인원 미달로 드는 동안 초당 내구도 소모량 (1초 단위로 적용). 0이면 끔.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
+	float UnderMannedHealthDrainPerSec = 5.0f;
+
+	// [회전 교착] 제안 방향 일치도(0~1)가 이 값 미만이면 줄다리기로 보고 회전 정지.
+	// 등가중치 2인 기준 일치도 = cos(의견차/2) → 0.3 ≈ 의견차 145° 이상일 때 교착.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
+	float YawStalemateEnterRatio = 0.3f;
+
+	// [회전 교착] 일치도가 이 값을 넘어야 교착 해제 (진입값보다 크게 → 경계 팔락임 방지)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
+	float YawStalemateExitRatio = 0.4f;
+
+	// 카메라 상하(Pitch) → 가구 높이. 그랩 시점 대비 카메라가 1도 위/아래 볼 때마다 이 cm만큼 가구 높이 변경.
+	// 방향이 반대면(위 보는데 내려감) 부호를 뒤집을 것. 0이면 기능 끔.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
+	float FurnitureHeightPerPitch = 3.f;
+
+	// 가구 높이 조절 범위 (그랩 시점 기준 cm). 최소=아래로 얼마까지, 최대=위로 얼마까지.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
+	float FurnitureHeightMin = -10.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
+	float FurnitureHeightMax = 100.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture|Grab")
+	float FurnitureHeightInterpSpeed = 10.0f;
 
 private:
-	// 잡은 순간 기록하는 추종 기준값 (서버 전용)
 	struct FGrabAnchor
 	{
-		// 잡은 순간의 (가구위치 - 플레이어위치) 월드 벡터. 가구가 플레이어에 대해 가질 상대 위치.
-		FVector InitialOffset = FVector::ZeroVector;
-		// 잡은 순간의 가구 Yaw / 플레이어 Yaw. 회전량 누적 없이 절대 기준으로 계산하기 위함.
-		float   InitialFurnitureYaw = 0.0f;
-		float   InitialPlayerYaw = 0.0f;
+		FVector InitialOffset        = FVector::ZeroVector;
+		float   InitialFurnitureYaw  = 0.0f;
+		float   InitialPlayerYaw     = 0.0f;  // 그랩 시점 캐릭터 몸통 Yaw (GetDesiredYaw 기준, 스냅 방지)
+		float   InitialAimYaw        = 0.0f;  // 그랩 시점 카메라 Yaw (가구 회전 기준)
+		float   PrevAimYaw           = 0.0f;  // 직전 틱 카메라 Yaw (견인 중 자기 회전 입력 감지용)
+		float   InitialAimPitch      = 0.0f;  // 그랩 시점 카메라 Pitch (가구 높이 조절 기준)
 	};
 	TMap<ACharacter*, FGrabAnchor> Anchors;
 
-	// 서버: 잡기 전 원래 이동속도 저장
+	// 서버: 그랩 전 MaxWalkSpeed 원본값 (Release 시 복원)
 	TMap<ACharacter*, float> OriginalMaxWalkSpeeds;
 
-	// --- 서버 이동 로직 ---
+	// 이전 틱에 피동(끌어당김) 상태였던 플레이어 집합
+	TSet<ACharacter*> DraggedLastTick;
+
+	// [서버] 회전 교착(줄다리기) 상태. 히스테리시스로 관리 (Enter/ExitRatio 참고)
+	bool bYawStalemate = false;
+
+	// [서버] 지난 틱에 운반자가 벽에 막혔는가 (Step 4 감지 → 다음 틱 Step 2에서 회전 보류)
+	bool bCarrierBlockedLastTick = false;
+
+	// [서버→클라] 가구 이동 봉인 상태(잼·전진 막힘·운반자 막힘) — 클라 입력 필터의 반경 동결용
+	UPROPERTY(Replicated)
+	bool bMoveConstrained = false;
+
+	// [서버, 들것 회전 상태] 능동 운반자의 이동이 만든 '선 회전 의도' 누적치(절대 Yaw).
+	// 피동(견인) 이동은 누적에서 제외 — 회전이 견인을 만들고 그 견인이 선을 또 돌리는
+	// 폭주 피드백 차단. 페어 구성이 바뀌면 현재 가구 Yaw로 재기준(스냅 없음).
+	bool    bPairLineValid    = false;
+	float   PairLineTargetYaw = 0.0f;
+	FVector PairLinePrevPosA  = FVector::ZeroVector;
+	FVector PairLinePrevPosB  = FVector::ZeroVector;
+	TWeakObjectPtr<ACharacter> PairLineA;
+	TWeakObjectPtr<ACharacter> PairLineB;
+
+	// 이전 틱에 "피동→도달" 전환(bAtTarget && bWasDragged)이었던 플레이어 집합.
+	// 이 틱의 Step 1에서 가중치=0으로 처리해 역방향 견인력을 방지하되,
+	// DraggedLastTick에는 포함하지 않아 bWasDragged=false 유지 → Active 복귀 가능.
+	TSet<ACharacter*> StoppedDraggingLastTick;
+
+	// HandleMovement 한 틱 동안 단계 함수들이 공유하는 작업 상태
+	struct FGrabMoveContext
+	{
+		float   DeltaTime          = 0.0f;
+		TArray<ACharacter*> Players;          // 유효(앵커 보유) 운반자
+		int32   N                  = 0;
+		FVector CurFurnLoc         = FVector::ZeroVector;
+		float   CurFurnYaw         = 0.0f;
+		bool    bUnderManned       = false;   // 2인 가구 솔로 끌기 여부
+		bool    bPairLine          = false;   // 이번 틱 들것 선 회전 활성
+		float   PairLineIntentRate = 0.0f;    // 이번 틱 선 회전 의도(도/초)
+		float   TargetYaw          = 0.0f;    // 가구 목표 Yaw (틱당 상한 반영)
+		FVector TargetLoc          = FVector::ZeroVector;   // 가중 평균 목표 위치(자연 좌표)
+		float   TargetHeightOffset = 0.0f;    // 피치 기반 목표 높이 오프셋
+		float   PairHandHeight0    = 0.0f;    // 들것 기울기용 손 높이
+		float   PairHandHeight1    = 0.0f;
+		bool    bUprightEnough     = true;    // 정립(45° 미만) 여부 — 끌림 자세 게이트
+		float   UnderMannedTilt    = 0.0f;    // 끌림 자세 목표 기울기(도)
+		FVector UnderMannedDir     = FVector::ZeroVector;   // 플레이어→가구 끌림 방향
+		bool    bValveJammed       = false;   // 관통 밸브 탈출 실패 → 운반자 이동 봉인
+		bool    bFurnitureStuck    = false;   // 가구 전진 막힘 → 입력 견인 면제 해제
+		FVector ActualLoc          = FVector::ZeroVector;   // 이동 확정 후 자연 좌표
+		float   ActualYaw          = 0.0f;
+		TArray<ACharacter*> ToRelease;        // 대형 이탈 자동 해제 대상
+	};
+
+	// HandleMovement 단계 함수 (구현: FurnitureGrabSystemMovement.cpp)
+	bool MovePrepare(FGrabMoveContext& Ctx);            // 0. 수집·드레인·속도 강제 (false=틱 중단)
+	void MoveUpdatePairLine(FGrabMoveContext& Ctx);     // 0.5 들것 선 회전 의도
+	void MoveApplyAnchorShaping(FGrabMoveContext& Ctx); // 0.7 테더 + 0.8 정면 복원
+	void MoveComputeTarget(FGrabMoveContext& Ctx);      // 1~2 제안 가중 평균 → 목표
+	void MoveComputeHeight(FGrabMoveContext& Ctx);      // 2.5 피치 높이 + 끌림 자세
+	void MoveSweepFurniture(FGrabMoveContext& Ctx);     // 3 스윕 + 밸브 + 스텝업 + 회전 가드
+	bool MoveReconcileAnchors(FGrabMoveContext& Ctx);   // 3.5~4 재기록·막힘 감지 (false=전원 소실)
+	void MoveDrivePlayers(FGrabMoveContext& Ctx);       // 5 플레이어 속도 주입
+	void MoveFinalize(FGrabMoveContext& Ctx);           // 6~7 자동 해제·브로드캐스트
+
 	void HandleMovement(float DeltaTime);
+	FVector GetAttachedLocation(ACharacter* Player, const FVector& FurnitureLoc, float FurnitureYaw) const;
+	float   GetDesiredYaw(ACharacter* Player, float FurnitureYaw) const;
 
-	// 서버가 계산한 플레이어 보정(절대 목표 위치 + 시선 Yaw)을 소유 클라이언트에 적용
+	// CarryVelocity: 피동=끌어당기는 속도, 정지=FVector::ZeroVector
+	// 능동(직접 걷는 중)일 때는 Multicast를 보내지 않는다.
 	UFUNCTION(NetMulticast, Unreliable)
-	void Multicast_ApplyPlayerCorrection(ACharacter* Player, FVector TargetLocation, float TargetYaw);
+	void Multicast_ApplyPlayerCorrection(ACharacter* Player, FVector CarryVelocity, float TargetYaw);
 
-	// --- 클라 보간 ---
+	// Grab 시점 앵커(초기 가구 Yaw·플레이어 카메라 Yaw·오프셋)를 클라이언트에 정확히 전달.
+	// OnRep_GrabbedPlayers는 타이밍이 달라 초기값이 틀릴 수 있으므로 Reliable로 보정.
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_SetPlayerAnchor(ACharacter* Player, float InitFurnYaw, float InitPlayerYaw, float InitAimYaw, FVector InitOffset);
+
+	// 패킷 순서 보장용 시퀀스 ID
+	uint8 SystemOffsetSequence = 0;
+	uint8 LocalSystemOffsetSequence = 0;
+	// 가구 위치·회전을 매 서버 틱 클라이언트에 직접 전달 (DOREPLIFETIME 보완).
+	UFUNCTION(NetMulticast, Unreliable)
+	void Multicast_UpdateFurnitureTransform(FVector NewLocation, FRotator NewRotation, uint8 SeqID);
+
+	// 가구 단독이동 시 가구와 플레이어 동시에 처리를 위해 추가.
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_ApplySystemOffset(FVector ActualLocDelta, float ActualYawDelta, FVector NewServerLoc, FRotator NewServerRot, uint8 SeqID);
+
+	// 디버그: 가구 실속도 + 플레이어 속도 전체 표시 (서버→모든 클라)
+	UFUNCTION(NetMulticast, Unreliable)
+	void Multicast_ShowDebugSpeeds(float FurnActualSpeed, float FurnMaxSpeed,
+		const TArray<float>& MaxWalkSpeeds, const TArray<float>& ActualSpeeds);
+
+	// --- 클라 보간 (가구) ---
 	void UpdateClientInterpolation(float DeltaTime);
-	FVector PreviousClientLoc = FVector::ZeroVector;
-	FRotator PreviousClientRot = FRotator::ZeroRotator;
-	bool bHasClientInterpInit = false;
+	FVector  PreviousClientLoc   = FVector::ZeroVector;
+	FRotator PreviousClientRot   = FRotator::ZeroRotator;
+	bool     bHasClientInterpInit = false;
 
-	// 클라에서 충돌무시/틱순서/속도 셋업을 추적/정리하기 위한 캐시
+	// 클라: 잡힌 플레이어 추적
 	UPROPERTY()
 	TArray<ACharacter*> ClientTrackedPlayers;
-	float LocalOriginalMaxWalkSpeed = 0.0f;
-	bool bLocalSpeedReduced = false;
-	void UpdateLocalWalkSpeed();
 
-	// 한 플레이어에 대한 충돌무시/틱순서 셋업(true) 또는 해제(false). 서버/클라 공통.
+	// 클라: 로컬 플레이어 MaxWalkSpeed 원본값 (OnRep Release 시 복원)
+	float LocalOriginalMaxWalkSpeed = 0.0f;
+	bool  bLocalCMCModified         = false;
+	bool  bLocalSpeedReduced        = false;
+
+	// RPC과정에서 타이밍이 어긋나 회전이 제대로 안되는걸 방지를 위한 로컬 회전값
+	float LocalSyncTargetYaw = 0.0f;
+
+	// 현재 보간 적용 중인 가구 높이 오프셋
+	float CurrentHeightOffset = 0.0f;
+
+	// 전원 내려다봄 하한 완화의 이력 래치 — 임계 근처 뒤집힘 방지
+	bool bLookDownRelaxLatched = false;
+
+	// 운반 입력 유무 판정 — 모드는 TC.Carry.InputGate
+	bool HasCarryMoveInput(ACharacter* P, const UCharacterMovementComponent* CMC);
+
+	// 입력 게이트 래치 — 운반자별 마지막 입력 관측 시각(초)
+	TMap<TWeakObjectPtr<ACharacter>, double> LastInputSeenTime;
+
+	// 운반자별 가중치 점유율 래치 (비율 스무딩용)
+	TMap<TWeakObjectPtr<ACharacter>, double> SmoothedWeight;
+
+	// 운반 진단 상태·출력 (FurnitureCarryDebug.cpp)
+	FCarryDebugState CarryDbg;
+
+	// 미달 운반 내구도 드레인의 1초 단위 적용용 누적 시간
+	float UnderMannedDrainAccum = 0.0f;
+
+	void UpdateLocalWalkSpeed();
 	void SetGrabCollisionState(ACharacter* Player, bool bEnable);
+
+	// 운반 이동속도 계산: 필요 인원 미달이면 부족 정도만큼 극단적으로 감속, 충족이면 기본속도
+	float ComputeCarrySpeed() const;
+
+	// 몸통 Yaw를 DesiredYaw로 즉시 스냅하지 않고 BodyYawInterpSpeed로 보간해 적용 (부드러운 회전)
+	void ApplyBodyYaw(ACharacter* P, float DesiredYaw, float DeltaTime) const;
 };

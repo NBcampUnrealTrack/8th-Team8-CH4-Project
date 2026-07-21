@@ -9,11 +9,16 @@ public class TeamCarry : ModuleRules
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 	
 		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "UMG", "CommonUI", "CommonInput", "GameplayTags", "CatchCharacter",
-            "AIModule",         
-	        "GameplayTasks",     
-	        "NavigationSystem" });
+            "AIModule",
+	        "GameplayTasks",
+	        "NavigationSystem",
+	        "OnlineSubsystem",
+            "GeometryCollectionEngine",   // 세션 인터페이스 타입(IOnlineSessionPtr 등)을 헤더에서 사용
+            "MoviePlayer" });             // hard travel(게임 스레드 블로킹) 구간에도 그려지는 로딩 화면(GetMoviePlayer(), FLoadingScreenAttributes)
 
-        PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });
+        PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore",
+            "OnlineSubsystemUtils",   // Online::GetSubsystem 헬퍼 (.cpp 전용)
+            "Niagara" });             // 피드백 VFX 스폰 (.cpp 전용)
 
 
         PublicIncludePaths.AddRange(new string[] 

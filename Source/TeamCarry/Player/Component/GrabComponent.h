@@ -24,16 +24,38 @@ public:
 	AActor* CurrentBestTarget;
 
 	// 캐릭터가 상호작용 키(E)를 눌렀을 때 호출할 함수
-	void TryInteract();
+	bool TryInteract();
 
 	// 캐릭터가 던지기 키(F)를 눌렀을 때 호출할 함수
 	void TryThrow();
 
+	// 네트워크 변수 동기화를 위한 필수 함수
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
+	// 현재 잡고 있는 액터 반환
+	AActor* GetGrabbedActor() const { return GrabbedActor; }
+
+	// [리쉬] 운반 중 이동 입력 필터 — 대형 반경 밖으로 나가는(원심) 성분만 제거, 접선 유지.
+	// 소유 클라 입력 단계에서 잘라 ServerMove가 같은 가속을 재생 → 예측 보정 왕복이 없다.
+	FVector FilterCarryInput(const FVector& WorldInput) const;
+
+	// 플레이어가 가구 회전을 요청할 때 호출할 함수
+	void TryRotateFurniture(FRotator RotationDelta);
+
 private:
 	// 매 프레임 전방을 스캔하여 BestTarget을 찾는 함수
 	void ScanBestTarget();
-	
+
+	// 서버 권위 게이팅(명세 4장-8): 게임이 이미 종료(bIsGameFinished)됐으면 가구 상호작용을 막는다.
+	// 로컬 Pause 대신 GameState 의 서버 복제값을 기준으로 판단한다.
+	bool IsGameFinishedAuthoritative() const;
+
 protected:
+	// 현재 플레이어가 잡고 있는 가구를 기억하는 변수(GrabbedActor)
+	// Replicated 키워드를 추가하여 서버의 값을 클라이언트에도 자동 공유
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Interaction")
+	AActor* GrabbedActor;
+
 	// 서버에 상호작용-잡기를 요청하는 RPC 함수
 	UFUNCTION(Server, Reliable)
 	void ServerTryInteract(AActor* TargetActor);
@@ -42,4 +64,16 @@ protected:
 	UFUNCTION(Server, Reliable)
 	void ServerTryThrow();
 
+	// 서버 - 가구 회전을 요청하는 RPC 함수
+	UFUNCTION(Server, Reliable)
+	void ServerRotateFurniture(FRotator RotationDelta);
+
+	// 가구를 들고 떨어질 때 강제로 놓치게 되는 최대 체공 시간
+	// 0.01 = 공중에 뜨는 즉시 드랍 (점프 운반 방지)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Interaction")
+	float MaxFallTimeToDrop = 0.01f;
+
+private:
+	// 현재 체공 시간 추적용
+	float CurrentFallTime = 0.0f;
 };

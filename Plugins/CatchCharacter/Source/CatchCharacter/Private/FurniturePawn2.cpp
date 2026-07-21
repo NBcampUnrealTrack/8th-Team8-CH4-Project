@@ -16,12 +16,6 @@ AFurniturePawn2::AFurniturePawn2()
 
 	FurnitureStat = CreateDefaultSubobject<UFurnitureStat>(TEXT("FurnitureStat"));
 
-	// 보간을 위한 작업
-	//const static float ActorNetUpdateFrequency = 100.f;
-	//SetNetUpdateFrequency(ActorNetUpdateFrequency);
-	//// 1초에 100번씩 액터 레플리케이션 시도
-	//NetUpdatePeriod = 1 / GetNetUpdateFrequency();
-	//// 주기 = 1 / 주파수
 }
 
 void AFurniturePawn2::BeginPlay()

@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
+#include "Core/TCStunnable.h"
 #include "TCRobberCharacter.generated.h"
 
 class USceneComponent;
@@ -17,14 +18,18 @@ enum class ERobberState : uint8
 };
 
 UCLASS()
-class TEAMCARRY_API ATCRobberCharacter : public ACharacter
+class TEAMCARRY_API ATCRobberCharacter : public ACharacter, public ITCStunnable
 {
 	GENERATED_BODY()
 
 public:
 	ATCRobberCharacter();
 
+	virtual void BeginPlay() override;
+
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
+	virtual void ReceiveStun_Implementation(float Duration, AActor* Instigator) override;
 
 	// BT Task가 호출할 움직임
 	void GrabFurniture(AActor* Furniture);
