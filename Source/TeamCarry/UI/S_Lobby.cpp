@@ -239,8 +239,9 @@ void US_Lobby::RefreshLobbyFromGameState()
 			{
 			case 0: SlotColor = FLinearColor(1.0f, 0.0f, 0.0f, 1.0f); break; // 빨강
 			case 1: SlotColor = FLinearColor(0.0f, 0.0f, 1.0f, 1.0f); break; // 파랑
-			case 2: SlotColor = FLinearColor(1.0f, 1.0f, 0.0f, 1.0f); break; // 노랑(잠정)
-			case 3: SlotColor = FLinearColor(0.0f, 1.0f, 0.0f, 1.0f); break; // 초록(잠정)
+			case 2: SlotColor = FLinearColor(0.0f, 1.0f, 0.0f, 1.0f); break; // 초록(잠정)
+			case 3: SlotColor = FLinearColor(1.0f, 1.0f, 0.0f, 1.0f); break; // 노랑(잠정)
+
 			default: break; // ColorIndex 미배정(-1) 등 — 흰색 유지
 			}
 			NameText->SetColorAndOpacity(FSlateColor(SlotColor));
