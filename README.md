@@ -12,6 +12,10 @@
 
 > 이미지를 클릭하면 YouTube에서 재생됩니다.
 
+[![TeamCarry 전체 플레이 영상 (13분)](https://drive.google.com/thumbnail?id=1kKGwWxuzBhrDyDwL5yJSPS9Cav2z7lMR&sz=w1280)](https://drive.google.com/file/d/1kKGwWxuzBhrDyDwL5yJSPS9Cav2z7lMR/view)
+
+> 이미지를 클릭하면 전체 플레이 영상(13분)이 Google Drive 플레이어에서 재생됩니다.
+
 ---
 
 ## 문서
