@@ -12,6 +12,8 @@
 
 > 이미지를 클릭하면 YouTube에서 재생됩니다.
 
+**▶ 전체 플레이 영상 (13분)** — [Google Drive에서 재생](https://drive.google.com/file/d/1kKGwWxuzBhrDyDwL5yJSPS9Cav2z7lMR/view)
+
 ---
 
 ## 문서
