@@ -15,6 +15,13 @@
 .idea/
 *.DotSettings.user
 
+# AI 코딩 도구 개인 설정 (로컬 전용)
+.claude/
+.codex/
+.cursor/
+.gemini/
+CLAUDE.local.md
+
 # Visual Studio solution variants (UBT가 재생성)
 *.slnx
 
